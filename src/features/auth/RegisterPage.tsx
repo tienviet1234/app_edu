@@ -25,7 +25,12 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>
 
-const PUBLIC_ROLES: UserRole[] = ['teacher', 'student', 'parent']
+const ALL_ROLES: { key: UserRole; icon: string; desc: string }[] = [
+  { key: 'teacher',  icon: '👩‍🏫', desc: 'Nhập điểm, quản lý lớp học' },
+  { key: 'parent',   icon: '👨‍👩‍👧', desc: 'Theo dõi kết quả học tập của con' },
+  { key: 'student',  icon: '🎓', desc: 'Xem điểm và xếp hạng cá nhân' },
+  { key: 'admin',    icon: '🔑', desc: 'Toàn quyền quản trị hệ thống' },
+]
 
 export function RegisterPage() {
   const { register: registerUser, isLoading, error, clearError } = useAuthStore()
@@ -80,33 +85,39 @@ export function RegisterPage() {
 
         <Field label="Vai trò" error={errors.role?.message}>
           <div className="grid grid-cols-2 gap-2">
-            {PUBLIC_ROLES.map((r) => (
+            {ALL_ROLES.map(({ key: r, icon, desc }) => (
               <label
                 key={r}
-                className="flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2.5"
+                className="flex cursor-pointer items-start gap-2 rounded-xl px-3 py-2.5"
                 style={{
                   border: `1.5px solid ${role === r ? C.board : C.line}`,
                   background: role === r ? C.board + '10' : '#fff',
                 }}
               >
                 <input {...register('role')} type="radio" value={r} className="sr-only" />
-                <span className="text-sm font-semibold" style={{ color: role === r ? C.board : C.ink }}>
-                  {ROLE_LABELS[r]}
-                </span>
+                <span className="text-lg leading-none mt-0.5">{icon}</span>
+                <div>
+                  <div className="text-sm font-semibold" style={{ color: role === r ? C.board : C.ink }}>
+                    {ROLE_LABELS[r]}
+                  </div>
+                  <div className="text-xs leading-tight" style={{ color: C.muted }}>{desc}</div>
+                </div>
               </label>
             ))}
           </div>
         </Field>
 
-        <Field label="Mã mời (nếu có)" error={errors.inviteCode?.message}>
-          <input
-            {...register('inviteCode')}
-            type="text"
-            placeholder="Bỏ trống nếu không có"
-            className={inputCls}
-            style={inputStyle(!!errors.inviteCode)}
-          />
-        </Field>
+        {role === 'admin' && (
+          <Field label="Mã mời Admin" error={errors.inviteCode?.message}>
+            <input
+              {...register('inviteCode')}
+              type="text"
+              placeholder="Nhập mã mời do quản trị viên cấp"
+              className={inputCls}
+              style={inputStyle(!!errors.inviteCode)}
+            />
+          </Field>
+        )}
 
         <Field label="Mật khẩu" error={errors.password?.message}>
           <div className="relative">
