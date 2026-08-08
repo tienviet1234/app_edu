@@ -35,6 +35,7 @@ export function normalize(d: unknown): AppData {
         id: s.id ?? uid(),
         no: s.no ?? i + 1,
         date: s.date ?? todayISO(),
+        homework: s.homework ?? '',
         entries: Object.fromEntries(
           Object.entries(s.entries ?? {}).map(([k, e]) => [
             k,
@@ -53,6 +54,7 @@ export function normalize(d: unknown): AppData {
         ),
       })),
       comments: c.comments ?? {},
+      extraComps: c.extraComps ?? [],
     })),
   }
 }

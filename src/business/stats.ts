@@ -1,6 +1,6 @@
 import type { ClassData, StudentStats, EvidenceItem } from '@/types'
 import { RANKS } from '@/constants'
-import { getRubric } from '@/constants/rubrics'
+import { getClassRubric } from '@/constants/rubrics'
 import { attInfo, compScore, compErrors, sessionScore } from './scoring'
 
 const mean = (a: number[]): number => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0)
@@ -23,7 +23,7 @@ export function mergeEvidence(values: (string | undefined)[]): EvidenceItem[] {
 }
 
 export function statsOf(cls: ClassData, sid: string, from = 0, to: number | null = null): StudentStats {
-  const r = getRubric(cls.level)
+  const r = getClassRubric(cls)
   const list = cls.sessions.slice(from, to === null ? cls.sessions.length : to)
   const totals: number[] = []
   const cat: Record<string, number[]> = {}

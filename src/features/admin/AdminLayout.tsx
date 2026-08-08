@@ -7,6 +7,7 @@ const NAV = [
   { key: 'dashboard',  label: 'Tổng quan',         icon: '📊' },
   { key: 'users',      label: 'Người dùng',         icon: '👥' },
   { key: 'courses',    label: 'Khóa học',            icon: '📚' },
+  { key: 'rubric',     label: 'Tiêu chí chấm',      icon: '✏️' },
   { key: 'analytics',  label: 'Phân tích',           icon: '📈' },
   { key: 'audit',      label: 'Nhật ký hệ thống',   icon: '📋' },
 ]
@@ -55,7 +56,8 @@ export function AdminLayout({ page, setPage, children }: AdminLayoutProps) {
                 <div className="text-xs opacity-50">Quản trị viên</div>
               </div>
               <button
-                onClick={() => logout()}
+               
+               onClick={() => logout()}
                 className="rounded-lg px-2 py-1 text-xs font-semibold opacity-70 hover:opacity-100"
                 style={{ background: '#ffffff20', color: '#fff' }}
               >

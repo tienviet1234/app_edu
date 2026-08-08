@@ -50,7 +50,8 @@ export default function App() {
 
   const TABS = ALL_TABS.filter((t) => !user || t.roles.includes(user.role))
 
-  useEffect(() => { init() }, [init])
+  // Re-init when user changes so each account gets its own scoped data
+  useEffect(() => { init(user?.id) }, [init, user?.id])
 
   const cls = data?.classes[currentClassIndex]
 

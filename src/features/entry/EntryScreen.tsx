@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react'
 import type { ClassData, SessionEntry } from '@/types'
 import { C } from '@/constants/colors'
 import { ATTEND } from '@/constants/tags'
-import { getRubric } from '@/constants/rubrics'
+import { getClassRubric } from '@/constants/rubrics'
 import { uid } from '@/utils/uid'
-import { todayISO, viDate } from '@/utils/format'
+import { todayISO, viDate, sessionLabel } from '@/utils/format'
 import { sessionScore } from '@/business/scoring'
 import { emptyEntry } from '@/business/seed'
 import { Card } from '@/components/atoms/Card'
@@ -21,12 +21,16 @@ interface EntryScreenProps {
 }
 
 export function EntryScreen({ cls, update }: EntryScreenProps) {
-  const r = getRubric(cls.level)
+  const r = getClassRubric(cls)
   const [idx, setIdx] = useState(Math.max(0, cls.sessions.length - 1))
   const [cur, setCur] = useState(0)
   const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [adding, setAdding] = useState(false)
   const session = cls.sessions[idx]
+
+  // Reminder: reached 8 or 12 sessions (or multiples thereof)
+  const showReminder =
+    cls.sessions.length > 0 && cls.sessions.length % cls.perMonth === 0
 
   function syncScore(studentId: string, entry: SessionEntry) {
     if (!isMongoid(cls.id) || !session || !isMongoid(session.id) || !isMongoid(studentId)) return
@@ -54,7 +58,7 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
     cls.students.forEach((s) => (entries[s.id] = emptyEntry()))
 
     update((c) => {
-      c.sessions.push({ id: localId, no: newNo, date: todayISO(), entries })
+      c.sessions.push({ id: localId, no: newNo, date: todayISO(), homework: '', entries })
     })
     setIdx(cls.sessions.length)
     setCur(0)
@@ -133,6 +137,16 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
 
   return (
     <div className="space-y-3">
+      {/* Reminder banner when reaching perMonth sessions */}
+      {showReminder && (
+        <div
+          className="rounded-xl px-4 py-2.5 text-sm font-semibold"
+          style={{ background: C.gold + '22', color: '#7A5A05', border: `1px solid ${C.gold}55` }}
+        >
+          ⏰ Đã đủ <b>{cls.sessions.length}</b> buổi học! Nhớ vào <b>Báo cáo</b> để gửi nhận xét cho phụ huynh.
+        </div>
+      )}
+
       <Card className="p-3">
         <div className="flex flex-wrap items-center gap-2">
           <select
@@ -143,7 +157,7 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
           >
             {cls.sessions.map((s, i) => (
               <option key={s.id} value={i}>
-                Buổi {s.no} — {viDate(s.date)}{isMongoid(s.id) ? ' ☁' : ''}
+                {sessionLabel(s.no, cls.perMonth)} — {viDate(s.date)}{isMongoid(s.id) ? ' ☁' : ''}
               </option>
             ))}
           </select>
@@ -151,9 +165,7 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
             type="date"
             value={session.date}
             onChange={(x) =>
-              update((c) => {
-                c.sessions[idx].date = x.target.value
-              })
+              update((c) => { c.sessions[idx].date = x.target.value })
             }
             className="rounded-xl px-3 py-2 text-sm"
             style={{ border: `1px solid ${C.line}` }}
@@ -171,15 +183,31 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
             <span>Đã nhập <b style={{ color: C.ink }}>{done}</b>/{cls.students.length}</span>
           </div>
         </div>
+
+        {/* Homework field for the whole class */}
+        <div className="mt-2">
+          <input
+            value={session.homework ?? ''}
+            onChange={(x) =>
+              update((c) => { c.sessions[idx].homework = x.target.value })
+            }
+            placeholder="Bài tập về nhà cả lớp (bỏ trống nếu không có)"
+            className="w-full rounded-xl px-3 py-2 text-sm"
+            style={{ border: `1px solid ${C.line}` }}
+          />
+        </div>
+
+        {/* Student pills with missing-data indicator */}
         <div className="mt-2 flex flex-wrap gap-1">
           {cls.students.map((s, i) => {
             const t = sessionScore(session.entries[s.id], r)
             const active = i === cur
+            const missing = t === null && session.entries[s.id]?.attendance !== 'excused'
             return (
               <button
                 key={s.id}
                 onClick={() => { if (st) syncScore(st.id, e); setCur(i) }}
-                className="rounded-lg px-2 py-1 text-xs font-semibold"
+                className="relative rounded-lg px-2 py-1 text-xs font-semibold"
                 style={{
                   background: active ? C.board : t !== null ? C.board2 + '1A' : '#fff',
                   color: active ? '#fff' : t !== null ? C.board2 : C.muted,
@@ -187,6 +215,13 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
                 }}
               >
                 {s.name}
+                {/* Orange dot for students not yet entered */}
+                {!active && missing && (
+                  <span
+                    className="absolute -top-1 -right-1 h-2 w-2 rounded-full"
+                    style={{ background: '#F59E0B' }}
+                  />
+                )}
               </button>
             )
           })}
@@ -231,9 +266,7 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
                     tone={a.deduct === 0 ? 'good' : 'bad'}
                     on={e.attendance === a.key}
                     onClick={() =>
-                      mut((en) => {
-                        en.attendance = a.key
-                      })
+                      mut((en) => { en.attendance = a.key })
                     }
                   >
                     {a.label}{' '}
@@ -257,14 +290,58 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
               r.comps.map((comp) => <CompEditor key={comp.key} comp={comp} e={e} mut={mut} />)
             )}
 
+            {/* Study hours */}
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-sm">
+                <div className="mb-1 text-xs font-bold uppercase" style={{ color: C.muted }}>
+                  Giờ ở lại học thêm
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    max="5"
+                    step="0.5"
+                    value={e.stayHours ?? ''}
+                    onFocus={(x) => x.target.select()}
+                    onChange={(x) =>
+                      mut((en) => { en.stayHours = x.target.value === '' ? undefined : Number(x.target.value) })
+                    }
+                    className="w-20 rounded-xl px-3 py-2 text-center font-bold"
+                    style={{ border: `1px solid ${C.line}` }}
+                  />
+                  <span className="text-xs" style={{ color: C.muted }}>giờ</span>
+                </div>
+              </label>
+              <label className="text-sm">
+                <div className="mb-1 text-xs font-bold uppercase" style={{ color: C.muted }}>
+                  Giờ tự học ở nhà
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    max="10"
+                    step="0.5"
+                    value={e.homeHours ?? ''}
+                    onFocus={(x) => x.target.select()}
+                    onChange={(x) =>
+                      mut((en) => { en.homeHours = x.target.value === '' ? undefined : Number(x.target.value) })
+                    }
+                    className="w-20 rounded-xl px-3 py-2 text-center font-bold"
+                    style={{ border: `1px solid ${C.line}` }}
+                  />
+                  <span className="text-xs" style={{ color: C.muted }}>giờ</span>
+                </div>
+              </label>
+            </div>
+
             <input
               value={e.note}
               onChange={(x) =>
-                mut((en) => {
-                  en.note = x.target.value
-                })
+                mut((en) => { en.note = x.target.value })
               }
-              placeholder="Ghi chú riêng (không bắt buộc)"
+              placeholder="Ghi chú riêng cho học sinh này (không bắt buộc)"
               className="w-full rounded-xl px-3 py-2 text-sm"
               style={{ border: `1px solid ${C.line}` }}
             />

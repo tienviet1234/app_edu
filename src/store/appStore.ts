@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { produce } from 'immer'
 import type { AppData, ClassData } from '@/types'
-import { storage } from '@/utils/storage'
+import { makeStorage } from '@/utils/storage'
 import { seed, normalize } from '@/business/seed'
 
 interface AppStore {
@@ -9,9 +9,10 @@ interface AppStore {
   currentClassIndex: number
   activeTab: string
   saving: string
+  userId: string | undefined
   _saveTimer: ReturnType<typeof setTimeout> | null
 
-  init: () => void
+  init: (userId?: string) => void
   setData: (fn: (d: AppData) => void) => void
   setCurrentClass: (i: number) => void
   setTab: (tab: string) => void
@@ -21,8 +22,8 @@ interface AppStore {
   resetData: () => void
 }
 
-const persist = (next: AppData, setState: (partial: Partial<AppStore>) => void) => {
-  storage.set(JSON.stringify(next))
+const persist = (next: AppData, userId: string | undefined, setState: (partial: Partial<AppStore>) => void) => {
+  makeStorage(userId).set(JSON.stringify(next))
   setState({ saving: 'Đã lưu' })
   setTimeout(() => setState({ saving: '' }), 1200)
 }
@@ -32,26 +33,27 @@ export const useAppStore = create<AppStore>((set, get) => ({
   currentClassIndex: 0,
   activeTab: 'entry',
   saving: '',
+  userId: undefined,
   _saveTimer: null,
 
-  init() {
-    const raw = storage.get()
+  init(userId) {
+    const raw = makeStorage(userId).get()
     try {
       const parsed = raw ? JSON.parse(raw) : null
-      set({ data: parsed ? normalize(parsed) : seed() })
+      set({ data: parsed ? normalize(parsed) : seed(), userId })
     } catch {
-      set({ data: seed() })
+      set({ data: seed(), userId })
     }
   },
 
   setData(fn) {
-    const { data } = get()
+    const { data, userId } = get()
     if (!data) return
     const next = produce(data, fn)
     set({ data: next })
     const timer = get()._saveTimer
     if (timer) clearTimeout(timer)
-    const t = setTimeout(() => persist(next, set), 400)
+    const t = setTimeout(() => persist(next, userId, set), 400)
     set({ _saveTimer: t })
   },
 
@@ -96,8 +98,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
         const j = normalize(JSON.parse(fr.result as string))
         if (!j.classes.length) throw new Error('empty')
         if (!confirm(`Nhập ${j.classes.length} lớp từ file sao lưu? Dữ liệu hiện tại sẽ được thay thế.`)) return
+        const { userId } = get()
         set({ data: j, currentClassIndex: 0, saving: 'Đã nhập dữ liệu' })
-        persist(j, set)
+        persist(j, userId, set)
       } catch {
         alert('File sao lưu không hợp lệ.')
       }
@@ -106,8 +109,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   resetData() {
+    const { userId } = get()
     const empty = { classes: [] }
     set({ data: empty, currentClassIndex: 0, activeTab: 'classes' })
-    persist(empty, set)
+    persist(empty, userId, set)
   },
 }))

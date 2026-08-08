@@ -83,6 +83,8 @@ export interface SessionEntry {
   skip: Record<string, boolean>
   ev: Record<string, Record<string, string | EvidenceRatio>>
   note: string
+  stayHours?: number   // giờ ở lại học thêm khi không thuộc bài
+  homeHours?: number   // giờ tự học ở nhà
 }
 
 // ─── Session ──────────────────────────────────────────────────────────────────
@@ -90,7 +92,15 @@ export interface Session {
   id: string
   no: number
   date: string
+  homework?: string   // bài tập về nhà cả lớp
   entries: Record<string, SessionEntry>
+}
+
+// ─── Extra scoring component (admin-added) ────────────────────────────────────
+export interface ExtraComp {
+  key: string
+  label: string
+  max: number
 }
 
 // ─── Student ──────────────────────────────────────────────────────────────────
@@ -110,6 +120,7 @@ export interface ClassData {
   students: Student[]
   sessions: Session[]
   comments: Record<string, string>
+  extraComps?: ExtraComp[]   // admin-defined extra scoring components
 }
 
 // ─── App Data ─────────────────────────────────────────────────────────────────

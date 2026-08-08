@@ -1,4 +1,4 @@
-import type { RubricDef } from '@/types'
+import type { RubricDef, ClassData } from '@/types'
 import { MINI_TAGS, LISTEN_TAGS, HW_TICKS_S, AT_TICKS } from './tags'
 
 export const RUBRICS: Record<string, RubricDef> = {
@@ -118,3 +118,20 @@ export const RUBRICS: Record<string, RubricDef> = {
 }
 
 export const getRubric = (level: string): RubricDef => RUBRICS[level] ?? RUBRICS.secondary
+
+export function getClassRubric(cls: ClassData): RubricDef {
+  const base = getRubric(cls.level)
+  if (!cls.extraComps?.length) return base
+  return {
+    ...base,
+    comps: [
+      ...base.comps,
+      ...cls.extraComps.map((ec) => ({
+        key: ec.key,
+        label: ec.label,
+        max: ec.max,
+        type: 'score' as const,
+      })),
+    ],
+  }
+}
