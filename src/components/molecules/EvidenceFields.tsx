@@ -1,6 +1,5 @@
 import type { RubricComponent, SessionEntry } from '@/types'
 import { C } from '@/constants/colors'
-import { produce } from 'immer'
 
 interface EvidenceFieldsProps {
   comp: RubricComponent
@@ -12,11 +11,10 @@ export function EvidenceFields({ comp, e, mut }: EvidenceFieldsProps) {
   if (!comp.evidence) return null
   const get = (k: string) => e.ev?.[comp.key]?.[k]
   const set = (k: string, v: unknown) =>
-    mut(
-      produce((en) => {
-        en.ev[comp.key] = { ...(en.ev[comp.key] ?? {}), [k]: v }
-      }),
-    )
+    mut((en) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      en.ev[comp.key] = { ...(en.ev[comp.key] as any ?? {}), [k]: v } as any
+    })
 
   return (
     <div className="mt-2 space-y-1.5 rounded-xl p-2" style={{ background: C.paper }}>

@@ -2,7 +2,6 @@ import type { RubricComponent, SessionEntry } from '@/types'
 import { C } from '@/constants/colors'
 import { STARS_LABELS } from '@/constants/ranks'
 import { compScore } from '@/business/scoring'
-import { produce } from 'immer'
 import { Chip } from '@/components/atoms/Chip'
 import { Pick } from '@/components/atoms/Pick'
 import { Stars } from '@/components/atoms/Stars'
@@ -39,11 +38,9 @@ export function CompEditor({ comp, e, mut }: CompEditorProps) {
             value={e.scores?.[comp.key] ?? ''}
             onFocus={(x) => x.target.select()}
             onChange={(x) =>
-              mut(
-                produce((en) => {
-                  en.scores[comp.key] = x.target.value
-                }),
-              )
+              mut((en) => {
+                en.scores[comp.key] = x.target.value
+              })
             }
             className="w-20 rounded-lg px-2 py-1 text-center text-lg font-bold"
             style={{ border: `1px solid ${C.line}` }}
@@ -59,12 +56,10 @@ export function CompEditor({ comp, e, mut }: CompEditorProps) {
               tone={t.good ? 'good' : 'err'}
               on={(e.tags?.[comp.key] ?? []).includes(t.id)}
               onClick={() =>
-                mut(
-                  produce((en) => {
-                    const a = en.tags[comp.key] ?? []
-                    en.tags[comp.key] = a.includes(t.id) ? a.filter((y: string) => y !== t.id) : [...a, t.id]
-                  }),
-                )
+                mut((en) => {
+                  const a = (en.tags[comp.key] ?? []) as string[]
+                  en.tags[comp.key] = a.includes(t.id) ? a.filter((y: string) => y !== t.id) : [...a, t.id]
+                })
               }
             >
               {t.label}
@@ -97,14 +92,12 @@ export function CompEditor({ comp, e, mut }: CompEditorProps) {
               tone="good"
               on={sel.includes(t.id)}
               onClick={() =>
-                mut(
-                  produce((en) => {
-                    const a = en.ticks[comp.key] ?? []
-                    en.ticks[comp.key] = a.includes(t.id)
-                      ? a.filter((y: string) => y !== t.id)
-                      : [...a, t.id]
-                  }),
-                )
+                mut((en) => {
+                  const a = (en.ticks[comp.key] ?? []) as string[]
+                  en.ticks[comp.key] = a.includes(t.id)
+                    ? a.filter((y: string) => y !== t.id)
+                    : [...a, t.id]
+                })
               }
             >
               {t.label} <span className="opacity-60">{t.pts}đ</span>
@@ -127,11 +120,9 @@ export function CompEditor({ comp, e, mut }: CompEditorProps) {
               tone={o.err ? 'bad' : 'good'}
               on={e.choice?.[comp.key] === o.id}
               onClick={() =>
-                mut(
-                  produce((en) => {
-                    en.choice[comp.key] = o.id
-                  }),
-                )
+                mut((en) => {
+                  en.choice[comp.key] = o.id
+                })
               }
             >
               {o.label} <span className="opacity-60">{o.pts}đ</span>
@@ -147,11 +138,9 @@ export function CompEditor({ comp, e, mut }: CompEditorProps) {
     const skipped = !!e.skip?.[comp.key]
     const m = e.parts?.[comp.key] ?? {}
     const setPart = (id: string, v: string | number) =>
-      mut(
-        produce((en) => {
-          en.parts[comp.key] = { ...(en.parts[comp.key] ?? {}), [id]: v }
-        }),
-      )
+      mut((en) => {
+        en.parts[comp.key] = { ...(en.parts[comp.key] ?? {}), [id]: v }
+      })
     return (
       <div>
         <div className="mb-1.5 flex flex-wrap items-center gap-2">
@@ -165,11 +154,9 @@ export function CompEditor({ comp, e, mut }: CompEditorProps) {
             <Chip
               on={skipped}
               onClick={() =>
-                mut(
-                  produce((en) => {
-                    en.skip[comp.key] = !skipped
-                  }),
-                )
+                mut((en) => {
+                  en.skip[comp.key] = !skipped
+                })
               }
             >
               {comp.zeroLabel}

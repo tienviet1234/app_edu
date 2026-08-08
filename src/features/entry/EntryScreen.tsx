@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { produce } from 'immer'
 import type { ClassData, SessionEntry } from '@/types'
 import { C } from '@/constants/colors'
 import { ATTEND } from '@/constants/tags'
@@ -54,11 +53,9 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
     const entries: Record<string, SessionEntry> = {}
     cls.students.forEach((s) => (entries[s.id] = emptyEntry()))
 
-    update(
-      produce((c) => {
-        c.sessions.push({ id: localId, no: newNo, date: todayISO(), entries })
-      }),
-    )
+    update((c) => {
+      c.sessions.push({ id: localId, no: newNo, date: todayISO(), entries })
+    })
     setIdx(cls.sessions.length)
     setCur(0)
 
@@ -70,12 +67,10 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
           lessonNo: newNo,
           scheduledAt: new Date().toISOString(),
         })
-        update(
-          produce((c: ClassData) => {
-            const s = c.sessions.find((ss) => ss.id === localId)
-            if (s) s.id = apiSession._id
-          }),
-        )
+        update((c: ClassData) => {
+          const s = c.sessions.find((ss) => ss.id === localId)
+          if (s) s.id = apiSession._id
+        })
       } catch {
         // silently fail — local session still works
       }
@@ -100,41 +95,37 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
   const FIELDS = ['scores', 'tags', 'ticks', 'choice', 'parts', 'skip', 'ev'] as const
 
   const mut = (fn: (en: SessionEntry) => void) =>
-    update(
-      produce((c) => {
-        const en = (c.sessions[idx].entries[st.id] = c.sessions[idx].entries[st.id] ?? emptyEntry())
-        FIELDS.forEach((k) => {
-          if (!en[k]) (en as Record<string, unknown>)[k] = {}
-        })
-        fn(en)
-      }),
-    )
+    update((c) => {
+      const en = (c.sessions[idx].entries[st.id] = c.sessions[idx].entries[st.id] ?? emptyEntry())
+      FIELDS.forEach((k) => {
+        if (!en[k]) (en as unknown as Record<string, unknown>)[k] = {}
+      })
+      fn(en)
+    })
 
   function presetClass() {
-    update(
-      produce((c) => {
-        cls.students.forEach((s) => {
-          const en = (c.sessions[idx].entries[s.id] = c.sessions[idx].entries[s.id] ?? emptyEntry())
-          FIELDS.forEach((k) => {
-            if (!en[k]) (en as Record<string, unknown>)[k] = {}
-          })
-          en.attendance = 'present'
-          r.comps.forEach((comp) => {
-            if (comp.type === 'parts') {
-              const m: Record<string, number> = {}
-              ;(comp.parts ?? []).forEach((p) => (m[p.id] = p.max))
-              en.parts[comp.key] = m
-            } else if (comp.type === 'choice') {
-              en.choice[comp.key] = (comp.options ?? [])[0]?.id ?? ''
-            } else if (comp.type === 'ticks') {
-              en.ticks[comp.key] = (comp.items ?? []).map((t) => t.id)
-            } else if (comp.type === 'score') {
-              en.scores[comp.key] = comp.max
-            }
-          })
+    update((c) => {
+      cls.students.forEach((s) => {
+        const en = (c.sessions[idx].entries[s.id] = c.sessions[idx].entries[s.id] ?? emptyEntry())
+        FIELDS.forEach((k) => {
+          if (!en[k]) (en as unknown as Record<string, unknown>)[k] = {}
         })
-      }),
-    )
+        en.attendance = 'present'
+        r.comps.forEach((comp) => {
+          if (comp.type === 'parts') {
+            const m: Record<string, number> = {}
+            ;(comp.parts ?? []).forEach((p) => (m[p.id] = p.max))
+            en.parts[comp.key] = m
+          } else if (comp.type === 'choice') {
+            en.choice[comp.key] = (comp.options ?? [])[0]?.id ?? ''
+          } else if (comp.type === 'ticks') {
+            en.ticks[comp.key] = (comp.items ?? []).map((t) => t.id)
+          } else if (comp.type === 'score') {
+            en.scores[comp.key] = comp.max
+          }
+        })
+      })
+    })
   }
 
   const total = sessionScore(e, r)
@@ -160,11 +151,9 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
             type="date"
             value={session.date}
             onChange={(x) =>
-              update(
-                produce((c) => {
-                  c.sessions[idx].date = x.target.value
-                }),
-              )
+              update((c) => {
+                c.sessions[idx].date = x.target.value
+              })
             }
             className="rounded-xl px-3 py-2 text-sm"
             style={{ border: `1px solid ${C.line}` }}
@@ -242,11 +231,9 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
                     tone={a.deduct === 0 ? 'good' : 'bad'}
                     on={e.attendance === a.key}
                     onClick={() =>
-                      mut(
-                        produce((en) => {
-                          en.attendance = a.key
-                        }),
-                      )
+                      mut((en) => {
+                        en.attendance = a.key
+                      })
                     }
                   >
                     {a.label}{' '}
@@ -273,11 +260,9 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
             <input
               value={e.note}
               onChange={(x) =>
-                mut(
-                  produce((en) => {
-                    en.note = x.target.value
-                  }),
-                )
+                mut((en) => {
+                  en.note = x.target.value
+                })
               }
               placeholder="Ghi chú riêng (không bắt buộc)"
               className="w-full rounded-xl px-3 py-2 text-sm"
