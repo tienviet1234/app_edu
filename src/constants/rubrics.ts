@@ -119,19 +119,30 @@ export const RUBRICS: Record<string, RubricDef> = {
 
 export const getRubric = (level: string): RubricDef => RUBRICS[level] ?? RUBRICS.secondary
 
+function extraToComp(ec: import('@/types').ExtraComp): import('@/types').RubricComponent {
+  if (ec.type === 'choice' && ec.options?.length) {
+    return { key: ec.key, label: ec.label, max: ec.max, type: 'choice', options: ec.options }
+  }
+  if (ec.type === 'parts' && ec.parts?.length) {
+    return {
+      key: ec.key, label: ec.label,
+      max: ec.parts.reduce((a, p) => a + p.max, 0),
+      type: 'parts', parts: ec.parts,
+    }
+  }
+  return { key: ec.key, label: ec.label, max: ec.max, type: 'score' as const }
+}
+
 export function getClassRubric(cls: ClassData): RubricDef {
   const base = getRubric(cls.level)
-  if (!cls.extraComps?.length) return base
+  const hidden = new Set(cls.hiddenComps ?? [])
+  const extras = cls.extraComps ?? []
+  if (!hidden.size && !extras.length) return base
   return {
     ...base,
     comps: [
-      ...base.comps,
-      ...cls.extraComps.map((ec) => ({
-        key: ec.key,
-        label: ec.label,
-        max: ec.max,
-        type: 'score' as const,
-      })),
+      ...base.comps.filter((c) => !hidden.has(c.key)),
+      ...extras.map(extraToComp),
     ],
   }
 }

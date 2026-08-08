@@ -92,7 +92,7 @@ export async function register(req: Request, res: Response): Promise<void> {
     const { name, email, password, role, inviteCode } = parsed.data
 
     // Admin role requires invite code
-    if (role === 'admin' && inviteCode !== env.ADMIN_INVITE_CODE) {
+    if (role === 'admin' && inviteCode?.trim() !== env.ADMIN_INVITE_CODE.trim()) {
       badRequest(res, 'Mã mời không đúng để đăng ký vai trò Admin.')
       return
     }

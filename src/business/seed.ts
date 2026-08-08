@@ -55,6 +55,7 @@ export function normalize(d: unknown): AppData {
       })),
       comments: c.comments ?? {},
       extraComps: c.extraComps ?? [],
+      hiddenComps: c.hiddenComps ?? [],
     })),
   }
 }

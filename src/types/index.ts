@@ -101,6 +101,9 @@ export interface ExtraComp {
   key: string
   label: string
   max: number
+  type?: 'score' | 'choice' | 'parts'
+  options?: Array<{ id: string; label: string; pts: number }>
+  parts?: Array<{ id: string; label: string; max: number }>
 }
 
 // ─── Student ──────────────────────────────────────────────────────────────────
@@ -121,6 +124,7 @@ export interface ClassData {
   sessions: Session[]
   comments: Record<string, string>
   extraComps?: ExtraComp[]   // admin-defined extra scoring components
+  hiddenComps?: string[]     // keys of standard comps hidden for this class
 }
 
 // ─── App Data ─────────────────────────────────────────────────────────────────
