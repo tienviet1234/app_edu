@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express'
 import { Types } from 'mongoose'
 import { Class } from '../models/Class.js'
-import { badRequest, created, notFound, ok } from '../utils/response.js'
+import { badRequest, created, forbidden, notFound, ok } from '../utils/response.js'
 import { paginate } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit } from '../services/auditService.js'
@@ -49,13 +49,19 @@ export async function getClass(req: Request, res: Response): Promise<void> {
 }
 
 export async function updateClass(req: Request, res: Response): Promise<void> {
-  const cls = await Class.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
+  const authReq = req as AuthRequest
+  const cls = await Class.findById(req.params.id, 'teacherId')
   if (!cls) {
     notFound(res, 'Class not found.')
     return
   }
+  if (authReq.user?.role !== 'admin' && !cls.teacherId?.equals(authReq.userId!)) {
+    forbidden(res, 'You can only update your own classes.')
+    return
+  }
+  const updated = await Class.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
   await writeAudit(req, { action: 'class.update', resource: 'Class', resourceId: String(cls._id) })
-  ok(res, cls)
+  ok(res, updated)
 }
 
 export async function enrollStudents(req: Request, res: Response): Promise<void> {

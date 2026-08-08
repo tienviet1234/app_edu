@@ -28,13 +28,13 @@ export const env = {
   EMAIL_FROM: process.env.EMAIL_FROM ?? 'no-reply@lms.local',
 
   // Admin invite code (required to register as admin)
-  ADMIN_INVITE_CODE: process.env.ADMIN_INVITE_CODE ?? 'ADMIN2024',
+  ADMIN_INVITE_CODE: required('ADMIN_INVITE_CODE'),
 
   // CORS
   CLIENT_ORIGIN: process.env.CLIENT_ORIGIN ?? 'http://localhost:5173',
 
-  // Web Push (VAPID)
-  VAPID_PUBLIC_KEY: process.env.VAPID_PUBLIC_KEY ?? 'BJ0s90OgKNNRCPMxoH5JDH33GHK11IxzwdhgWaNBKaD__nEMvAikn6bn0yxZ-Lyz7P88_viKDUXpkLXE8O2Yj-s',
-  VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY ?? 'Ebht2REQdY82Fv9dcdyTxyAaNhYp9caIoR38XcY5P3g',
+  // Web Push (VAPID) — optional, push disabled if not set
+  VAPID_PUBLIC_KEY: process.env.VAPID_PUBLIC_KEY ?? '',
+  VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY ?? '',
   VAPID_SUBJECT: process.env.VAPID_SUBJECT ?? 'mailto:admin@lms.local',
 } as const

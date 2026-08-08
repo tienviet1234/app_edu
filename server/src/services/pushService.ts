@@ -2,7 +2,10 @@ import webPush from 'web-push'
 import { env } from '../config/env.js'
 import { PushSubscription } from '../models/PushSubscription.js'
 
-webPush.setVapidDetails(env.VAPID_SUBJECT, env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY)
+const vapidReady = !!(env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY)
+if (vapidReady) {
+  webPush.setVapidDetails(env.VAPID_SUBJECT, env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY)
+}
 
 export interface PushPayload {
   title: string
@@ -12,6 +15,7 @@ export interface PushPayload {
 }
 
 export async function sendPushToUser(userId: string, payload: PushPayload): Promise<void> {
+  if (!vapidReady) return
   const subs = await PushSubscription.find({ userId })
   if (!subs.length) return
 

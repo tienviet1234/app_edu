@@ -1,7 +1,9 @@
 import type { Request, Response } from 'express'
 import { Types } from 'mongoose'
 import { Score } from '../models/Score.js'
-import { created, notFound, ok } from '../utils/response.js'
+import { Class } from '../models/Class.js'
+import { ClassSession } from '../models/ClassSession.js'
+import { created, forbidden, notFound, ok } from '../utils/response.js'
 import { paginate } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit } from '../services/auditService.js'
@@ -11,11 +13,48 @@ import { writeAudit } from '../services/auditService.js'
  * GET /api/scores?classId=x&studentId=y → student history in a class (report generation)
  */
 export async function listScores(req: Request, res: Response): Promise<void> {
-  const filter = {
-    ...(req.query.sessionId ? { sessionId: req.query.sessionId } : {}),
-    ...(req.query.classId ? { classId: req.query.classId } : {}),
-    ...(req.query.studentId ? { studentId: req.query.studentId } : {}),
+  const authReq = req as AuthRequest
+  const { role } = authReq.user!
+  const userId = authReq.userId!
+
+  const filter: Record<string, unknown> = {}
+
+  if (role === 'student') {
+    // Students can only see their own scores
+    filter.studentId = userId
+    if (req.query.sessionId) filter.sessionId = req.query.sessionId
+    if (req.query.classId) filter.classId = req.query.classId
+  } else if (role === 'teacher') {
+    if (req.query.classId) {
+      const cls = await Class.findById(req.query.classId, 'teacherId').lean()
+      if (!cls || !new Types.ObjectId(userId).equals(cls.teacherId as Types.ObjectId)) {
+        forbidden(res, 'You do not have access to this class.')
+        return
+      }
+      filter.classId = req.query.classId
+    } else if (req.query.sessionId) {
+      const session = await ClassSession.findById(req.query.sessionId, 'classId').lean()
+      if (session) {
+        const cls = await Class.findById(session.classId, 'teacherId').lean()
+        if (!cls || !new Types.ObjectId(userId).equals(cls.teacherId as Types.ObjectId)) {
+          forbidden(res, 'You do not have access to this session.')
+          return
+        }
+      }
+      filter.sessionId = req.query.sessionId
+    } else {
+      // No specific filter — scope to teacher's own classes
+      const classes = await Class.find({ teacherId: userId }, '_id').lean()
+      filter.classId = { $in: classes.map((c) => c._id) }
+    }
+    if (req.query.studentId) filter.studentId = req.query.studentId
+  } else {
+    // admin: pass all filters
+    if (req.query.sessionId) filter.sessionId = req.query.sessionId
+    if (req.query.classId) filter.classId = req.query.classId
+    if (req.query.studentId) filter.studentId = req.query.studentId
   }
+
   ok(res, await paginate(Score, filter, req.query))
 }
 
@@ -59,12 +98,36 @@ export async function upsertScore(req: Request, res: Response): Promise<void> {
   created(res, score)
 }
 
+const SCORE_UPDATABLE = ['scores', 'tags', 'ticks', 'choice', 'parts', 'skip', 'ev', 'note', 'total', 'attendance'] as const
+
 /**
  * PATCH /api/scores/:id
  * Partial update (e.g. teacher edits a specific component after saving).
  */
 export async function updateScore(req: Request, res: Response): Promise<void> {
-  const score = await Score.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
+  const authReq = req as AuthRequest
+  const { role } = authReq.user!
+  const userId = authReq.userId!
+
+  // Ownership check: only the teacher of this score's class (or admin) can update
+  if (role !== 'admin') {
+    const existing = await Score.findById(req.params.id, 'classId').lean()
+    if (existing) {
+      const cls = await Class.findById((existing as { classId: Types.ObjectId }).classId, 'teacherId').lean()
+      if (!cls || !new Types.ObjectId(userId).equals(cls.teacherId as Types.ObjectId)) {
+        forbidden(res, 'You do not have permission to update this score.')
+        return
+      }
+    }
+  }
+
+  // Whitelist: never allow overwriting identity/ownership fields
+  const patch: Record<string, unknown> = {}
+  for (const key of SCORE_UPDATABLE) {
+    if (key in req.body) patch[key] = req.body[key]
+  }
+
+  const score = await Score.findByIdAndUpdate(req.params.id, patch, { new: true, runValidators: true })
   if (!score) {
     notFound(res, 'Score not found.')
     return
@@ -79,6 +142,23 @@ export async function updateScore(req: Request, res: Response): Promise<void> {
  * Used by the Entry screen to build the full class view.
  */
 export async function sessionSummary(req: Request, res: Response): Promise<void> {
+  const authReq = req as AuthRequest
+  const { role } = authReq.user!
+  const userId = authReq.userId!
+
+  if (role !== 'admin') {
+    const session = await ClassSession.findById(req.params.sessionId, 'classId').lean()
+    if (session) {
+      const cls = await Class.findById(session.classId, 'teacherId studentIds').lean()
+      const isTeacher = cls && new Types.ObjectId(userId).equals(cls.teacherId as Types.ObjectId)
+      const isStudent = cls && (cls.studentIds as Types.ObjectId[]).some((id) => id.equals(userId))
+      if (!isTeacher && !isStudent) {
+        forbidden(res, 'You do not have access to this session.')
+        return
+      }
+    }
+  }
+
   const scores = await Score.find({ sessionId: req.params.sessionId })
     .populate('studentId', 'name')
     .lean()
