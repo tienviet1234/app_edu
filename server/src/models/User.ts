@@ -13,6 +13,7 @@ export interface IUser extends Document {
   phone?: string
   centerId?: Types.ObjectId
   branchId?: Types.ObjectId
+  childIds: Types.ObjectId[]
   isActive: boolean
   lastLoginAt?: Date
   createdAt: Date
@@ -38,6 +39,7 @@ const userSchema = new Schema<IUser>(
     phone: { type: String, trim: true, maxlength: 20 },
     centerId: { type: Schema.Types.ObjectId, ref: 'Center', index: true },
     branchId: { type: Schema.Types.ObjectId, ref: 'Branch', index: true },
+    childIds: [{ type: Schema.Types.ObjectId, ref: 'User' }],
     isActive: { type: Boolean, default: true },
     lastLoginAt: { type: Date },
   },

@@ -10,6 +10,7 @@ import { EntryScreen } from '@/features/entry/EntryScreen'
 import { LeaderboardScreen } from '@/features/leaderboard/LeaderboardScreen'
 import { LearnScreen } from '@/features/learn/LearnScreen'
 import { NotificationsPage } from '@/features/notifications/NotificationsPage'
+import { ParentPortalScreen } from '@/features/parent/ParentPortalScreen'
 import { ProfileModal } from '@/features/profile/ProfileModal'
 import { ParentScreen } from '@/features/parent/ParentScreen'
 import { ReportScreen } from '@/features/report/ReportScreen'
@@ -32,6 +33,7 @@ const ALL_TABS = [
   { key: 'classes', label: 'Lớp học', icon: '🏫', roles: ['teacher', 'admin'] },
   { key: 'learn', label: 'Học tập', icon: '📚', roles: ['teacher', 'admin', 'student'] },
   { key: 'notifications', label: 'Thông báo', icon: '🔔', roles: ['teacher', 'admin', 'student'] },
+  { key: 'my-child', label: 'Con tôi', icon: '👶', roles: ['parent'] },
 ]
 
 export default function App() {
@@ -250,6 +252,7 @@ export default function App() {
         )}
         {activeTab === 'learn' && <LearnScreen />}
         {activeTab === 'notifications' && <NotificationsPage />}
+        {activeTab === 'my-child' && <ParentPortalScreen />}
 
         <div className="mt-6 flex flex-wrap items-center gap-2 text-xs" style={{ color: C.muted }}>
           <span className="mr-auto">
