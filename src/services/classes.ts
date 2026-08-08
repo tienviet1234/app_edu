@@ -63,4 +63,8 @@ export const classService = {
     api
       .get<{ data: { joinCode: string; className: string } }>(`/classes/${classId}/join-code`)
       .then((r) => r.data.data),
+
+  /** Permanently deletes a class (teacher or admin) */
+  delete: (id: string) =>
+    api.delete<{ data: { deleted: boolean } }>(`/classes/${id}`).then((r) => r.data.data),
 }

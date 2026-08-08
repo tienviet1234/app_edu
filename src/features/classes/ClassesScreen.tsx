@@ -71,6 +71,16 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
 
   const { data: apiStudents } = useClassStudents(cls && isMongoid(cls.id) ? cls.id : '')
 
+  async function handleDeleteClass(idx: number) {
+    const c = data.classes[idx]
+    if (!confirm(`Xóa lớp "${c.name}"? Toàn bộ dữ liệu lớp này sẽ bị xóa vĩnh viễn.`)) return
+    if (isMongoid(c.id)) {
+      try { await classService.delete(c.id) } catch { /* keep local delete */ }
+    }
+    setData(produce((d) => { d.classes.splice(idx, 1) }))
+    setCurrent(Math.max(0, idx > 0 ? idx - 1 : 0))
+  }
+
   async function loadJoinCode() {
     if (!cls || !isMongoid(cls.id)) return
     setJoinCodeLoading(true)
@@ -163,42 +173,52 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
           return (
             <Card
               key={c.id}
-              className="cursor-pointer p-4"
+              className="p-4"
               style={{ borderColor: i === current ? C.board : C.line, borderWidth: i === current ? 2 : 1 }}
             >
-              <div onClick={() => setCurrent(i)}>
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="flex items-center gap-1.5 text-lg font-bold">
-                      {c.name}
-                      {isMongoid(c.id) && (
-                        <span title="Đã đồng bộ lên server" style={{ color: C.board2, fontSize: 14 }}>
-                          ☁
-                        </span>
-                      )}
+              <div className="flex items-start gap-2">
+                <div className="flex-1 cursor-pointer" onClick={() => setCurrent(i)}>
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-1.5 text-lg font-bold">
+                        {c.name}
+                        {isMongoid(c.id) && (
+                          <span title="Đã đồng bộ lên server" style={{ color: C.board2, fontSize: 14 }}>
+                            ☁
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm" style={{ color: C.muted }}>
+                        {c.students.length} học sinh · {c.teacher || 'chưa có GV'} ·{' '}
+                        {RUBRICS[c.level].label}
+                      </div>
                     </div>
-                    <div className="text-sm" style={{ color: C.muted }}>
-                      {c.students.length} học sinh · {c.teacher || 'chưa có GV'} ·{' '}
-                      {RUBRICS[c.level].label}
+                    <div className="text-right">
+                      <div className="text-sm font-bold">
+                        Buổi {c.sessions.length}/{c.perMonth}
+                      </div>
+                      <div className="text-xs" style={{ color: C.muted }}>
+                        TB lớp {round1(avg)}
+                      </div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-sm font-bold">
-                      Buổi {c.sessions.length}/{c.perMonth}
+                  {due && (
+                    <div
+                      className="mt-2 rounded-lg px-2 py-1 text-xs font-semibold"
+                      style={{ background: C.gold + '22', color: '#7A5A05' }}
+                    >
+                      ⏰ Đã đến kỳ gửi báo cáo
                     </div>
-                    <div className="text-xs" style={{ color: C.muted }}>
-                      TB lớp {round1(avg)}
-                    </div>
-                  </div>
+                  )}
                 </div>
-                {due && (
-                  <div
-                    className="mt-2 rounded-lg px-2 py-1 text-xs font-semibold"
-                    style={{ background: C.gold + '22', color: '#7A5A05' }}
-                  >
-                    ⏰ Đã đến kỳ gửi báo cáo
-                  </div>
-                )}
+                <button
+                  title="Xóa lớp này"
+                  onClick={() => handleDeleteClass(i)}
+                  className="rounded-lg px-2 py-1 text-xs font-bold opacity-40 hover:opacity-100"
+                  style={{ color: C.red, flexShrink: 0 }}
+                >
+                  Xóa
+                </button>
               </div>
             </Card>
           )

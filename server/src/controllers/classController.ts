@@ -132,6 +132,23 @@ export async function getClassStudents(req: Request, res: Response): Promise<voi
   ok(res, cls.studentIds)
 }
 
+/** DELETE /api/classes/:id — teacher or admin deletes a class */
+export async function deleteClass(req: Request, res: Response): Promise<void> {
+  const authReq = req as AuthRequest
+  const cls = await Class.findById(req.params.id, 'teacherId')
+  if (!cls) {
+    notFound(res, 'Class not found.')
+    return
+  }
+  if (authReq.user?.role !== 'admin' && !cls.teacherId?.equals(authReq.userId!)) {
+    forbidden(res, 'You can only delete your own classes.')
+    return
+  }
+  await Class.findByIdAndDelete(req.params.id)
+  await writeAudit(req, { action: 'class.delete', resource: 'Class', resourceId: String(cls._id) })
+  ok(res, { deleted: true })
+}
+
 /** GET /api/classes/:id/join-code — teacher retrieves the join code for their class */
 export async function getJoinCode(req: Request, res: Response): Promise<void> {
   const cls = await Class.findById(req.params.id, 'joinCode name teacherId')

@@ -25,12 +25,54 @@ export function CompEditor({ comp, e, mut }: CompEditorProps) {
   )
 
   if (comp.type === 'score') {
+    const rawScore = e.scores?.[comp.key]
+    const numScore = rawScore === '' || rawScore == null ? null : Number(rawScore)
+    const pct = numScore !== null && comp.max > 0 ? Math.round((numScore / comp.max) * 100) : null
+    const PRESETS = [0, 50, 60, 70, 75, 80, 90, 100]
     return (
       <div>
-        <div className="mb-1.5 flex items-center gap-2">
+        <div className="mb-1.5 flex flex-wrap items-center gap-2">
           <span className="text-xs font-bold uppercase" style={{ color: C.muted }}>
             {comp.label}
           </span>
+          {numScore !== null && (
+            <>
+              <span className="text-xs font-semibold" style={{ color: numScore >= comp.max ? C.board2 : C.ink }}>
+                {numScore}/{comp.max}
+              </span>
+              <span
+                className="rounded px-1.5 py-0.5 text-xs font-bold"
+                style={{
+                  background: pct! >= 80 ? C.board2 + '22' : pct! >= 60 ? C.gold + '33' : C.red + '22',
+                  color: pct! >= 80 ? C.board2 : pct! >= 60 ? '#7A5A05' : C.red,
+                }}
+              >
+                {pct}%
+              </span>
+            </>
+          )}
+        </div>
+        <div className="mb-2 flex flex-wrap gap-1">
+          {PRESETS.map((p) => {
+            const sv = Math.round((p / 100) * comp.max)
+            const active = numScore === sv
+            return (
+              <button
+                key={p}
+                onClick={() => mut((en) => { en.scores[comp.key] = sv })}
+                className="rounded-lg px-2 py-1 text-xs font-semibold"
+                style={{
+                  background: active ? C.board : C.paper,
+                  color: active ? '#fff' : C.muted,
+                  border: `1px solid ${active ? C.board : C.line}`,
+                }}
+              >
+                {p}%<span className="opacity-60"> ({sv})</span>
+              </button>
+            )
+          })}
+        </div>
+        <div className="flex items-center gap-2">
           <input
             type="number"
             min="0"
@@ -45,11 +87,9 @@ export function CompEditor({ comp, e, mut }: CompEditorProps) {
             className="w-20 rounded-lg px-2 py-1 text-center text-lg font-bold"
             style={{ border: `1px solid ${C.line}` }}
           />
-          <span className="text-sm" style={{ color: C.muted }}>
-            / {comp.max}
-          </span>
+          <span className="text-sm" style={{ color: C.muted }}>/ {comp.max} · nhập tay</span>
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
           {(comp.tags ?? []).map((t) => (
             <Chip
               key={t.id}

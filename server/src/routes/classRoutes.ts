@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import {
-  createClass, enrollStudents, getClass,
+  createClass, deleteClass, enrollStudents, getClass,
   getClassStudents, getJoinCode, joinClass,
   listClasses, removeStudent, updateClass,
 } from '../controllers/classController.js'
@@ -19,6 +19,7 @@ classRouter.get('/', validate({ query: listQuerySchema }), asyncHandler(listClas
 classRouter.post('/', authorize('teacher'), validate({ body: classBodySchema }), asyncHandler(createClass))
 classRouter.get('/:id', validate({ params: idParamsSchema }), asyncHandler(getClass))
 classRouter.patch('/:id', authorize('teacher'), validate({ params: idParamsSchema, body: classUpdateSchema }), asyncHandler(updateClass))
+classRouter.delete('/:id', authorize('teacher'), validate({ params: idParamsSchema }), asyncHandler(deleteClass))
 
 // Enrollment management
 classRouter.post(
