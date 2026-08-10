@@ -18,7 +18,7 @@ const transport = createTransport()
 
 export async function sendOtpEmail(to: string, otp: string): Promise<void> {
   const info = await transport.sendMail({
-    from: `"LMS Hệ thống" <${env.EMAIL_FROM}>`,
+    from: env.EMAIL_FROM,
     to,
     subject: `Mã OTP đặt lại mật khẩu: ${otp}`,
     text: `Mã OTP của bạn là: ${otp}\n\nMã có hiệu lực trong ${env.OTP_EXPIRES_MIN} phút.\nNếu bạn không yêu cầu đặt lại mật khẩu, hãy bỏ qua email này.`,
