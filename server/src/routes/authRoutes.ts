@@ -33,11 +33,11 @@ const registerLimiter = rateLimit({
 })
 
 const forgotLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
+  windowMs: 10 * 60 * 1000,
   limit: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { success: false, message: 'Quá nhiều yêu cầu đặt lại mật khẩu. Vui lòng thử lại sau 1 giờ.' },
+  message: { success: false, message: 'Quá nhiều yêu cầu đặt lại mật khẩu. Vui lòng thử lại sau 10 phút.' },
 })
 
 export const authRouter = Router()
