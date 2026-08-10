@@ -93,7 +93,20 @@ export async function publishReport(req: Request, res: Response): Promise<void> 
   const title = 'Báo cáo học tập mới'
   const body = `Báo cáo kỳ ${report.period.label} đã được giáo viên gửi.`
 
-  // Notify the student and their parents
+  // Auto-add parents linked to this student into sentTo
+  const linkedParents = await User.find(
+    { childIds: report.studentId, role: 'parent' },
+    '_id',
+  ).lean()
+  const parentIds = linkedParents.map((p) => p._id)
+  if (parentIds.length > 0) {
+    await Report.findByIdAndUpdate(report._id, {
+      $addToSet: { sentTo: { $each: parentIds } },
+    })
+    report.sentTo = [...(report.sentTo as unknown as Types.ObjectId[]), ...parentIds] as typeof report.sentTo
+  }
+
+  // Notify the student and all linked parents
   const recipientIds = [report.studentId, ...report.sentTo]
   await Promise.all(
     recipientIds.map((recipientId) =>

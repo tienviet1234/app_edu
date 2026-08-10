@@ -17,6 +17,7 @@ import { sessionRouter } from './routes/sessionRoutes.js'
 import { uploadRouter } from './routes/uploadRoutes.js'
 import { classRouter } from './routes/classRoutes.js'
 import { lessonRouter } from './routes/lessonRoutes.js'
+import { inviteRouter } from './routes/inviteRoutes.js'
 import { pushRouter } from './routes/pushRoutes.js'
 import { scoreRouter } from './routes/scoreRoutes.js'
 import { errorHandler } from './middleware/errorHandler.js'
@@ -38,11 +39,13 @@ app.use(cors({
 app.use(express.json({ limit: '1mb' }))
 app.use(cookieParser())
 
+// Global safety net — per-route limiters below are stricter
 app.use('/api/auth', rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 100,
+  limit: 200,
   standardHeaders: true,
   legacyHeaders: false,
+  message: { success: false, message: 'Quá nhiều yêu cầu. Vui lòng thử lại sau.' },
 }))
 
 app.get('/api/health', (_req, res) => {
@@ -62,6 +65,7 @@ app.use('/api/analytics', analyticsRouter)
 app.use('/api/notifications', notificationRouter)
 app.use('/api/uploads', uploadRouter)
 app.use('/api/audit-logs', auditRouter)
+app.use('/api/invites', inviteRouter)
 app.use('/api/classes', classRouter)
 app.use('/api/lessons', lessonRouter)
 app.use('/api/scores', scoreRouter)

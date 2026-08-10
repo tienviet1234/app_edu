@@ -15,6 +15,7 @@ import { ProfileModal } from '@/features/profile/ProfileModal'
 import { ParentScreen } from '@/features/parent/ParentScreen'
 import { ReportScreen } from '@/features/report/ReportScreen'
 import { StudentScreen } from '@/features/student/StudentScreen'
+import { StudentPortalScreen } from '@/features/student/StudentPortalScreen'
 import { NotificationBell } from '@/components/molecules/NotificationBell'
 import { useAppStore } from '@/store/appStore'
 import { useAuthStore } from '@/store/authStore'
@@ -26,6 +27,7 @@ import type { AppData } from '@/types'
 const ALL_TABS = [
   { key: 'dashboard', label: 'Tổng quan', icon: '📋', roles: ['teacher', 'admin'] },
   { key: 'entry', label: 'Nhập điểm', icon: '✏️', roles: ['teacher', 'admin'] },
+  { key: 'my-scores', label: 'Điểm của tôi', icon: '📊', roles: ['student'] },
   { key: 'board', label: 'Xếp hạng', icon: '🏆', roles: ['teacher', 'admin', 'student'] },
   { key: 'report', label: 'Báo cáo', icon: '📊', roles: ['teacher', 'admin'] },
   { key: 'parent', label: 'Phụ huynh', icon: '👨‍👩‍👧', roles: ['teacher', 'admin'] },
@@ -239,6 +241,7 @@ export default function App() {
           <DashboardScreen data={data} setTab={setTab} setCurrent={setCurrentClass} />
         )}
         {cls && activeTab === 'entry' && <EntryScreen cls={cls} update={updateClass} />}
+        {activeTab === 'my-scores' && <StudentPortalScreen />}
         {cls && activeTab === 'board' && <LeaderboardScreen cls={cls} update={updateClass} userId={user?.role === 'student' ? user.id : undefined} />}
         {cls && activeTab === 'report' && <ReportScreen cls={cls} update={updateClass} />}
         {cls && activeTab === 'parent' && <ParentScreen cls={cls} />}

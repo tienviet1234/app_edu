@@ -71,6 +71,11 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
 
   const { data: apiStudents } = useClassStudents(cls && isMongoid(cls.id) ? cls.id : '')
 
+  async function syncFieldToApi(field: string, value: unknown) {
+    if (!cls || !isMongoid(cls.id)) return
+    try { await classService.update(cls.id, { [field]: value }) } catch { /* best effort */ }
+  }
+
   async function handleDeleteClass(idx: number) {
     const c = data.classes[idx]
     if (!confirm(`Xóa lớp "${c.name}"? Toàn bộ dữ liệu lớp này sẽ bị xóa vĩnh viễn.`)) return
@@ -261,6 +266,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
               <input
                 value={cls.name}
                 onChange={(x) => edit((c) => { c.name = x.target.value })}
+                onBlur={(x) => void syncFieldToApi('name', x.target.value)}
                 className="mt-1 w-full rounded-xl px-3 py-2"
                 style={{ border: `1px solid ${C.line}` }}
               />
@@ -270,6 +276,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
               <input
                 value={cls.teacher}
                 onChange={(x) => edit((c) => { c.teacher = x.target.value })}
+                onBlur={(x) => void syncFieldToApi('teacherName', x.target.value)}
                 className="mt-1 w-full rounded-xl px-3 py-2"
                 style={{ border: `1px solid ${C.line}` }}
               />
@@ -278,12 +285,14 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
               <div style={{ color: C.muted }}>Phiếu đánh giá</div>
               <select
                 value={cls.level}
-                onChange={(x) =>
+                onChange={(x) => {
+                  const lvl = x.target.value as 'primary' | 'secondary'
                   edit((c) => {
-                    c.level = x.target.value as 'primary' | 'secondary'
-                    c.perMonth = x.target.value === 'primary' ? 8 : 12
+                    c.level = lvl
+                    c.perMonth = lvl === 'primary' ? 8 : 12
                   })
-                }
+                  void syncFieldToApi('level', lvl)
+                }}
                 className="mt-1 w-full rounded-xl px-3 py-2"
                 style={{ border: `1px solid ${C.line}` }}
               >

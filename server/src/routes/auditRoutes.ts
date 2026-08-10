@@ -1,11 +1,21 @@
 import { Router } from 'express'
-import { listAuditLogs } from '../controllers/auditController.js'
+import rateLimit from 'express-rate-limit'
+import { listAuditLogs, logActivity } from '../controllers/auditController.js'
 import { authenticate, authorize } from '../middleware/auth.js'
-import { validate } from '../middleware/validate.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
-import { listQuerySchema } from '../schemas/commonSchemas.js'
 
 export const auditRouter = Router()
 
-auditRouter.use(authenticate, authorize('admin'))
-auditRouter.get('/', validate({ query: listQuerySchema }), asyncHandler(listAuditLogs))
+const logLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 150,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Quá nhiều yêu cầu ghi log. Vui lòng thử lại sau.' },
+})
+
+// Any authenticated user can log frontend activities (rate-limited)
+auditRouter.post('/', logLimiter, authenticate, asyncHandler(logActivity))
+
+// Only admins can read the audit log
+auditRouter.get('/', authenticate, authorize('admin'), asyncHandler(listAuditLogs))

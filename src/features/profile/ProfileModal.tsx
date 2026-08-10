@@ -1,8 +1,11 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { C } from '@/constants/colors'
 import { useAuthStore } from '@/store/authStore'
 import { ROLE_LABELS } from '@/types/auth'
 import { AVATARS } from '@/business/missions'
+
+const PWD_RULES = /^(?=.*[A-Z])(?=.*[0-9]).{8,}$/
 
 const ROLE_COLORS: Record<string, string> = {
   admin: C.red,
@@ -16,12 +19,22 @@ interface ProfileModalProps {
 }
 
 export function ProfileModal({ onClose }: ProfileModalProps) {
-  const { user, updateProfile } = useAuthStore()
+  const { user, updateProfile, changePassword, logout } = useAuthStore()
+  const navigate = useNavigate()
   const [name, setName] = useState(user?.name ?? '')
   const [phone, setPhone] = useState((user as Record<string, unknown> & { phone?: string } | null)?.phone ?? '')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [pickAvatar, setPickAvatar] = useState(false)
+
+  // Password change state
+  const [showPwd, setShowPwd] = useState(false)
+  const [currentPwd, setCurrentPwd] = useState('')
+  const [newPwd, setNewPwd] = useState('')
+  const [confirmPwd, setConfirmPwd] = useState('')
+  const [pwdError, setPwdError] = useState('')
+  const [pwdSaved, setPwdSaved] = useState(false)
+  const [pwdSaving, setPwdSaving] = useState(false)
 
   if (!user) return null
 
@@ -41,6 +54,31 @@ export function ProfileModal({ onClose }: ProfileModalProps) {
   async function chooseAvatar(a: string) {
     setPickAvatar(false)
     await updateProfile({ avatar: a })
+  }
+
+  async function savePwd() {
+    setPwdError('')
+    if (!currentPwd) { setPwdError('Nhập mật khẩu hiện tại.'); return }
+    if (!PWD_RULES.test(newPwd)) { setPwdError('Mật khẩu mới cần ít nhất 8 ký tự, có chữ hoa và chữ số.'); return }
+    if (newPwd !== confirmPwd) { setPwdError('Mật khẩu xác nhận không khớp.'); return }
+    setPwdSaving(true)
+    try {
+      await changePassword(currentPwd, newPwd)
+      setPwdSaved(true)
+      setCurrentPwd(''); setNewPwd(''); setConfirmPwd('')
+      // Revoke all refresh tokens — must log out immediately so user isn't kicked silently later
+      setTimeout(async () => {
+        await logout()
+        navigate('/auth/login', { state: { message: 'Đổi mật khẩu thành công. Vui lòng đăng nhập lại.' } })
+      }, 1500)
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'response' in err
+        ? (err as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Đổi mật khẩu thất bại.'
+        : 'Đổi mật khẩu thất bại.'
+      setPwdError(msg)
+    } finally {
+      setPwdSaving(false)
+    }
   }
 
   return (
@@ -139,11 +177,54 @@ export function ProfileModal({ onClose }: ProfileModalProps) {
               maxLength={20}
             />
           </div>
-          <div
-            className="rounded-xl p-3 text-xs"
-            style={{ background: C.paper, color: C.muted, border: `1px solid ${C.line}` }}
-          >
-            Để đổi email hoặc mật khẩu, dùng chức năng <strong>Quên mật khẩu</strong> tại trang đăng nhập.
+          {/* Password change section */}
+          <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
+            <button
+              type="button"
+              onClick={() => { setShowPwd(!showPwd); setPwdError('') }}
+              className="flex items-center gap-1.5 text-xs font-semibold w-full"
+              style={{ color: showPwd ? C.board : C.muted }}
+            >
+              <span style={{ display: 'inline-block', transform: showPwd ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>
+              Đổi mật khẩu
+            </button>
+            {showPwd && (
+              <div className="mt-3 space-y-3">
+                {['Mật khẩu hiện tại', 'Mật khẩu mới', 'Xác nhận mật khẩu mới'].map((label, i) => {
+                  const vals = [currentPwd, newPwd, confirmPwd]
+                  const setters = [setCurrentPwd, setNewPwd, setConfirmPwd]
+                  return (
+                    <div key={label}>
+                      <label className="block text-xs font-bold mb-1" style={{ color: C.muted }}>{label}</label>
+                      <input
+                        type="password"
+                        value={vals[i]}
+                        onChange={(e) => { setters[i](e.target.value); setPwdError('') }}
+                        autoComplete={i === 0 ? 'current-password' : 'new-password'}
+                        className="w-full rounded-xl px-3 py-2 text-sm"
+                        style={{ border: `1px solid ${pwdError ? '#EF4444' : C.line}`, background: C.paper, color: C.ink }}
+                      />
+                    </div>
+                  )
+                })}
+                {pwdError && (
+                  <p className="text-xs font-semibold" style={{ color: '#EF4444' }}>{pwdError}</p>
+                )}
+                <button
+                  type="button"
+                  onClick={savePwd}
+                  disabled={pwdSaving || !currentPwd || !newPwd || !confirmPwd}
+                  className="w-full rounded-xl py-2 text-sm font-bold"
+                  style={{
+                    background: pwdSaved ? C.board2 : C.board,
+                    color: '#fff',
+                    opacity: pwdSaving || !currentPwd || !newPwd || !confirmPwd ? 0.6 : 1,
+                  }}
+                >
+                  {pwdSaved ? '✓ Đổi thành công' : pwdSaving ? 'Đang lưu...' : 'Xác nhận đổi mật khẩu'}
+                </button>
+              </div>
+            )}
           </div>
           <div className="flex gap-2 pt-1">
             <button

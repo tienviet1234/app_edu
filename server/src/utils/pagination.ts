@@ -9,12 +9,9 @@ export interface PaginationInput {
 
 export interface PaginatedResult<T> {
   items: T[]
-  meta: {
-    page: number
-    limit: number
-    total: number
-    totalPages: number
-  }
+  total: number
+  page: number
+  totalPages: number
 }
 
 export function parsePagination(input: PaginationInput) {
@@ -44,12 +41,9 @@ export async function paginate<T>(
 
   return {
     items,
-    meta: {
-      page,
-      limit,
-      total,
-      totalPages: Math.max(1, Math.ceil(total / limit)),
-    },
+    total,
+    page,
+    totalPages: Math.max(1, Math.ceil(total / limit)),
   }
 }
 

@@ -15,6 +15,7 @@ import { Btn } from '@/components/atoms/Btn'
 import { Stat } from '@/components/atoms/Stat'
 import { isMongoid } from '@/utils/mongoid'
 import { reportService } from '@/services/reports'
+import { logActivity } from '@/services/activity'
 
 interface ReportScreenProps {
   cls: ClassData
@@ -116,6 +117,7 @@ ${r.comps.map(() => {
 <p style="margin-top:16px;font-size:10px;color:#888">In lúc ${new Date().toLocaleString('vi-VN')}</p>
 </body></html>`
 
+    logActivity('report.export.student', { className: cls.name, studentName: student.name }, 'Report')
     const w = window.open('', '_blank')
     if (!w) return
     w.document.write(html)
@@ -176,6 +178,7 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}</td>`).join
 <p style="margin-top:12px;font-size:10px;color:#888">In lúc ${new Date().toLocaleString('vi-VN')}</p>
 </body></html>`
 
+    logActivity('report.export.monthly', { className: cls.name, period: p.label, students: rows.length }, 'Report')
     const w = window.open('', '_blank')
     if (!w) return
     w.document.write(html)

@@ -47,12 +47,14 @@ export async function updateUser(req: Request, res: Response): Promise<void> {
   ok(res, user)
 }
 
-/** GET /users — list all users (admin), optionally filter by role */
+/** GET /users — list all users (admin), optionally filter by role or isActive */
 export async function listAllUsers(req: Request, res: Response): Promise<void> {
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : ''
   const role = typeof req.query.role === 'string' ? req.query.role : undefined
+  const isActiveStr = typeof req.query.isActive === 'string' ? req.query.isActive : undefined
   const filter = {
     ...(role ? { role } : {}),
+    ...(isActiveStr === 'false' ? { isActive: false } : isActiveStr === 'true' ? { isActive: true } : {}),
     ...(q ? { $or: [{ name: new RegExp(q, 'i') }, { email: new RegExp(q, 'i') }] } : {}),
   }
   ok(res, await paginate(User, filter, req.query))

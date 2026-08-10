@@ -1,6 +1,8 @@
 import type { Request, Response } from 'express'
 import { z } from 'zod'
+import { Types } from 'mongoose'
 import { User } from '../models/User.js'
+import { InviteToken } from '../models/InviteToken.js'
 import { RefreshToken } from '../models/RefreshToken.js'
 import { OtpToken } from '../models/OtpToken.js'
 import { env } from '../config/env.js'
@@ -90,19 +92,61 @@ export async function register(req: Request, res: Response): Promise<void> {
       return
     }
     const { name, email, password, role, inviteCode } = parsed.data
+    const codeInput = inviteCode?.trim()
 
-    // Admin role requires invite code
-    if (role === 'admin' && inviteCode?.trim() !== env.ADMIN_INVITE_CODE.trim()) {
-      badRequest(res, 'Mã mời không đúng để đăng ký vai trò Admin.')
-      return
+    // ── Resolve effective role via invite code ────────────────────────────────
+    let effectiveRole = role
+    let teacherToken: InstanceType<typeof InviteToken> | null = null
+
+    if (codeInput) {
+      if (codeInput === env.ADMIN_INVITE_CODE.trim()) {
+        // Static admin invite code
+        effectiveRole = 'admin'
+      } else {
+        // Try to atomically claim a teacher InviteToken
+        teacherToken = await InviteToken.findOneAndUpdate(
+          {
+            code: codeInput.toUpperCase(),
+            isRevoked: false,
+            usedAt: { $exists: false },
+            expiresAt: { $gt: new Date() },
+          },
+          { $set: { usedAt: new Date() } },
+          { new: true },
+        )
+        if (!teacherToken) {
+          badRequest(res, 'Mã mời không hợp lệ, đã được sử dụng hoặc đã hết hạn.')
+          return
+        }
+        effectiveRole = teacherToken.role // 'teacher'
+      }
+    } else {
+      if (effectiveRole === 'admin') {
+        badRequest(res, 'Vai trò Admin yêu cầu mã mời quản trị viên.')
+        return
+      }
+      if (effectiveRole === 'teacher') {
+        badRequest(res, 'Giáo viên cần mã mời. Vui lòng liên hệ quản trị viên để nhận mã mời.')
+        return
+      }
     }
 
     if (await User.findOne({ email })) {
+      // If we consumed a teacher token, release it on email conflict
+      if (teacherToken) {
+        await InviteToken.updateOne({ _id: teacherToken._id }, { $unset: { usedAt: 1 } })
+      }
       badRequest(res, 'Email đã được sử dụng.')
       return
     }
 
-    const user = await User.create({ name, email, passwordHash: password, role })
+    const user = await User.create({ name, email, passwordHash: password, role: effectiveRole, isActive: true })
+
+    // Bind teacher token to the created user
+    if (teacherToken) {
+      await InviteToken.updateOne({ _id: teacherToken._id }, { usedBy: new Types.ObjectId(String(user._id)) })
+    }
+
     await issueTokens(user, req, res)
   } catch (err) {
     serverError(res, err)
@@ -120,7 +164,7 @@ export async function login(req: Request, res: Response): Promise<void> {
     const { email, password } = parsed.data
 
     const user = await User.findOne({ email }).select('+passwordHash')
-    if (!user || !user.isActive) {
+    if (!user) {
       unauthorized(res, 'Email hoặc mật khẩu không đúng.')
       return
     }
@@ -128,6 +172,11 @@ export async function login(req: Request, res: Response): Promise<void> {
     const valid = await user.comparePassword(password)
     if (!valid) {
       unauthorized(res, 'Email hoặc mật khẩu không đúng.')
+      return
+    }
+
+    if (!user.isActive) {
+      unauthorized(res, 'Tài khoản đang chờ được quản trị viên duyệt. Vui lòng liên hệ quản trị viên.')
       return
     }
 
@@ -337,6 +386,39 @@ export async function resetPassword(req: Request, res: Response): Promise<void> 
     )
 
     ok(res, null, 'Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.')
+  } catch (err) {
+    serverError(res, err)
+  }
+}
+
+// ─── POST /auth/change-password ──────────────────────────────────────────────
+export async function changePassword(req: Request, res: Response): Promise<void> {
+  try {
+    const parsed = z.object({
+      currentPassword: z.string().min(1),
+      newPassword: z.string().min(8).regex(/[A-Z]/).regex(/[0-9]/),
+    }).safeParse(req.body)
+    if (!parsed.success) {
+      badRequest(res, 'Mật khẩu mới không hợp lệ. Tối thiểu 8 ký tự, có chữ hoa và chữ số.')
+      return
+    }
+    const { currentPassword, newPassword } = parsed.data
+    const userId = (req as Request & { userId?: string }).userId
+    const user = await User.findById(userId).select('+passwordHash')
+    if (!user) { unauthorized(res, 'Không tìm thấy tài khoản.'); return }
+
+    const valid = await user.comparePassword(currentPassword)
+    if (!valid) { badRequest(res, 'Mật khẩu hiện tại không đúng.'); return }
+
+    user.passwordHash = newPassword
+    await user.save()
+
+    // Revoke all refresh tokens except the current session (force re-auth on other devices)
+    await RefreshToken.updateMany(
+      { userId: user._id, revokedAt: { $exists: false } },
+      { revokedAt: new Date() },
+    )
+    ok(res, null, 'Đổi mật khẩu thành công.')
   } catch (err) {
     serverError(res, err)
   }

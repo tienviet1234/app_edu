@@ -14,6 +14,7 @@ import { CompEditor } from '@/components/molecules/CompEditor'
 import { sessionService } from '@/services/sessions'
 import { scoreService } from '@/services/scores'
 import { isMongoid } from '@/utils/mongoid'
+import { logActivity } from '@/services/activity'
 
 interface EntryScreenProps {
   cls: ClassData
@@ -60,6 +61,7 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
     update((c) => {
       c.sessions.push({ id: localId, no: newNo, date: todayISO(), homework: '', entries })
     })
+    logActivity('session.create', { className: cls.name, sessionNo: newNo }, 'ClassSession')
     setIdx(cls.sessions.length)
     setCur(0)
 
@@ -346,13 +348,13 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
               style={{ border: `1px solid ${C.line}` }}
             />
             <div className="flex gap-2">
-              <Btn onClick={() => { syncScore(st.id, e); setCur(Math.max(0, cur - 1)) }}>
+              <Btn onClick={() => { syncScore(st.id, e); logActivity('score.entry', { className: cls.name, sessionNo: session.no, studentName: st.name }, 'Score'); setCur(Math.max(0, cur - 1)) }}>
                 ← Trước
               </Btn>
               <Btn
                 kind="gold"
                 className="flex-1"
-                onClick={() => { syncScore(st.id, e); setCur(Math.min(cls.students.length - 1, cur + 1)) }}
+                onClick={() => { syncScore(st.id, e); logActivity('score.entry', { className: cls.name, sessionNo: session.no, studentName: st.name }, 'Score'); setCur(Math.min(cls.students.length - 1, cur + 1)) }}
               >
                 Học sinh tiếp theo →
               </Btn>

@@ -20,6 +20,7 @@ export function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const from = (location.state as { from?: string })?.from ?? '/app'
+  const successMsg = (location.state as { message?: string })?.message ?? ''
   const [showPwd, setShowPwd] = useState(false)
 
   const { register, handleSubmit, formState: { errors } } = useForm<FormData>({
@@ -39,6 +40,11 @@ export function LoginPage() {
   return (
     <AuthLayout title="Đăng nhập" subtitle="Chào mừng trở lại!">
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+        {successMsg && (
+          <div className="rounded-xl px-4 py-3 text-sm font-semibold" style={{ background: '#F0FDF4', color: '#15803D', border: '1px solid #86EFAC' }}>
+            ✓ {successMsg}
+          </div>
+        )}
         <ErrorBanner message={error} />
 
         <Field label="Email" error={errors.email?.message}>

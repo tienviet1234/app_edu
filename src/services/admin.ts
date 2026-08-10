@@ -29,12 +29,35 @@ export interface AnalyticsOverview {
   attendance: Array<{ status: string; count: number }>
 }
 
+export interface InviteToken {
+  _id: string
+  code: string
+  role: 'teacher'
+  note?: string
+  createdBy?: { _id: string; name: string; email: string } | string
+  usedBy?: { _id: string; name: string; email: string } | string
+  usedAt?: string
+  expiresAt: string
+  isRevoked: boolean
+  createdAt: string
+  status: 'active' | 'used' | 'expired' | 'revoked'
+}
+
+export interface AuditLogActor {
+  _id: string
+  name: string
+  role: string
+  email: string
+}
+
 export interface AuditLog {
   _id: string
-  actorId: string
+  actorId?: AuditLogActor | string
+  actorRole?: string
   action: string
   resource: string
   resourceId?: string
+  metadata?: Record<string, unknown>
   createdAt: string
 }
 
@@ -117,4 +140,15 @@ export const adminService = {
     api
       .get<{ data: TeacherPerfRow[] }>('/analytics/teacher-performance')
       .then((r) => r.data.data),
+
+  createInvite: (body: { note?: string; expireDays?: number }) =>
+    api.post<{ data: InviteToken }>('/invites', body).then((r) => r.data.data),
+
+  listInvites: (params?: Record<string, string>) =>
+    api
+      .get<{ data: PagedData<InviteToken> }>('/invites', { params })
+      .then((r) => r.data.data),
+
+  revokeInvite: (id: string) =>
+    api.delete<{ data: { revoked: boolean } }>(`/invites/${id}`).then((r) => r.data.data),
 }
