@@ -270,9 +270,11 @@ export async function forgotPassword(req: Request, res: Response): Promise<void>
       return
     }
     const { email } = parsed.data
+    console.log(`[FORGOT] Request for: ${email}`)
 
     // Always return success to prevent user enumeration
     const user = await User.findOne({ email })
+    console.log(`[FORGOT] User found: ${!!user}`)
     if (user) {
       // Invalidate previous OTPs for this email
       await OtpToken.deleteMany({ email, purpose: 'reset_password' })
