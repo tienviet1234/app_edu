@@ -17,6 +17,7 @@ function createTransport() {
 const transport = createTransport()
 
 export async function sendOtpEmail(to: string, otp: string): Promise<void> {
+  console.log(`[EMAIL] Sending OTP to ${to} via ${env.SMTP_HOST || 'jsonTransport'}`)
   const info = await transport.sendMail({
     from: env.EMAIL_FROM,
     to,
@@ -41,5 +42,7 @@ export async function sendOtpEmail(to: string, otp: string): Promise<void> {
   if (!env.SMTP_HOST) {
     console.log(`[DEV] OTP for ${to}: ${otp}`)
     console.log('[DEV] Email preview:', JSON.stringify(info))
+  } else {
+    console.log(`[EMAIL] Sent OK — messageId: ${info.messageId}`)
   }
 }
