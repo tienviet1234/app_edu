@@ -20,7 +20,11 @@ export const env = {
   // OTP
   OTP_EXPIRES_MIN: Number(process.env.OTP_EXPIRES_MIN ?? 10),
 
-  // Email (nodemailer – optional, logs to console in dev)
+  // Email — Brevo HTTP API (preferred) or SMTP fallback
+  BREVO_API_KEY: process.env.BREVO_API_KEY ?? '',
+  BREVO_SENDER_EMAIL: process.env.BREVO_SENDER_EMAIL ?? '',
+  BREVO_SENDER_NAME: process.env.BREVO_SENDER_NAME ?? 'EDU Portal',
+  // SMTP kept for local dev / fallback
   SMTP_HOST: process.env.SMTP_HOST ?? '',
   SMTP_PORT: Number(process.env.SMTP_PORT ?? 587),
   SMTP_USER: process.env.SMTP_USER ?? '',
