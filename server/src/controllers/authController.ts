@@ -63,6 +63,7 @@ async function issueTokens(
   await RefreshToken.create({
     userId: user._id,
     tokenHash,
+    tokenPrefix: rawRefresh.slice(0, 16), // index key for O(1) lookup
     userAgent: req.headers['user-agent'],
     ip: req.ip,
     expiresAt: refreshTokenExpiry(),
@@ -198,15 +199,15 @@ export async function refresh(req: Request, res: Response): Promise<void> {
       return
     }
 
-    // Find all non-expired, non-revoked tokens for matching (brute-force resistant: O(n) per user)
-    // For scale, store token family / rotate with DB lookup by hash prefix
-    const tokens = await RefreshToken.find({
+    // O(1) lookup: filter by tokenPrefix index first, then bcrypt only 1-2 docs
+    const candidates = await RefreshToken.find({
+      tokenPrefix: rawToken.slice(0, 16),
       revokedAt: { $exists: false },
       expiresAt: { $gt: new Date() },
     }).select('+tokenHash')
 
     let matched: InstanceType<typeof RefreshToken> | null = null
-    for (const t of tokens) {
+    for (const t of candidates) {
       if (await verifyRefreshToken(rawToken, t.tokenHash)) {
         matched = t
         break
@@ -241,12 +242,13 @@ export async function logout(req: Request, res: Response): Promise<void> {
   try {
     const rawToken: string | undefined = req.cookies[REFRESH_COOKIE]
     if (rawToken) {
-      // Best-effort: revoke the matching token
-      const tokens = await RefreshToken.find({
+      // Best-effort: revoke the matching token using prefix index
+      const candidates = await RefreshToken.find({
+        tokenPrefix: rawToken.slice(0, 16),
         revokedAt: { $exists: false },
         expiresAt: { $gt: new Date() },
       })
-      for (const t of tokens) {
+      for (const t of candidates) {
         if (await verifyRefreshToken(rawToken, t.tokenHash)) {
           t.revokedAt = new Date()
           await t.save()
