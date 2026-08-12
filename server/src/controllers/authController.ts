@@ -287,7 +287,10 @@ export async function forgotPassword(req: Request, res: Response): Promise<void>
         expiresAt: new Date(Date.now() + env.OTP_EXPIRES_MIN * 60_000),
       })
 
-      await sendOtpEmail(email, otp)
+      // Fire-and-forget: don't block response on SMTP
+      sendOtpEmail(email, otp).catch(err =>
+        console.error(`[EMAIL] Failed to send OTP to ${email}:`, err)
+      )
     }
 
     ok(res, null, `Nếu email tồn tại, mã OTP đã được gửi.`)
