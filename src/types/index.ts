@@ -94,6 +94,7 @@ export interface Session {
   date: string
   homework?: string   // bài tập về nhà cả lớp
   entries: Record<string, SessionEntry>
+  maxes?: Record<string, number> // overrides comp.max per session (e.g. mini=30, listen=15, hw__correct=20)
 }
 
 // ─── Extra scoring component (admin-added) ────────────────────────────────────

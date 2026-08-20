@@ -35,7 +35,7 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
 
   function syncScore(studentId: string, entry: SessionEntry) {
     if (!isMongoid(cls.id) || !session || !isMongoid(session.id) || !isMongoid(studentId)) return
-    const total = sessionScore(entry, r) ?? 0
+    const total = sessionScore(entry, r2) ?? 0
     setSyncStatus('saving')
     scoreService
       .upsert({ classId: cls.id, sessionId: session.id, studentId, ...entry, total })
@@ -117,7 +117,7 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
           if (!en[k]) (en as unknown as Record<string, unknown>)[k] = {}
         })
         en.attendance = 'present'
-        r.comps.forEach((comp) => {
+        r2.comps.forEach((comp) => {
           if (comp.type === 'parts') {
             const m: Record<string, number> = {}
             ;(comp.parts ?? []).forEach((p) => (m[p.id] = p.max))
@@ -134,8 +134,35 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
     })
   }
 
-  const total = sessionScore(e, r)
-  const done = cls.students.filter((s) => sessionScore(session.entries[s.id], r) !== null).length
+  // Session-level overrides (comp max + ratio totals)
+  const sessionMaxes = session?.maxes ?? {}
+  const effectiveComps = r.comps.map((c) =>
+    sessionMaxes[c.key] != null ? { ...c, max: sessionMaxes[c.key] } : c,
+  )
+  const r2 = { ...r, comps: effectiveComps }
+
+  function setSessionMax(key: string, val: number) {
+    if (!val || val < 1) return
+    update((c) => {
+      const s = c.sessions[idx]
+      if (!s.maxes) s.maxes = {}
+      s.maxes[key] = val
+    })
+  }
+
+  // Build ratioTotals map for EvidenceFields (compKey__evKey → total)
+  const ratioTotals: Record<string, number> = {}
+  r2.comps.forEach((comp) => {
+    comp.evidence?.forEach((ev) => {
+      if (ev.type === 'ratio') {
+        const k = comp.key + '__' + ev.key
+        if (sessionMaxes[k] != null) ratioTotals[k] = sessionMaxes[k]
+      }
+    })
+  })
+
+  const total = sessionScore(e, r2)
+  const done = cls.students.filter((s) => sessionScore(session.entries[s.id], r2) !== null).length
 
   return (
     <div className="space-y-3">
@@ -199,10 +226,52 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
           />
         </div>
 
+        {/* Session-level question count settings */}
+        <div className="mt-2 flex flex-wrap items-center gap-3 rounded-xl px-3 py-2 text-xs" style={{ background: C.paper }}>
+          <span className="font-bold shrink-0" style={{ color: C.muted }}>Số câu:</span>
+          {r2.comps.filter((c) => c.type === 'score').map((comp) => (
+            <label key={comp.key} className="flex items-center gap-1">
+              <span style={{ color: C.muted }}>{comp.label}</span>
+              <input
+                type="number"
+                min="1"
+                value={sessionMaxes[comp.key] ?? comp.max}
+                onFocus={(x) => x.target.select()}
+                onChange={(x) => setSessionMax(comp.key, Number(x.target.value))}
+                className="w-14 rounded-lg px-1 py-0.5 text-center font-bold"
+                style={{ border: `1px solid ${C.board}66` }}
+              />
+              <span style={{ color: C.muted }}>câu</span>
+            </label>
+          ))}
+          {r2.comps.flatMap((comp) =>
+            (comp.evidence ?? [])
+              .filter((ev) => ev.type === 'ratio')
+              .map((ev) => {
+                const k = comp.key + '__' + ev.key
+                return (
+                  <label key={k} className="flex items-center gap-1">
+                    <span style={{ color: C.muted }}>BTVN</span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={sessionMaxes[k] ?? 20}
+                      onFocus={(x) => x.target.select()}
+                      onChange={(x) => setSessionMax(k, Number(x.target.value))}
+                      className="w-14 rounded-lg px-1 py-0.5 text-center font-bold"
+                      style={{ border: `1px solid ${C.board}66` }}
+                    />
+                    <span style={{ color: C.muted }}>câu</span>
+                  </label>
+                )
+              }),
+          )}
+        </div>
+
         {/* Student pills with missing-data indicator */}
         <div className="mt-2 flex flex-wrap gap-1">
           {cls.students.map((s, i) => {
-            const t = sessionScore(session.entries[s.id], r)
+            const t = sessionScore(session.entries[s.id], r2)
             const active = i === cur
             const missing = t === null && session.entries[s.id]?.attendance !== 'excused'
             return (
@@ -289,7 +358,7 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
                 Buổi nghỉ phép — không tính vào điểm trung bình, chỉ trừ điểm chuyên cần.
               </div>
             ) : (
-              r.comps.map((comp) => <CompEditor key={comp.key} comp={comp} e={e} mut={mut} />)
+              r2.comps.map((comp) => <CompEditor key={comp.key} comp={comp} e={e} mut={mut} ratioTotals={ratioTotals} />)
             )}
 
             {/* Study hours */}

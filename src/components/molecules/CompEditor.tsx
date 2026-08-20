@@ -11,9 +11,10 @@ interface CompEditorProps {
   comp: RubricComponent
   e: SessionEntry
   mut: (fn: (en: SessionEntry) => void) => void
+  ratioTotals?: Record<string, number>
 }
 
-export function CompEditor({ comp, e, mut }: CompEditorProps) {
+export function CompEditor({ comp, e, mut, ratioTotals }: CompEditorProps) {
   const val = compScore(comp, e)
   const head = (
     <div className="mb-1.5 text-xs font-bold uppercase" style={{ color: C.muted }}>
@@ -106,7 +107,7 @@ export function CompEditor({ comp, e, mut }: CompEditorProps) {
             </Chip>
           ))}
         </div>
-        <EvidenceFields comp={comp} e={e} mut={mut} />
+        <EvidenceFields comp={comp} e={e} mut={mut} ratioTotals={ratioTotals} />
       </div>
     )
   }
@@ -144,7 +145,7 @@ export function CompEditor({ comp, e, mut }: CompEditorProps) {
             </Chip>
           ))}
         </div>
-        <EvidenceFields comp={comp} e={e} mut={mut} />
+        <EvidenceFields comp={comp} e={e} mut={mut} ratioTotals={ratioTotals} />
       </div>
     )
   }
@@ -169,7 +170,7 @@ export function CompEditor({ comp, e, mut }: CompEditorProps) {
             </Pick>
           ))}
         </div>
-        <EvidenceFields comp={comp} e={e} mut={mut} />
+        <EvidenceFields comp={comp} e={e} mut={mut} ratioTotals={ratioTotals} />
       </div>
     )
   }
@@ -243,7 +244,7 @@ export function CompEditor({ comp, e, mut }: CompEditorProps) {
             })}
           </div>
         )}
-        <EvidenceFields comp={comp} e={e} mut={mut} />
+        <EvidenceFields comp={comp} e={e} mut={mut} ratioTotals={ratioTotals} />
       </div>
     )
   }

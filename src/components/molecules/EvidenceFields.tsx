@@ -5,9 +5,11 @@ interface EvidenceFieldsProps {
   comp: RubricComponent
   e: SessionEntry
   mut: (fn: (en: SessionEntry) => void) => void
+  /** session-level default totals: key = compKey__evKey → total */
+  ratioTotals?: Record<string, number>
 }
 
-export function EvidenceFields({ comp, e, mut }: EvidenceFieldsProps) {
+export function EvidenceFields({ comp, e, mut, ratioTotals }: EvidenceFieldsProps) {
   if (!comp.evidence) return null
   const get = (k: string) => e.ev?.[comp.key]?.[k]
   const set = (k: string, v: unknown) =>
@@ -21,6 +23,8 @@ export function EvidenceFields({ comp, e, mut }: EvidenceFieldsProps) {
       {comp.evidence.map((ev) => {
         if (ev.type === 'ratio') {
           const v = get(ev.key) as { ok?: string | number; total?: string | number } | undefined
+          const sessionTotal = ratioTotals?.[comp.key + '__' + ev.key]
+          const defaultTotal = v?.total ?? sessionTotal ?? 20
           return (
             <div key={ev.key} className="flex items-center gap-2">
               <span className="text-xs" style={{ color: C.muted, minWidth: 78 }}>
@@ -31,7 +35,7 @@ export function EvidenceFields({ comp, e, mut }: EvidenceFieldsProps) {
                 min="0"
                 value={v?.ok ?? ''}
                 onFocus={(x) => x.target.select()}
-                onChange={(x) => set(ev.key, { total: 20, ...v, ok: x.target.value })}
+                onChange={(x) => set(ev.key, { total: defaultTotal, ...v, ok: x.target.value })}
                 className="w-16 rounded-lg px-2 py-1 text-center font-bold"
                 style={{ border: `1px solid ${C.line}`, background: '#fff' }}
               />
@@ -39,7 +43,7 @@ export function EvidenceFields({ comp, e, mut }: EvidenceFieldsProps) {
               <input
                 type="number"
                 min="1"
-                value={v?.total ?? 20}
+                value={defaultTotal}
                 onFocus={(x) => x.target.select()}
                 onChange={(x) => set(ev.key, { ok: '', ...v, total: x.target.value })}
                 className="w-16 rounded-lg px-2 py-1 text-center font-bold"

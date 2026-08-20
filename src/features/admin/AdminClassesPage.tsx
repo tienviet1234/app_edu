@@ -85,11 +85,192 @@ function AssignTeacher({ cls }: { cls: ApiClass }) {
   )
 }
 
+function EditClassPanel({ cls, onDone }: { cls: ApiClass; onDone: () => void }) {
+  const qc = useQueryClient()
+  const [name, setName] = useState(cls.name)
+  const [status, setStatus] = useState(cls.status)
+  const [year, setYear] = useState(cls.academicYear ?? '')
+  const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  async function handleSave() {
+    if (!name.trim()) return
+    setSaving(true)
+    setMsg('')
+    try {
+      await classService.update(cls._id, { name: name.trim(), status, academicYear: year || undefined })
+      qc.invalidateQueries({ queryKey: ['admin', 'classes'] })
+      setMsg('Đã lưu')
+      setTimeout(() => setMsg(''), 2000)
+    } catch {
+      setMsg('Lỗi, thử lại')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirm(`Xóa lớp "${cls.name}"? Dữ liệu lớp này sẽ bị xóa vĩnh viễn.`)) return
+    setDeleting(true)
+    try {
+      await classService.delete(cls._id)
+      qc.invalidateQueries({ queryKey: ['admin', 'classes'] })
+      onDone()
+    } catch {
+      setMsg('Lỗi khi xóa')
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div className="rounded-xl p-3 space-y-3" style={{ background: '#fff5f5', border: `1px solid ${C.line}` }}>
+      <div className="text-xs font-bold" style={{ color: C.muted }}>CHỈNH SỬA LỚP</div>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <label className="text-xs">
+          <div style={{ color: C.muted }} className="mb-1">Tên lớp</div>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full rounded-lg px-2 py-1.5 text-sm font-semibold"
+            style={{ border: `1px solid ${C.line}` }}
+          />
+        </label>
+        <label className="text-xs">
+          <div style={{ color: C.muted }} className="mb-1">Trạng thái</div>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value as ApiClass['status'])}
+            className="w-full rounded-lg px-2 py-1.5 text-sm font-semibold"
+            style={{ border: `1px solid ${C.line}` }}
+          >
+            {Object.entries(STATUS_LABEL).map(([k, v]) => (
+              <option key={k} value={k}>{v}</option>
+            ))}
+          </select>
+        </label>
+        <label className="text-xs">
+          <div style={{ color: C.muted }} className="mb-1">Năm học</div>
+          <input
+            value={year}
+            onChange={(e) => setYear(e.target.value)}
+            placeholder="2024"
+            className="w-full rounded-lg px-2 py-1.5 text-sm"
+            style={{ border: `1px solid ${C.line}` }}
+          />
+        </label>
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          onClick={handleSave}
+          disabled={saving || !name.trim()}
+          className="rounded-xl px-4 py-1.5 text-sm font-bold disabled:opacity-40"
+          style={{ background: C.board, color: '#fff' }}
+        >
+          {saving ? 'Đang lưu...' : 'Lưu thay đổi'}
+        </button>
+        <button
+          onClick={handleDelete}
+          disabled={deleting}
+          className="rounded-xl px-4 py-1.5 text-sm font-bold disabled:opacity-40"
+          style={{ background: '#FEE2E2', color: '#DC2626' }}
+        >
+          {deleting ? 'Đang xóa...' : '🗑 Xóa lớp'}
+        </button>
+        {msg && (
+          <span className="text-xs font-semibold" style={{ color: msg === 'Đã lưu' ? '#16A34A' : '#DC2626' }}>
+            {msg}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function CreateClassForm({ onCreated }: { onCreated: () => void }) {
+  const [name, setName] = useState('')
+  const [status, setStatus] = useState<ApiClass['status']>('active')
+  const [year, setYear] = useState(String(new Date().getFullYear()))
+  const [creating, setCreating] = useState(false)
+  const [err, setErr] = useState('')
+  const qc = useQueryClient()
+
+  async function handleCreate() {
+    if (!name.trim()) { setErr('Vui lòng nhập tên lớp'); return }
+    setCreating(true)
+    setErr('')
+    try {
+      await classService.create({ name: name.trim(), status, academicYear: year || undefined })
+      qc.invalidateQueries({ queryKey: ['admin', 'classes'] })
+      setName('')
+      setYear(String(new Date().getFullYear()))
+      onCreated()
+    } catch {
+      setErr('Tạo lớp thất bại, thử lại')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  return (
+    <div className="rounded-2xl p-4 space-y-3" style={{ border: `1.5px solid ${C.board}44`, background: C.board + '05' }}>
+      <div className="text-sm font-bold" style={{ color: C.board }}>+ TẠO LỚP MỚI</div>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <label className="text-xs">
+          <div style={{ color: C.muted }} className="mb-1">Tên lớp *</div>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+            placeholder="Lớp 6A"
+            autoFocus
+            className="w-full rounded-xl px-3 py-2 text-sm"
+            style={{ border: `1px solid ${C.line}` }}
+          />
+        </label>
+        <label className="text-xs">
+          <div style={{ color: C.muted }} className="mb-1">Trạng thái</div>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value as ApiClass['status'])}
+            className="w-full rounded-xl px-3 py-2 text-sm"
+            style={{ border: `1px solid ${C.line}` }}
+          >
+            {Object.entries(STATUS_LABEL).map(([k, v]) => (
+              <option key={k} value={k}>{v}</option>
+            ))}
+          </select>
+        </label>
+        <label className="text-xs">
+          <div style={{ color: C.muted }} className="mb-1">Năm học</div>
+          <input
+            value={year}
+            onChange={(e) => setYear(e.target.value)}
+            placeholder="2024"
+            className="w-full rounded-xl px-3 py-2 text-sm"
+            style={{ border: `1px solid ${C.line}` }}
+          />
+        </label>
+      </div>
+      {err && <div className="text-xs" style={{ color: '#DC2626' }}>{err}</div>}
+      <button
+        onClick={handleCreate}
+        disabled={creating || !name.trim()}
+        className="rounded-xl px-5 py-2 text-sm font-bold disabled:opacity-40"
+        style={{ background: C.board, color: '#fff' }}
+      >
+        {creating ? 'Đang tạo...' : 'Tạo lớp'}
+      </button>
+    </div>
+  )
+}
+
 export function AdminClassesPage() {
   const [q, setQ] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [page, setPage] = useState(1)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [showCreate, setShowCreate] = useState(false)
 
   const params: Record<string, string> = { page: String(page), limit: '20' }
   if (q) params.q = q
@@ -112,10 +293,21 @@ export function AdminClassesPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-lg font-black" style={{ color: C.board }}>Quản lý lớp học</h2>
-        <p className="text-sm" style={{ color: C.muted }}>{total} lớp trong hệ thống</p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-lg font-black" style={{ color: C.board }}>Quản lý lớp học</h2>
+          <p className="text-sm" style={{ color: C.muted }}>{total} lớp trong hệ thống</p>
+        </div>
+        <button
+          onClick={() => setShowCreate(!showCreate)}
+          className="rounded-xl px-4 py-2 text-sm font-bold"
+          style={{ background: showCreate ? C.line : C.board, color: showCreate ? C.ink : '#fff' }}
+        >
+          {showCreate ? '✕ Đóng' : '+ Tạo lớp mới'}
+        </button>
       </div>
+
+      {showCreate && <CreateClassForm onCreated={() => setShowCreate(false)} />}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-2">
@@ -188,13 +380,14 @@ export function AdminClassesPage() {
                       <AssignTeacher cls={cls} />
                     </div>
 
+                    {/* Edit class */}
+                    <EditClassPanel cls={cls} onDone={() => setExpanded(null)} />
+
                     <div className="grid gap-3 sm:grid-cols-2">
                       {/* Meta info */}
                       <div className="space-y-1.5">
                         <div className="text-xs font-bold" style={{ color: C.muted }}>THÔNG TIN LỚP</div>
                         <MetaRow label="ID" value={cls._id} mono />
-                        <MetaRow label="Trạng thái" value={STATUS_LABEL[cls.status] ?? cls.status} />
-                        <MetaRow label="Năm học" value={cls.academicYear ?? '—'} />
                         <MetaRow label="Tối đa HS" value={String(cls.maxStudents)} />
                         {cls.startDate && <MetaRow label="Bắt đầu" value={new Date(cls.startDate).toLocaleDateString('vi-VN')} />}
                         {cls.endDate && <MetaRow label="Kết thúc" value={new Date(cls.endDate).toLocaleDateString('vi-VN')} />}

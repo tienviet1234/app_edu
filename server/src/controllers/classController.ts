@@ -3,7 +3,7 @@ import { Types } from 'mongoose'
 import crypto from 'crypto'
 import { Class } from '../models/Class.js'
 import { badRequest, created, forbidden, notFound, ok } from '../utils/response.js'
-import { paginate } from '../utils/pagination.js'
+import { parsePagination } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit } from '../services/auditService.js'
 import { User } from '../models/User.js'
@@ -21,7 +21,12 @@ export async function listClasses(req: Request, res: Response): Promise<void> {
     ...(req.query.courseId ? { courseId: req.query.courseId } : {}),
     ...(req.query.status ? { status: req.query.status } : {}),
   }
-  ok(res, await paginate(Class, filter, req.query))
+  const { page, limit, skip, sort } = parsePagination(req.query)
+  const [items, total] = await Promise.all([
+    Class.find(filter).sort(sort).skip(skip).limit(limit).populate('teacherId', 'name email'),
+    Class.countDocuments(filter),
+  ])
+  ok(res, { items, total, page, totalPages: Math.max(1, Math.ceil(total / limit)) })
 }
 
 export async function createClass(req: Request, res: Response): Promise<void> {
