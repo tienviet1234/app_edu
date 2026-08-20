@@ -64,6 +64,12 @@ export const classService = {
       .get<{ data: { joinCode: string; className: string } }>(`/classes/${classId}/join-code`)
       .then((r) => r.data.data),
 
+  /** Teacher adds students by name — creates managed accounts + enrolls in one call */
+  addManagedStudents: (classId: string, names: string[]) =>
+    api
+      .post<{ data: Array<{ _id: string; name: string }> }>(`/classes/${classId}/students/bulk`, { names })
+      .then((r) => r.data.data),
+
   /** Permanently deletes a class (teacher or admin) */
   delete: (id: string) =>
     api.delete<{ data: { deleted: boolean } }>(`/classes/${id}`).then((r) => r.data.data),

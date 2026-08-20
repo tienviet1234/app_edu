@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express'
 import { Types } from 'mongoose'
+import crypto from 'crypto'
 import { Class } from '../models/Class.js'
 import { badRequest, created, forbidden, notFound, ok } from '../utils/response.js'
 import { paginate } from '../utils/pagination.js'
@@ -147,6 +148,55 @@ export async function deleteClass(req: Request, res: Response): Promise<void> {
   await Class.findByIdAndDelete(req.params.id)
   await writeAudit(req, { action: 'class.delete', resource: 'Class', resourceId: String(cls._id) })
   ok(res, { deleted: true })
+}
+
+/** POST /api/classes/:id/students/bulk — teacher adds students by name (no phone/account needed) */
+export async function addManagedStudents(req: Request, res: Response): Promise<void> {
+  const authReq = req as AuthRequest
+  const { names } = req.body as { names: string[] }
+
+  if (!Array.isArray(names) || names.length === 0) {
+    badRequest(res, 'names array is required.')
+    return
+  }
+
+  const cls = await Class.findById(req.params.id, 'teacherId studentIds')
+  if (!cls) { notFound(res, 'Class not found.'); return }
+
+  if (authReq.user?.role !== 'admin' && !cls.teacherId?.equals(authReq.userId!)) {
+    forbidden(res, 'You can only add students to your own classes.')
+    return
+  }
+
+  const created_students = []
+  for (const rawName of names) {
+    const name = rawName.trim()
+    if (!name) continue
+
+    // Auto-generate unique internal email (not real, not for login)
+    const slug = name.toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9.]/g, '')
+    const suffix = crypto.randomBytes(4).toString('hex')
+    const email = `${slug}.${suffix}@managed.internal`
+    const password = crypto.randomBytes(16).toString('hex')
+
+    const student = await User.create({
+      name,
+      email,
+      passwordHash: password,
+      role: 'student',
+      isActive: true,
+    })
+    created_students.push(student)
+  }
+
+  if (created_students.length > 0) {
+    await Class.findByIdAndUpdate(req.params.id, {
+      $addToSet: { studentIds: { $each: created_students.map((s) => s._id) } },
+    })
+    await writeAudit(req, { action: 'class.addManagedStudents', resource: 'Class', resourceId: String(cls._id) })
+  }
+
+  ok(res, created_students.map((s) => ({ _id: String(s._id), name: s.name })))
 }
 
 /** GET /api/classes/:id/join-code — teacher retrieves the join code for their class */

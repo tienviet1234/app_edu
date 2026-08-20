@@ -343,23 +343,44 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                   <div className="mt-2 flex gap-2 flex-wrap">
                     <Btn
                       kind="solid"
-                      onClick={() => {
+                      disabled={syncing}
+                      onClick={async () => {
                         const list = names.split('\n').map((x) => x.trim()).filter(Boolean)
                         if (!list.length) return
-                        setData(
-                          produce((d) => {
+
+                        // API-synced class → create managed student accounts on server
+                        if (cls && isMongoid(cls.id)) {
+                          setSyncing(true)
+                          try {
+                            const created = await classService.addManagedStudents(cls.id, list)
+                            setData(produce((d) => {
+                              const c = d.classes[current]
+                              created.forEach((s) => {
+                                if (c.students.some((st: { id: string }) => st.id === s._id)) return
+                                c.students.push({ id: s._id, name: s.name })
+                                c.sessions.forEach((ss: { entries: Record<string, ReturnType<typeof emptyEntry>> }) => { ss.entries[s._id] = emptyEntry() })
+                              })
+                            }))
+                          } catch {
+                            alert('Lỗi khi thêm học sinh. Thử lại.')
+                          } finally {
+                            setSyncing(false)
+                          }
+                        } else {
+                          // Local-only class → save to localStorage
+                          setData(produce((d) => {
                             const c = d.classes[current]
                             list.forEach((n) => {
                               const s = { id: uid(), name: n }
                               c.students.push(s)
                               c.sessions.forEach((ss: { entries: Record<string, ReturnType<typeof emptyEntry>> }) => { ss.entries[s.id] = emptyEntry() })
                             })
-                          }),
-                        )
+                          }))
+                        }
                         setNames('')
                       }}
                     >
-                      Thêm vào lớp
+                      {syncing ? 'Đang thêm...' : 'Thêm vào lớp'}
                     </Btn>
                     <Btn
                       kind="ghost"

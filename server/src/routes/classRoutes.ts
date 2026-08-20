@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import {
+  addManagedStudents,
   createClass, deleteClass, enrollStudents, getClass,
   getClassStudents, getJoinCode, joinClass,
   listClasses, removeStudent, updateClass,
@@ -47,6 +48,14 @@ classRouter.get(
   '/:id/students',
   validate({ params: idParamsSchema }),
   asyncHandler(getClassStudents),
+)
+
+// Teacher adds students by name — creates managed accounts + enrolls
+classRouter.post(
+  '/:id/students/bulk',
+  authorize('teacher'),
+  validate({ params: idParamsSchema, body: z.object({ names: z.array(z.string().min(1)).min(1).max(50) }) }),
+  asyncHandler(addManagedStudents),
 )
 
 // Get join code for a class (teacher only)
