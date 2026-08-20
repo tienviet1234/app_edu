@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { classService, type ApiClass } from '@/services/classes'
+import { adminService } from '@/services/admin'
 import { C } from '@/constants/colors'
 
 const STATUS_LABEL: Record<string, string> = {
@@ -17,11 +18,71 @@ const STATUS_COLOR: Record<string, string> = {
 }
 
 function TeacherName({ teacherId }: { teacherId: ApiClass['teacherId'] }) {
-  if (!teacherId) return <span style={{ color: C.muted }}>—</span>
+  if (!teacherId) return <span style={{ color: C.muted }}>Chưa phân công</span>
   if (typeof teacherId === 'object' && 'name' in (teacherId as object)) {
     return <span>{(teacherId as unknown as { name: string }).name}</span>
   }
   return <span style={{ color: C.muted, fontFamily: 'monospace', fontSize: 11 }}>{String(teacherId).slice(-6)}</span>
+}
+
+function AssignTeacher({ cls }: { cls: ApiClass }) {
+  const qc = useQueryClient()
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  const { data: teachersData } = useQuery({
+    queryKey: ['admin', 'teachers'],
+    queryFn: () => adminService.listUsers({ role: 'teacher', limit: '100', isActive: 'true' }),
+    staleTime: 60_000,
+  })
+  const teachers = teachersData?.items ?? []
+
+  const currentId = typeof cls.teacherId === 'object' && cls.teacherId !== null
+    ? (cls.teacherId as unknown as { _id: string })._id
+    : typeof cls.teacherId === 'string' ? cls.teacherId : ''
+
+  const mutation = useMutation({
+    mutationFn: (teacherId: string) =>
+      classService.update(cls._id, { teacherId: teacherId || null }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'classes'] })
+      setMsg('Đã lưu')
+      setSaving(false)
+      setTimeout(() => setMsg(''), 2000)
+    },
+    onError: () => {
+      setMsg('Lỗi, thử lại')
+      setSaving(false)
+    },
+  })
+
+  function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    setSaving(true)
+    setMsg('')
+    mutation.mutate(e.target.value)
+  }
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <select
+        value={currentId}
+        onChange={handleChange}
+        disabled={saving}
+        className="rounded-xl px-3 py-1.5 text-sm font-semibold"
+        style={{ border: `1.5px solid ${C.board}`, color: C.board, minWidth: 180 }}
+      >
+        <option value="">— Chưa phân công —</option>
+        {teachers.map((t) => (
+          <option key={t._id} value={t._id}>{t.name} ({t.email})</option>
+        ))}
+      </select>
+      {msg && (
+        <span className="text-xs font-semibold" style={{ color: msg === 'Đã lưu' ? '#16A34A' : '#DC2626' }}>
+          {msg}
+        </span>
+      )}
+    </div>
+  )
 }
 
 export function AdminClassesPage() {
@@ -53,9 +114,7 @@ export function AdminClassesPage() {
     <div className="space-y-4">
       <div>
         <h2 className="text-lg font-black" style={{ color: C.board }}>Quản lý lớp học</h2>
-        <p className="text-sm" style={{ color: C.muted }}>
-          {total} lớp trong hệ thống
-        </p>
+        <p className="text-sm" style={{ color: C.muted }}>{total} lớp trong hệ thống</p>
       </div>
 
       {/* Filters */}
@@ -91,48 +150,44 @@ export function AdminClassesPage() {
             const isExpanded = expanded === cls._id
             return (
               <div key={cls._id} style={{ borderTop: i > 0 ? `1px solid ${C.line}` : undefined }}>
-                {/* Row */}
                 <button
                   className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors"
                   style={{ background: isExpanded ? C.board + '06' : i % 2 === 0 ? '#fafafa' : '#fff' }}
                   onClick={() => setExpanded(isExpanded ? null : cls._id)}
                 >
-                  <span
-                    className="shrink-0 text-base"
-                    style={{ transform: isExpanded ? 'rotate(90deg)' : 'none', display: 'inline-block', transition: 'transform .15s' }}
-                  >
+                  <span style={{ transform: isExpanded ? 'rotate(90deg)' : 'none', display: 'inline-block', transition: 'transform .15s' }}>
                     ▶
                   </span>
-
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-bold text-sm" style={{ color: C.board }}>{cls.name}</span>
                       <span
                         className="rounded-full px-2 py-0.5 text-[10px] font-bold"
-                        style={{
-                          background: (STATUS_COLOR[cls.status] ?? C.muted) + '18',
-                          color: STATUS_COLOR[cls.status] ?? C.muted,
-                        }}
+                        style={{ background: (STATUS_COLOR[cls.status] ?? C.muted) + '18', color: STATUS_COLOR[cls.status] ?? C.muted }}
                       >
                         {STATUS_LABEL[cls.status] ?? cls.status}
                       </span>
                     </div>
                     <div className="text-xs mt-0.5" style={{ color: C.muted }}>
                       GV: <TeacherName teacherId={cls.teacherId} />
-                      {' · '}
-                      {cls.studentIds.length} học sinh
+                      {' · '}{cls.studentIds.length} học sinh
                       {cls.academicYear && ` · NĂM ${cls.academicYear}`}
                     </div>
                   </div>
-
                   <div className="shrink-0 text-right text-xs" style={{ color: C.muted }}>
                     {new Date(cls.createdAt).toLocaleDateString('vi-VN')}
                   </div>
                 </button>
 
-                {/* Expanded detail */}
                 {isExpanded && (
-                  <div className="px-4 pb-4 pt-1" style={{ background: C.board + '04', borderTop: `1px solid ${C.line}` }}>
+                  <div className="px-4 pb-4 pt-3 space-y-4" style={{ background: C.board + '04', borderTop: `1px solid ${C.line}` }}>
+
+                    {/* Assign Teacher */}
+                    <div className="rounded-xl p-3 space-y-2" style={{ background: C.board + '08', border: `1px solid ${C.board}22` }}>
+                      <div className="text-xs font-bold" style={{ color: C.board }}>PHÂN CÔNG GIÁO VIÊN</div>
+                      <AssignTeacher cls={cls} />
+                    </div>
+
                     <div className="grid gap-3 sm:grid-cols-2">
                       {/* Meta info */}
                       <div className="space-y-1.5">
@@ -159,19 +214,15 @@ export function AdminClassesPage() {
                       )}
                     </div>
 
-                    {/* Student IDs chip list */}
+                    {/* Students */}
                     {cls.studentIds.length > 0 && (
-                      <div className="mt-3">
+                      <div>
                         <div className="text-xs font-bold mb-1.5" style={{ color: C.muted }}>
                           HỌC SINH ĐÃ ĐĂNG KÝ ({cls.studentIds.length})
                         </div>
                         <div className="flex flex-wrap gap-1">
                           {(cls.studentIds as unknown as Array<{ _id: string; name: string } | string>).map((s, si) => (
-                            <span
-                              key={si}
-                              className="rounded-lg px-2 py-0.5 text-xs"
-                              style={{ background: C.board + '12', color: C.board }}
-                            >
+                            <span key={si} className="rounded-lg px-2 py-0.5 text-xs" style={{ background: C.board + '12', color: C.board }}>
                               {typeof s === 'object' ? s.name : String(s).slice(-6)}
                             </span>
                           ))}
