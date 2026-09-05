@@ -16,13 +16,16 @@ export function Pick({ on, onClick, children, tone = 'neutral', size = 'md' }: P
     <button
       onClick={onClick}
       className={
-        'rounded-xl font-semibold transition active:scale-95 ' +
+        'rounded-xl font-semibold transition-all active:scale-[0.97] hover:brightness-[0.93] ' +
         (size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-2 text-sm')
       }
       style={{
         background: on ? color : '#fff',
-        color: on ? '#fff' : C.ink,
-        border: `1px solid ${on ? color : C.line}`,
+        color: on ? '#fff' : C.muted,
+        border: `1.5px solid ${on ? color : C.line}`,
+        boxShadow: on
+          ? `0 1px 3px 0 ${color}40`
+          : '0 1px 2px 0 rgb(0 0 0 / 0.04)',
       }}
     >
       {children}

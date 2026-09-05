@@ -41,4 +41,16 @@ export const env = {
   VAPID_PUBLIC_KEY: process.env.VAPID_PUBLIC_KEY ?? '',
   VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY ?? '',
   VAPID_SUBJECT: process.env.VAPID_SUBJECT ?? 'mailto:admin@lms.local',
+
+  // Cloudinary — lưu ảnh bài tập
+  CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME ?? '',
+  CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY ?? '',
+  CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET ?? '',
+
+  // Cloudflare R2 — lưu video bài nói
+  R2_ACCOUNT_ID: process.env.R2_ACCOUNT_ID ?? '',
+  R2_ACCESS_KEY_ID: process.env.R2_ACCESS_KEY_ID ?? '',
+  R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY ?? '',
+  R2_BUCKET_NAME: process.env.R2_BUCKET_NAME ?? '',
+  R2_PUBLIC_URL: process.env.R2_PUBLIC_URL ?? '',
 } as const

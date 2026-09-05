@@ -9,18 +9,25 @@ interface StatProps {
 
 export function Stat({ label, value, sub, color }: StatProps) {
   return (
-    <div className="rounded-xl px-3 py-2" style={{ background: C.paper }}>
-      <div className="text-xs" style={{ color: C.muted }}>
+    <div
+      className="rounded-xl px-4 py-3"
+      style={{
+        background: '#fff',
+        border: `1px solid ${C.line}`,
+        boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.05)',
+      }}
+    >
+      <div className="text-xs font-medium uppercase tracking-wide" style={{ color: C.muted }}>
         {label}
       </div>
       <div
-        className="text-xl font-bold"
-        style={{ color: color ?? C.ink, fontVariantNumeric: 'tabular-nums' }}
+        className="mt-0.5 text-2xl font-black tabular"
+        style={{ color: color ?? C.ink }}
       >
         {value}
       </div>
       {sub && (
-        <div className="text-xs" style={{ color: C.muted }}>
+        <div className="mt-0.5 text-xs" style={{ color: C.muted }}>
           {sub}
         </div>
       )}

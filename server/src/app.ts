@@ -20,6 +20,8 @@ import { lessonRouter } from './routes/lessonRoutes.js'
 import { inviteRouter } from './routes/inviteRoutes.js'
 import { pushRouter } from './routes/pushRoutes.js'
 import { scoreRouter } from './routes/scoreRoutes.js'
+import { assignmentRouter } from './routes/assignmentRoutes.js'
+import { submissionRouter } from './routes/submissionRoutes.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { notFound } from './utils/response.js'
 
@@ -36,7 +38,7 @@ app.use(cors({
   },
   credentials: true,
 }))
-app.use(express.json({ limit: '1mb' }))
+app.use(express.json({ limit: '2mb' }))
 app.use(cookieParser())
 
 // Global safety net — per-route limiters below are stricter
@@ -69,6 +71,8 @@ app.use('/api/invites', inviteRouter)
 app.use('/api/classes', classRouter)
 app.use('/api/lessons', lessonRouter)
 app.use('/api/scores', scoreRouter)
+app.use('/api/assignments', assignmentRouter)
+app.use('/api/submissions', submissionRouter)
 app.use('/api/users', userRouter)
 app.use('/api/push', pushRouter)
 

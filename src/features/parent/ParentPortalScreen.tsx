@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { parentService, type Child } from '@/services/parent'
 import { C } from '@/constants/colors'
 import { Card } from '@/components/atoms/Card'
+import { HomeworkTab } from './HomeworkTab'
 
 // ── Màu điểm danh ────────────────────────────────────────────
 const ATTEND: Record<string, { label: string; bg: string; color: string }> = {
@@ -15,6 +16,8 @@ const ATTEND: Record<string, { label: string; bg: string; color: string }> = {
 // ── Hiển thị 1 thẻ học sinh ─────────────────────────────────
 function ChildCard({ child, onUnlink }: { child: Child; onUnlink: () => void }) {
   const [expanded, setExpanded] = useState(false)
+  const [innerTab, setInnerTab] = useState<'scores' | 'homework'>('scores')
+  const [hwClassId, setHwClassId] = useState<string>(child.classes[0]?.id ?? '')
 
   const totalSessions = child.classes.reduce((a, c) => a + c.sessionCount, 0)
   const totalPresent  = child.classes.reduce((a, c) => a + c.presentCount, 0)
@@ -61,6 +64,48 @@ function ChildCard({ child, onUnlink }: { child: Child; onUnlink: () => void }) 
       {/* Expanded: class breakdown */}
       {expanded && (
         <div style={{ padding: 16 }}>
+          {/* Inner tab */}
+          <div style={{ display: 'flex', gap: 4, marginBottom: 14, background: C.paper, padding: 4, borderRadius: 12 }}>
+            {(['scores', 'homework'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setInnerTab(t)}
+                style={{
+                  flex: 1, padding: '6px 0', borderRadius: 8, fontSize: '.8rem', fontWeight: 600, border: 'none', cursor: 'pointer',
+                  background: innerTab === t ? '#fff' : 'transparent',
+                  color: innerTab === t ? C.ink : C.muted,
+                  boxShadow: innerTab === t ? '0 1px 3px 0 rgb(0 0 0 / 0.08)' : 'none',
+                }}
+              >
+                {t === 'scores' ? '📊 Kết quả' : '📚 Bài tập'}
+              </button>
+            ))}
+          </div>
+
+          {/* Tab: Bài tập */}
+          {innerTab === 'homework' && (
+            <div>
+              {child.classes.length > 1 && (
+                <select
+                  value={hwClassId}
+                  onChange={(e) => setHwClassId(e.target.value)}
+                  style={{ marginBottom: 12, width: '100%', padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.line}`, fontSize: '.85rem' }}
+                >
+                  {child.classes.map((cls) => (
+                    <option key={cls.id} value={cls.id}>{cls.name}</option>
+                  ))}
+                </select>
+              )}
+              {hwClassId
+                ? <HomeworkTab classId={hwClassId} studentId={child.id} />
+                : <p style={{ color: C.muted, fontSize: '.82rem', textAlign: 'center' }}>Con chưa tham gia lớp nào.</p>
+              }
+            </div>
+          )}
+
+          {/* Tab: Kết quả */}
+          {innerTab === 'scores' && (
+          <>
           {child.classes.length === 0 ? (
             <p style={{ color: C.muted, fontSize: '.82rem', textAlign: 'center' }}>Con chưa tham gia lớp nào.</p>
           ) : (
@@ -135,6 +180,8 @@ function ChildCard({ child, onUnlink }: { child: Child; onUnlink: () => void }) 
           >
             Hủy kết nối tài khoản này
           </button>
+          </>
+          )}
         </div>
       )}
     </div>

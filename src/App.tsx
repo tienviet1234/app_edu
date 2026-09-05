@@ -7,6 +7,7 @@ import { ROLE_LABELS } from '@/types/auth'
 import { ClassesScreen } from '@/features/classes/ClassesScreen'
 import { DashboardScreen } from '@/features/dashboard/DashboardScreen'
 import { EntryScreen } from '@/features/entry/EntryScreen'
+import { HomeworkScreen } from '@/features/entry/HomeworkScreen'
 import { LeaderboardScreen } from '@/features/leaderboard/LeaderboardScreen'
 import { LearnScreen } from '@/features/learn/LearnScreen'
 import { NotificationsPage } from '@/features/notifications/NotificationsPage'
@@ -27,6 +28,7 @@ import type { AppData } from '@/types'
 const ALL_TABS = [
   { key: 'dashboard', label: 'Tổng quan', icon: '📋', roles: ['teacher', 'admin'] },
   { key: 'entry', label: 'Nhập điểm', icon: '✏️', roles: ['teacher', 'admin'] },
+  { key: 'homework', label: 'Bài tập', icon: '📝', roles: ['teacher', 'admin'] },
   { key: 'my-scores', label: 'Điểm của tôi', icon: '📊', roles: ['student'] },
   { key: 'board', label: 'Xếp hạng', icon: '🏆', roles: ['teacher', 'admin', 'student'] },
   { key: 'report', label: 'Báo cáo', icon: '📊', roles: ['teacher', 'admin'] },
@@ -100,24 +102,43 @@ export default function App() {
         fontFamily: "'Be Vietnam Pro', 'Segoe UI', system-ui, sans-serif",
       }}
     >
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;800;900&display=swap');`}</style>
-
-      <header style={{ background: C.board, color: '#fff', paddingTop: 'env(safe-area-inset-top)' }}>
-        <div className="mx-auto max-w-6xl px-4 py-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="hidden sm:block">
-              <div className="text-xs uppercase tracking-widest opacity-60">Trung tâm Anh ngữ</div>
-              <div className="text-lg font-black leading-tight">
-                Hệ thống quản lý chất lượng học tập
+      <header
+        style={{
+          background: 'linear-gradient(160deg, #1E3A8A 0%, #172d77 100%)',
+          color: '#fff',
+          paddingTop: 'env(safe-area-inset-top)',
+          boxShadow: '0 2px 16px 0 rgb(0 0 0 / 0.18)',
+        }}
+      >
+        <div className="mx-auto max-w-6xl px-4 pt-3 pb-0">
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Logo */}
+            <div className="flex items-center gap-2.5 shrink-0">
+              <div
+                className="flex h-9 w-9 items-center justify-center rounded-xl text-xs font-black tracking-wider shrink-0"
+                style={{
+                  background: C.gold,
+                  color: '#1C0F00',
+                  boxShadow: '0 2px 8px 0 rgb(245 158 11 / 0.35)',
+                }}
+              >
+                EDU
+              </div>
+              <div className="hidden sm:block">
+                <div className="text-xs uppercase tracking-widest" style={{ color: 'rgb(255 255 255 / 0.50)' }}>
+                  Trung tâm Anh ngữ
+                </div>
+                <div className="text-sm font-black leading-tight" style={{ color: '#fff' }}>
+                  Hệ thống quản lý chất lượng
+                </div>
               </div>
             </div>
-            <div className="text-base font-black sm:hidden">LMS ⭐</div>
 
             <select
               value={currentClassIndex}
               onChange={(x) => setCurrentClass(Number(x.target.value))}
               className="ml-auto rounded-xl px-3 py-2 text-sm font-bold"
-              style={{ background: '#ffffff1a', color: '#fff', border: '1px solid #ffffff33' }}
+              style={{ background: 'rgb(255 255 255 / 0.12)', color: '#fff', border: '1px solid rgb(255 255 255 / 0.20)' }}
             >
               {data.classes.map((c, i) => (
                 <option key={c.id} value={i} style={{ color: '#000' }}>
@@ -129,28 +150,29 @@ export default function App() {
             {user?.role === 'student' ? (
               <button
                 onClick={() => navigate('/app/join')}
-                className="rounded-xl px-3 py-2 text-sm font-bold"
-                style={{ background: C.gold, color: '#2A1F05' }}
+                className="rounded-xl px-3 py-2 text-sm font-bold transition-all hover:brightness-[0.92] active:scale-[0.97]"
+                style={{ background: C.gold, color: '#2A1F05', boxShadow: '0 1px 4px 0 rgb(245 158 11 / 0.30)' }}
               >
                 + Tham gia lớp
               </button>
             ) : (
               <button
                 onClick={() => setTab('classes')}
-                className="rounded-xl px-3 py-2 text-sm font-bold"
-                style={{ background: C.gold, color: '#2A1F05' }}
+                className="rounded-xl px-3 py-2 text-sm font-bold transition-all hover:brightness-[0.92] active:scale-[0.97]"
+                style={{ background: C.gold, color: '#2A1F05', boxShadow: '0 1px 4px 0 rgb(245 158 11 / 0.30)' }}
               >
                 + Thêm lớp
               </button>
             )}
-            <span className="text-xs opacity-70">{saving}</span>
+
+            {saving && <span className="text-xs" style={{ color: 'rgb(255 255 255 / 0.55)' }}>{saving}</span>}
 
             {user && <NotificationBell />}
 
             {user?.role === 'admin' && (
               <button
                 onClick={() => navigate('/admin')}
-                className="rounded-xl px-3 py-1.5 text-xs font-bold"
+                className="rounded-xl px-3 py-1.5 text-xs font-bold transition-all hover:brightness-[0.92]"
                 style={{ background: C.gold, color: '#2A1F05' }}
               >
                 Admin
@@ -158,7 +180,10 @@ export default function App() {
             )}
 
             {user && (
-              <div className="flex items-center gap-2 rounded-xl px-3 py-1.5" style={{ background: '#ffffff14' }}>
+              <div
+                className="flex items-center gap-2 rounded-xl px-3 py-1.5"
+                style={{ background: 'rgb(255 255 255 / 0.10)', border: '1px solid rgb(255 255 255 / 0.12)' }}
+              >
                 <button
                   onClick={() => setProfileOpen(true)}
                   className="text-right hover:opacity-80 transition"
@@ -167,12 +192,15 @@ export default function App() {
                   <div className="text-xs font-bold leading-tight">
                     {user.avatar ? `${user.avatar} ` : ''}{user.name}
                   </div>
-                  <div className="text-xs opacity-60">{ROLE_LABELS[user.role]}</div>
+                  <div className="text-xs" style={{ color: 'rgb(255 255 255 / 0.55)' }}>
+                    {ROLE_LABELS[user.role]}
+                  </div>
                 </button>
+                <div style={{ width: 1, height: 24, background: 'rgb(255 255 255 / 0.15)' }} />
                 <button
                   onClick={() => logout()}
-                  className="rounded-lg px-2 py-1 text-xs font-semibold opacity-70 transition hover:opacity-100"
-                  style={{ background: '#ffffff20', color: '#fff' }}
+                  className="rounded-lg px-2 py-1 text-xs font-semibold transition hover:opacity-100"
+                  style={{ color: 'rgb(255 255 255 / 0.65)' }}
                   title="Đăng xuất"
                 >
                   Thoát
@@ -181,16 +209,19 @@ export default function App() {
             )}
           </div>
 
-          {/* Desktop tabs */}
-          <nav className="mt-3 hidden gap-1 pb-1 sm:flex">
+          {/* Desktop tabs — underline style */}
+          <nav className="mt-3 hidden gap-0.5 sm:flex">
             {TABS.map((t) => (
               <button
                 key={t.key}
                 onClick={() => setTab(t.key)}
-                className="whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-semibold"
+                className="relative whitespace-nowrap px-3.5 py-2.5 text-sm font-semibold transition-all"
                 style={{
-                  background: activeTab === t.key ? C.gold : 'transparent',
-                  color: activeTab === t.key ? '#2A1F05' : '#ffffffcc',
+                  color: activeTab === t.key ? '#fff' : 'rgb(255 255 255 / 0.58)',
+                  borderBottom: activeTab === t.key
+                    ? `2.5px solid ${C.gold}`
+                    : '2.5px solid transparent',
+                  background: 'transparent',
                 }}
               >
                 {t.label}
@@ -198,20 +229,22 @@ export default function App() {
             ))}
           </nav>
 
-          {/* Mobile tabs — horizontal scroll */}
+          {/* Mobile tabs — horizontal scroll, icon + label */}
           <div className="mt-2 -mx-4 overflow-x-auto sm:hidden">
-            <nav className="flex gap-1 px-4 pb-1" style={{ width: 'max-content' }}>
+            <nav className="flex gap-0 px-4" style={{ width: 'max-content' }}>
               {TABS.map((t) => (
                 <button
                   key={t.key}
                   onClick={() => setTab(t.key)}
-                  className="flex flex-col items-center gap-0.5 whitespace-nowrap rounded-xl px-3 py-1.5 text-xs font-semibold"
+                  className="flex flex-col items-center gap-0.5 whitespace-nowrap px-3 py-2 text-xs font-semibold transition-all"
                   style={{
-                    background: activeTab === t.key ? C.gold : 'transparent',
-                    color: activeTab === t.key ? '#2A1F05' : '#ffffffcc',
+                    color: activeTab === t.key ? '#fff' : 'rgb(255 255 255 / 0.55)',
+                    borderBottom: activeTab === t.key
+                      ? `2.5px solid ${C.gold}`
+                      : '2.5px solid transparent',
                   }}
                 >
-                  <span className="text-base leading-none">{t.icon}</span>
+                  <span className="text-sm leading-none">{t.icon}</span>
                   <span>{t.label}</span>
                 </button>
               ))}
@@ -241,6 +274,7 @@ export default function App() {
           <DashboardScreen data={data} setTab={setTab} setCurrent={setCurrentClass} />
         )}
         {cls && activeTab === 'entry' && <EntryScreen cls={cls} update={updateClass} />}
+        {cls && activeTab === 'homework' && <HomeworkScreen cls={cls} />}
         {activeTab === 'my-scores' && <StudentPortalScreen />}
         {cls && activeTab === 'board' && <LeaderboardScreen cls={cls} update={updateClass} userId={user?.role === 'student' ? user.id : undefined} />}
         {cls && activeTab === 'report' && <ReportScreen cls={cls} update={updateClass} />}
