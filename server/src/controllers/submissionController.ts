@@ -14,6 +14,7 @@ import {
 import { ok, created } from '../utils/response.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
 import type { AuthRequest } from '../middleware/auth.js'
+import { gradeQuiz } from '../services/quizGrading.js'
 
 // Multer: lưu trong memory, giới hạn 80MB (video đã nén 360p/5 phút)
 export const upload = multer({
@@ -94,6 +95,52 @@ export const createSubmission = asyncHandler(async (req: Request, res: Response)
       teacherScore: undefined,
       reviewedAt: undefined,
       reviewedBy: undefined,
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true },
+  )
+
+  const { videoKey: _vk, ...safe } = submission.toObject()
+  created(res, safe)
+})
+
+/** POST /api/submissions/quiz — nộp bài quiz (JSON), tự động chấm điểm ngay */
+export const submitQuiz = asyncHandler(async (req: Request, res: Response) => {
+  const authReq = req as AuthRequest
+  const { assignmentId, studentId, classId, answers: rawAnswers } = req.body as {
+    assignmentId?: string
+    studentId?: string
+    classId?: string
+    answers?: Record<string, unknown>
+  }
+
+  if (!assignmentId || !studentId || !classId || !rawAnswers) {
+    res.status(400).json({ success: false, message: 'Thiếu assignmentId / studentId / classId / answers' })
+    return
+  }
+
+  const assignment = await Assignment.findById(assignmentId)
+  if (!assignment || !assignment.isActive) {
+    res.status(404).json({ success: false, message: 'Bài tập không tồn tại' })
+    return
+  }
+  if (assignment.submitType !== 'quiz' || !assignment.questions?.length) {
+    res.status(400).json({ success: false, message: 'Bài tập này không phải dạng quiz' })
+    return
+  }
+
+  const { answers, score } = gradeQuiz(assignment.questions, rawAnswers)
+
+  const submission = await Submission.findOneAndUpdate(
+    { assignmentId, studentId },
+    {
+      assignmentId,
+      classId,
+      studentId,
+      submittedBy: authReq.userId,
+      answers,
+      autoScore: score,
+      status: 'reviewed', // tự chấm xong, không cần giáo viên duyệt tay
+      reviewedAt: new Date(),
     },
     { upsert: true, new: true, setDefaultsOnInsert: true },
   )

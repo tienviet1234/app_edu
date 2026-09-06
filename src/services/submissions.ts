@@ -7,6 +7,13 @@ export interface PhotoItem {
 
 export type SubmissionStatus = 'submitted' | 'reviewed'
 
+export interface QuizAnswer {
+  questionId: string
+  value: number[] | string | boolean | string[]
+  correct: boolean
+  correctText?: string
+}
+
 export interface Submission {
   _id: string
   assignmentId: string
@@ -14,6 +21,8 @@ export interface Submission {
   studentId: string | { _id: string; name: string }
   submittedBy: string
   photos: PhotoItem[]
+  answers?: QuizAnswer[]
+  autoScore?: number
   status: SubmissionStatus
   teacherComment?: string
   teacherScore?: number
@@ -53,6 +62,15 @@ export const submissionService = {
       })
       .then((r) => r.data.data)
   },
+
+  /** Nộp bài quiz (JSON), tự động chấm điểm ngay */
+  submitQuiz: (data: {
+    assignmentId: string
+    classId: string
+    studentId: string
+    answers: Record<string, unknown>
+  }): Promise<Submission> =>
+    api.post('/submissions/quiz', data).then((r) => r.data.data),
 
   /** Lấy presigned URL xem video (hết hạn 1 giờ) */
   getVideoUrl: (submissionId: string): Promise<string> =>

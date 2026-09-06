@@ -1,31 +1,37 @@
 import { useState } from 'react'
 import { C } from '@/constants/colors'
 import { Btn } from '@/components/atoms/Btn'
-import { assignmentService } from '@/services/assignments'
+import { assignmentService, type AssignmentSubmitType } from '@/services/assignments'
+import { QuestionBuilder } from './QuestionBuilder'
+import type { Question } from '@/types/quiz'
 
 interface Props {
   classId: string
+  className?: string
+  teacherName?: string
   sessionId?: string
   onClose: () => void
   onCreated: () => void
 }
 
-export function AssignHomeworkModal({ classId, sessionId, onClose, onCreated }: Props) {
+export function AssignHomeworkModal({ classId, className, teacherName, sessionId, onClose, onCreated }: Props) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [dueDate, setDueDate] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() + 7)
     return d.toISOString().slice(0, 10)
   })
-  const [submitType, setSubmitType] = useState<'photo' | 'video' | 'both'>('both')
+  const [submitType, setSubmitType] = useState<AssignmentSubmitType>('both')
   const [scriptText, setScriptText] = useState('')
   const [maxPhotos, setMaxPhotos] = useState(3)
+  const [questions, setQuestions] = useState<Question[]>([])
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!title.trim()) { setErr('Vui lòng nhập tiêu đề bài tập'); return }
+    if (submitType === 'quiz' && questions.length === 0) { setErr('Vui lòng thêm ít nhất 1 câu hỏi'); return }
     setSaving(true); setErr('')
     try {
       await assignmentService.create({
@@ -36,6 +42,7 @@ export function AssignHomeworkModal({ classId, sessionId, onClose, onCreated }: 
         submitType,
         scriptText: scriptText.trim() || undefined,
         maxPhotos,
+        questions: submitType === 'quiz' ? questions : undefined,
       })
       onCreated()
     } catch {
@@ -47,11 +54,20 @@ export function AssignHomeworkModal({ classId, sessionId, onClose, onCreated }: 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgb(0 0 0 / 0.45)' }}>
-      <div className="w-full max-w-lg rounded-2xl p-6" style={{ background: '#fff', boxShadow: '0 20px 48px -8px rgb(0 0 0 / 0.28)' }}>
-        <div className="mb-4 flex items-center justify-between">
+      <div
+        className="w-full max-w-lg overflow-y-auto rounded-2xl p-6"
+        style={{ background: '#fff', boxShadow: '0 20px 48px -8px rgb(0 0 0 / 0.28)', maxHeight: '90vh' }}
+      >
+        <div className="mb-1 flex items-center justify-between">
           <h2 className="text-lg font-black" style={{ color: C.ink }}>Giao bài tập</h2>
           <button onClick={onClose} className="text-xl font-bold" style={{ color: C.muted }}>✕</button>
         </div>
+        {(className || teacherName) && (
+          <div className="mb-4 flex flex-wrap gap-x-3 gap-y-0.5 text-sm" style={{ color: C.muted }}>
+            {className && <span>🏫 Lớp: <b style={{ color: C.board }}>{className}</b></span>}
+            {teacherName && <span>👩‍🏫 GV: <b style={{ color: C.ink }}>{teacherName}</b></span>}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {err && (
@@ -81,7 +97,7 @@ export function AssignHomeworkModal({ classId, sessionId, onClose, onCreated }: 
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className={submitType === 'quiz' ? '' : 'grid grid-cols-2 gap-3'}>
             <div>
               <label className="mb-1 block text-sm font-semibold" style={{ color: C.ink }}>Hạn nộp</label>
               <input
@@ -90,21 +106,23 @@ export function AssignHomeworkModal({ classId, sessionId, onClose, onCreated }: 
                 style={{ border: `1.5px solid ${C.line}` }}
               />
             </div>
-            <div>
-              <label className="mb-1 block text-sm font-semibold" style={{ color: C.ink }}>Số ảnh tối đa</label>
-              <input
-                type="number" min={1} max={10} value={maxPhotos}
-                onChange={(e) => setMaxPhotos(Number(e.target.value))}
-                className="w-full rounded-xl px-3 py-2.5 text-sm"
-                style={{ border: `1.5px solid ${C.line}` }}
-              />
-            </div>
+            {submitType !== 'quiz' && (
+              <div>
+                <label className="mb-1 block text-sm font-semibold" style={{ color: C.ink }}>Số ảnh tối đa</label>
+                <input
+                  type="number" min={1} max={10} value={maxPhotos}
+                  onChange={(e) => setMaxPhotos(Number(e.target.value))}
+                  className="w-full rounded-xl px-3 py-2.5 text-sm"
+                  style={{ border: `1.5px solid ${C.line}` }}
+                />
+              </div>
+            )}
           </div>
 
           <div>
             <label className="mb-1.5 block text-sm font-semibold" style={{ color: C.ink }}>Loại nộp bài</label>
-            <div className="grid grid-cols-3 gap-2">
-              {(['photo', 'video', 'both'] as const).map((t) => (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {(['photo', 'video', 'both', 'quiz'] as const).map((t) => (
                 <button
                   key={t} type="button"
                   onClick={() => setSubmitType(t)}
@@ -115,11 +133,18 @@ export function AssignHomeworkModal({ classId, sessionId, onClose, onCreated }: 
                     border: `1.5px solid ${submitType === t ? C.board : C.line}`,
                   }}
                 >
-                  {t === 'photo' ? '📷 Ảnh' : t === 'video' ? '🎥 Video' : '📷+🎥 Cả hai'}
+                  {t === 'photo' ? '📷 Ảnh' : t === 'video' ? '🎥 Video' : t === 'both' ? '📷+🎥 Cả hai' : '✅ Trắc nghiệm'}
                 </button>
               ))}
             </div>
           </div>
+
+          {submitType === 'quiz' && (
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold" style={{ color: C.ink }}>Câu hỏi</label>
+              <QuestionBuilder questions={questions} onChange={setQuestions} />
+            </div>
+          )}
 
           {(submitType === 'video' || submitType === 'both') && (
             <div>

@@ -1,6 +1,18 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 
-export type SubmitType = 'photo' | 'video' | 'both'
+export type SubmitType = 'photo' | 'video' | 'both' | 'quiz'
+export type QuestionType = 'mcq' | 'fill' | 'truefalse' | 'match'
+
+export interface IQuestion {
+  id: string
+  type: QuestionType
+  text?: string                    // đề bài (mcq, fill, truefalse)
+  options?: string[]               // mcq: các lựa chọn
+  correctIndexes?: number[]        // mcq: chỉ số đáp án đúng (hỗ trợ nhiều đáp án đúng)
+  acceptedAnswers?: string[]       // fill: các đáp án được chấp nhận
+  correctAnswer?: boolean          // truefalse
+  pairs?: { left: string; right: string }[] // match
+}
 
 export interface IAssignment extends Document {
   classId: Types.ObjectId
@@ -12,10 +24,28 @@ export interface IAssignment extends Document {
   submitType: SubmitType
   scriptText?: string             // script mẫu để giáo viên so sánh (dùng cho AI sau này)
   maxPhotos: number
+  questions?: IQuestion[]         // dùng khi submitType = 'quiz'
   isActive: boolean
   createdAt: Date
   updatedAt: Date
 }
+
+const QuestionSchema = new Schema<IQuestion>(
+  {
+    id:             { type: String, required: true },
+    type:           { type: String, enum: ['mcq', 'fill', 'truefalse', 'match'], required: true },
+    text:           { type: String, maxlength: 1000 },
+    options:        { type: [String], default: undefined },
+    correctIndexes: { type: [Number], default: undefined },
+    acceptedAnswers:{ type: [String], default: undefined },
+    correctAnswer:  { type: Boolean },
+    pairs:          {
+      type: [{ left: String, right: String, _id: false }],
+      default: undefined,
+    },
+  },
+  { _id: false },
+)
 
 const AssignmentSchema = new Schema<IAssignment>(
   {
@@ -25,9 +55,10 @@ const AssignmentSchema = new Schema<IAssignment>(
     title:      { type: String, required: true, trim: true, maxlength: 200 },
     description:{ type: String, trim: true, maxlength: 2000 },
     dueDate:    { type: Date, required: true },
-    submitType: { type: String, enum: ['photo', 'video', 'both'], default: 'both' },
+    submitType: { type: String, enum: ['photo', 'video', 'both', 'quiz'], default: 'both' },
     scriptText: { type: String, maxlength: 5000 },
     maxPhotos:  { type: Number, default: 3, min: 1, max: 10 },
+    questions:  { type: [QuestionSchema], default: undefined },
     isActive:   { type: Boolean, default: true },
   },
   { timestamps: true },

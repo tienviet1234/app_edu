@@ -2,6 +2,7 @@ import { Router } from 'express'
 import {
   listSubmissions,
   createSubmission,
+  submitQuiz,
   getVideoUrl,
   reviewSubmission,
   deleteSubmission,
@@ -15,6 +16,7 @@ submissionRouter.use(authenticate)
 
 submissionRouter.get('/', listSubmissions)
 submissionRouter.post('/', upload.array('files', 4), createSubmission)
+submissionRouter.post('/quiz', submitQuiz)
 submissionRouter.get('/:id/video-url', getVideoUrl)
 submissionRouter.put('/:id/review', authorize('teacher'), reviewSubmission)
 submissionRouter.delete('/:id', deleteSubmission)

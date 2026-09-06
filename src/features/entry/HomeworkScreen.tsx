@@ -24,7 +24,12 @@ export function HomeworkScreen({ cls }: HomeworkScreenProps) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-black" style={{ color: C.ink }}>Giao bài tập — {cls.name}</h1>
+        <div>
+          <h1 className="text-lg font-black" style={{ color: C.ink }}>🏫 {cls.name}</h1>
+          {cls.teacher && (
+            <div className="text-xs" style={{ color: C.muted }}>👩‍🏫 GV: {cls.teacher}</div>
+          )}
+        </div>
         <Btn kind="solid" onClick={() => setAssignModal(true)}>+ Giao bài tập</Btn>
       </div>
 
@@ -33,6 +38,8 @@ export function HomeworkScreen({ cls }: HomeworkScreenProps) {
       {assignModal && (
         <AssignHomeworkModal
           classId={cls.id}
+          className={cls.name}
+          teacherName={cls.teacher}
           onClose={() => setAssignModal(false)}
           onCreated={() => setAssignModal(false)}
         />

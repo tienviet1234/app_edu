@@ -97,7 +97,12 @@ function ChildCard({ child, onUnlink }: { child: Child; onUnlink: () => void }) 
                 </select>
               )}
               {hwClassId
-                ? <HomeworkTab classId={hwClassId} studentId={child.id} />
+                ? <HomeworkTab
+                    classId={hwClassId}
+                    studentId={child.id}
+                    className={child.classes.find((c) => c.id === hwClassId)?.name}
+                    teacherName={child.classes.find((c) => c.id === hwClassId)?.teacher}
+                  />
                 : <p style={{ color: C.muted, fontSize: '.82rem', textAlign: 'center' }}>Con chưa tham gia lớp nào.</p>
               }
             </div>

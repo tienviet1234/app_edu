@@ -1,4 +1,7 @@
 import { api } from '@/utils/api'
+import type { Question, QuestionSafe } from '@/types/quiz'
+
+export type AssignmentSubmitType = 'photo' | 'video' | 'both' | 'quiz'
 
 export interface Assignment {
   _id: string
@@ -8,9 +11,10 @@ export interface Assignment {
   title: string
   description?: string
   dueDate: string
-  submitType: 'photo' | 'video' | 'both'
+  submitType: AssignmentSubmitType
   scriptText?: string
   maxPhotos: number
+  questions?: Question[] | QuestionSafe[]  // full cho giáo viên, safe (ẩn đáp án) cho học sinh/phụ huynh
   isActive: boolean
   createdAt: string
 }
@@ -40,9 +44,10 @@ export const assignmentService = {
     title: string
     description?: string
     dueDate: string
-    submitType: 'photo' | 'video' | 'both'
+    submitType: AssignmentSubmitType
     scriptText?: string
     maxPhotos?: number
+    questions?: Question[]
   }): Promise<Assignment> =>
     api.post('/assignments', data).then((r) => r.data.data),
 

@@ -59,12 +59,15 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
   async function handleReview(subId: string) {
     setSaving(true)
     try {
+      const wasReviewed = submissions.find((s) => s._id === subId)?.status === 'reviewed'
       const updated = await submissionService.review(subId, {
         teacherComment: comment.trim() || undefined,
         teacherScore: score ? Number(score) : undefined,
       })
       setSubmissions((prev) => prev.map((s) => (s._id === subId ? { ...s, ...updated } : s)))
-      setStats((prev) => prev ? { ...prev, reviewed: prev.reviewed + 1, pending: prev.pending - 1 } : prev)
+      if (!wasReviewed) {
+        setStats((prev) => prev ? { ...prev, reviewed: prev.reviewed + 1, pending: prev.pending - 1 } : prev)
+      }
       setReviewing(null)
       setComment('')
       setScore('')
@@ -129,18 +132,58 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
               style={{ background: reviewed ? '#ECFDF5' : C.paper, borderBottom: `1px solid ${C.line}` }}
             >
               <div className="font-semibold text-sm" style={{ color: C.ink }}>{StudentName(sub)}</div>
-              <span
-                className="rounded-full px-2.5 py-0.5 text-xs font-semibold"
-                style={{
-                  background: reviewed ? '#059669' + '18' : C.gold + '22',
-                  color: reviewed ? '#059669' : '#7A5A05',
-                }}
-              >
-                {reviewed ? '✓ Đã duyệt' : '⏳ Chờ duyệt'}
-              </span>
+              <div className="flex items-center gap-1.5">
+                {selected.submitType === 'quiz' && (
+                  <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold" style={{ background: C.board2 + '18', color: C.board2 }}>
+                    🤖 Tự động chấm
+                  </span>
+                )}
+                <span
+                  className="rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                  style={{
+                    background: reviewed ? '#059669' + '18' : C.gold + '22',
+                    color: reviewed ? '#059669' : '#7A5A05',
+                  }}
+                >
+                  {reviewed ? '✓ Đã duyệt' : '⏳ Chờ duyệt'}
+                </span>
+              </div>
             </div>
 
             <div className="p-4 space-y-3">
+              {/* Kết quả quiz — tự động chấm */}
+              {selected.submitType === 'quiz' && (
+                <div className="space-y-2">
+                  <div className="text-center">
+                    <div className="text-xs font-bold uppercase" style={{ color: C.muted }}>Điểm tự động</div>
+                    <div className="text-4xl font-black" style={{ color: (sub.autoScore ?? 0) >= 80 ? '#059669' : (sub.autoScore ?? 0) >= 50 ? '#D97706' : C.red }}>
+                      {sub.autoScore ?? 0}<span className="text-xl">/100</span>
+                    </div>
+                  </div>
+                  {(selected.questions ?? []).map((q, qi) => {
+                    const a = sub.answers?.find((x) => x.questionId === q.id)
+                    if (!a) return null
+                    const label = q.type === 'match'
+                      ? 'Ghép cặp'
+                      : 'text' in q ? q.text : ''
+                    return (
+                      <div
+                        key={q.id}
+                        className="rounded-lg px-3 py-2 text-xs"
+                        style={{ background: a.correct ? '#F0FDF4' : C.red + '0d', border: `1px solid ${a.correct ? '#86EFAC' : C.red + '30'}` }}
+                      >
+                        <div className="font-semibold" style={{ color: C.ink }}>
+                          {a.correct ? '✅' : '❌'} Câu {qi + 1}: {label}
+                        </div>
+                        {!a.correct && a.correctText && (
+                          <div style={{ color: C.muted }}>Đáp án đúng: <b style={{ color: C.ink }}>{a.correctText}</b></div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
               {/* Ảnh */}
               {sub.photos.length > 0 && (
                 <div>
@@ -156,7 +199,7 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
               )}
 
               {/* Video */}
-              {selected.submitType !== 'photo' && (
+              {selected.submitType !== 'photo' && selected.submitType !== 'quiz' && (
                 <div>
                   <div className="mb-1.5 text-xs font-bold uppercase" style={{ color: C.muted }}>Video bài nói</div>
                   {videoUrls[sub._id] ? (
@@ -186,29 +229,33 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
               )}
 
               {/* Nhận xét cũ */}
-              {reviewed && (sub.teacherComment || sub.teacherScore != null) && (
+              {(sub.teacherComment || (selected.submitType !== 'quiz' && sub.teacherScore != null)) && (
                 <div className="rounded-xl px-3 py-2.5" style={{ background: '#F0FDF4', border: '1px solid #86EFAC' }}>
-                  {sub.teacherScore != null && <div className="text-sm font-black" style={{ color: '#059669' }}>Điểm: {sub.teacherScore}/100</div>}
+                  {selected.submitType !== 'quiz' && sub.teacherScore != null && (
+                    <div className="text-sm font-black" style={{ color: '#059669' }}>Điểm: {sub.teacherScore}/100</div>
+                  )}
                   {sub.teacherComment && <p className="text-xs mt-0.5" style={{ color: '#065F46' }}>💬 {sub.teacherComment}</p>}
                 </div>
               )}
 
               {/* Form duyệt */}
-              {!reviewed && !isReviewing && (
+              {!isReviewing && (!reviewed || (selected.submitType === 'quiz' && !sub.teacherComment)) && (
                 <Btn kind="solid" onClick={() => { setReviewing(sub._id); setComment(''); setScore('') }}>
-                  Duyệt bài + Ghi nhận xét
+                  {selected.submitType === 'quiz' ? 'Thêm nhận xét' : 'Duyệt bài + Ghi nhận xét'}
                 </Btn>
               )}
 
               {isReviewing && (
                 <div className="space-y-2 rounded-xl p-3" style={{ background: C.paper }}>
-                  <input
-                    type="number" min={0} max={100}
-                    value={score} onChange={(e) => setScore(e.target.value)}
-                    placeholder="Điểm (0–100, để trống nếu không chấm điểm)"
-                    className="w-full rounded-xl px-3 py-2 text-sm"
-                    style={{ border: `1px solid ${C.line}` }}
-                  />
+                  {selected.submitType !== 'quiz' && (
+                    <input
+                      type="number" min={0} max={100}
+                      value={score} onChange={(e) => setScore(e.target.value)}
+                      placeholder="Điểm (0–100, để trống nếu không chấm điểm)"
+                      className="w-full rounded-xl px-3 py-2 text-sm"
+                      style={{ border: `1px solid ${C.line}` }}
+                    />
+                  )}
                   <textarea
                     value={comment} onChange={(e) => setComment(e.target.value)}
                     placeholder="Nhận xét cho học sinh / phụ huynh..."
