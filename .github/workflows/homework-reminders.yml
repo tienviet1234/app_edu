@@ -1,0 +1,16 @@
+name: Homework Reminders
+
+on:
+  schedule:
+    - cron: '0 * * * *' # mỗi giờ, phút thứ 0
+  workflow_dispatch: {} # cho phép bấm chạy tay từ tab Actions để test
+
+jobs:
+  check-reminders:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gọi /api/cron/check-reminders
+        run: |
+          curl --fail --show-error --silent \
+            -X POST "${{ secrets.BACKEND_URL }}/api/cron/check-reminders" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}"

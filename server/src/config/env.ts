@@ -53,4 +53,7 @@ export const env = {
   R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY ?? '',
   R2_BUCKET_NAME: process.env.R2_BUCKET_NAME ?? '',
   R2_PUBLIC_URL: process.env.R2_PUBLIC_URL ?? '',
+
+  // Cron — secret dùng để xác thực GitHub Actions gọi /api/cron/*
+  CRON_SECRET: process.env.CRON_SECRET ?? '',
 } as const

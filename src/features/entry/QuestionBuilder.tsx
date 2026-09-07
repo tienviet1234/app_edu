@@ -270,17 +270,22 @@ export function QuestionBuilder({ questions, onChange }: Props) {
       ))}
 
       {/* Thêm câu hỏi mới bằng form */}
-      <div className="flex flex-wrap gap-1.5">
-        {(Object.keys(TYPE_LABELS) as QuestionType[]).map((t) => (
-          <button
-            key={t}
-            onClick={() => add(t)}
-            className="rounded-lg px-2.5 py-1 text-xs font-semibold"
-            style={{ background: '#fff', border: `1px solid ${C.line}`, color: C.board }}
-          >
-            + {TYPE_LABELS[t]}
-          </button>
-        ))}
+      <div>
+        <div className="mb-1.5 text-xs font-bold" style={{ color: C.ink }}>
+          ➕ Thêm câu hỏi mới — chọn dạng:
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {(Object.keys(TYPE_LABELS) as QuestionType[]).map((t) => (
+            <button
+              key={t}
+              onClick={() => add(t)}
+              className="rounded-lg px-3 py-1.5 text-xs font-bold transition-all hover:brightness-[0.93]"
+              style={{ background: C.board, color: '#fff' }}
+            >
+              + {TYPE_LABELS[t]}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Chế độ dán cú pháp */}

@@ -5,6 +5,7 @@ import { assignmentService, type Assignment } from '@/services/assignments'
 import { submissionService, type Submission } from '@/services/submissions'
 import { SubmitHomeworkModal } from './SubmitHomeworkModal'
 import { QuizPlayer } from './QuizPlayer'
+import { viDateTime } from '@/utils/format'
 
 interface Props {
   classId: string
@@ -16,11 +17,14 @@ interface Props {
 function dueDateLabel(iso: string) {
   const d = new Date(iso)
   const now = new Date()
-  const diff = Math.ceil((d.getTime() - now.getTime()) / 86400000)
-  if (diff < 0) return { text: 'Đã hết hạn', color: C.red }
-  if (diff === 0) return { text: 'Hết hạn hôm nay', color: '#D97706' }
-  if (diff <= 2) return { text: `Còn ${diff} ngày`, color: '#D97706' }
-  return { text: `Còn ${diff} ngày`, color: C.muted }
+  const diffMs = d.getTime() - now.getTime()
+  const diffH = Math.round(diffMs / 3600000)
+  if (diffMs < 0) return { text: 'Đã hết hạn', color: C.red }
+  if (diffH < 1) return { text: 'Sắp hết hạn (dưới 1 giờ)', color: C.red }
+  if (diffH < 24) return { text: `Còn ${diffH} giờ`, color: '#D97706' }
+  const diffDays = Math.ceil(diffH / 24)
+  if (diffDays <= 2) return { text: `Còn ${diffDays} ngày`, color: '#D97706' }
+  return { text: `Còn ${diffDays} ngày`, color: C.muted }
 }
 
 export function HomeworkTab({ classId, studentId, className, teacherName }: Props) {
@@ -82,6 +86,7 @@ export function HomeworkTab({ classId, studentId, className, teacherName }: Prop
                 )}
                 <div className="mt-2 flex flex-wrap gap-2 text-xs">
                   <span style={{ color: due.color }}>⏰ {due.text}</span>
+                  <span style={{ color: C.muted }}>({viDateTime(a.dueDate)})</span>
                   <span style={{ color: C.muted }}>
                     {a.submitType === 'photo' ? '📷 Ảnh' : a.submitType === 'video' ? '🎥 Video' : a.submitType === 'quiz' ? '✅ Trắc nghiệm' : '📷+🎥 Cả hai'}
                   </span>

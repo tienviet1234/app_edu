@@ -3,6 +3,7 @@ import { C } from '@/constants/colors'
 import { Btn } from '@/components/atoms/Btn'
 import { assignmentService, type AssignmentSubmitType } from '@/services/assignments'
 import { QuestionBuilder } from './QuestionBuilder'
+import { toLocalDatetimeInput } from '@/utils/format'
 import type { Question } from '@/types/quiz'
 
 interface Props {
@@ -18,8 +19,8 @@ export function AssignHomeworkModal({ classId, className, teacherName, sessionId
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [dueDate, setDueDate] = useState(() => {
-    const d = new Date(); d.setDate(d.getDate() + 7)
-    return d.toISOString().slice(0, 10)
+    const d = new Date(); d.setDate(d.getDate() + 7); d.setHours(23, 59, 0, 0)
+    return toLocalDatetimeInput(d)
   })
   const [submitType, setSubmitType] = useState<AssignmentSubmitType>('both')
   const [scriptText, setScriptText] = useState('')
@@ -38,7 +39,8 @@ export function AssignHomeworkModal({ classId, className, teacherName, sessionId
         classId, sessionId,
         title: title.trim(),
         description: description.trim() || undefined,
-        dueDate,
+        // datetime-local không có timezone — convert theo giờ trình duyệt trước khi gửi lên server
+        dueDate: new Date(dueDate).toISOString(),
         submitType,
         scriptText: scriptText.trim() || undefined,
         maxPhotos,
@@ -99,9 +101,9 @@ export function AssignHomeworkModal({ classId, className, teacherName, sessionId
 
           <div className={submitType === 'quiz' ? '' : 'grid grid-cols-2 gap-3'}>
             <div>
-              <label className="mb-1 block text-sm font-semibold" style={{ color: C.ink }}>Hạn nộp</label>
+              <label className="mb-1 block text-sm font-semibold" style={{ color: C.ink }}>Hạn nộp (ngày + giờ)</label>
               <input
-                type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)}
+                type="datetime-local" value={dueDate} onChange={(e) => setDueDate(e.target.value)}
                 className="w-full rounded-xl px-3 py-2.5 text-sm"
                 style={{ border: `1.5px solid ${C.line}` }}
               />

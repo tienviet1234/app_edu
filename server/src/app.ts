@@ -22,6 +22,7 @@ import { pushRouter } from './routes/pushRoutes.js'
 import { scoreRouter } from './routes/scoreRoutes.js'
 import { assignmentRouter } from './routes/assignmentRoutes.js'
 import { submissionRouter } from './routes/submissionRoutes.js'
+import { cronRouter } from './routes/cronRoutes.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { notFound } from './utils/response.js'
 
@@ -50,6 +51,15 @@ app.use('/api/auth', rateLimit({
   message: { success: false, message: 'Quá nhiều yêu cầu. Vui lòng thử lại sau.' },
 }))
 
+// /api/cron không dùng JWT (gọi bởi GitHub Actions) — giới hạn chặt để chống dò secret
+app.use('/api/cron', rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Quá nhiều yêu cầu.' },
+}))
+
 app.get('/api/health', (_req, res) => {
   res.json({ success: true, data: { status: 'ok' } })
 })
@@ -75,6 +85,7 @@ app.use('/api/assignments', assignmentRouter)
 app.use('/api/submissions', submissionRouter)
 app.use('/api/users', userRouter)
 app.use('/api/push', pushRouter)
+app.use('/api/cron', cronRouter)
 
 app.use((_req, res) => {
   notFound(res, 'Route not found.')
