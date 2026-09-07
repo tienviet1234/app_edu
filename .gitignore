@@ -27,3 +27,7 @@ server/.env.local
 *.njsproj
 *.sln
 *.sw?
+
+# Claude Code — máy-cụ thể, không chia sẻ (skills/ vẫn được commit)
+.claude/settings.json
+.claude/settings.local.json

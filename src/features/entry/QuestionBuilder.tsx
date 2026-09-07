@@ -28,11 +28,47 @@ function EmptyFill(): FillQuestion { return { id: uid(), type: 'fill', text: '',
 function EmptyTF(): TrueFalseQuestion { return { id: uid(), type: 'truefalse', text: '', correctAnswer: true } }
 function EmptyMatch(): MatchQuestion { return { id: uid(), type: 'match', pairs: [{ left: '', right: '' }, { left: '', right: '' }] } }
 
+const GUIDE_ITEMS: { type: QuestionType; rules: string[] }[] = [
+  {
+    type: 'mcq',
+    rules: [
+      'Dùng khi có nhiều lựa chọn, học sinh chọn 1 (hoặc nhiều) đáp án đúng.',
+      'Form trực quan: tick vào ô ☑ trước lựa chọn đúng, có thể tick nhiều ô nếu câu có nhiều đáp án đúng.',
+      'Dán cú pháp: dòng đề bài bắt đầu "Câu N:", mỗi dòng sau là 1 lựa chọn. Đáp án đúng thêm "==" ngay trước, không có dấu cách. Mỗi câu cách nhau 1 dòng trống.',
+    ],
+  },
+  {
+    type: 'fill',
+    rules: [
+      'Dùng khi học sinh phải tự gõ câu trả lời (không có sẵn lựa chọn).',
+      'Form trực quan: viết câu có chữ "___" ở chỗ trống, rồi nhập đáp án đúng vào ô bên dưới.',
+      'Dán cú pháp: đặt đáp án trong {{ }}. Nếu chấp nhận nhiều cách viết đúng, cách nhau bởi dấu ";" — ví dụ {{Da Nang.;He lives in Da Nang.}}. Hệ thống không phân biệt hoa/thường và khoảng trắng thừa khi chấm.',
+    ],
+  },
+  {
+    type: 'truefalse',
+    rules: [
+      'Dùng cho câu khẳng định, học sinh chọn Đúng hoặc Sai.',
+      'Form trực quan: viết câu, bấm nút Đúng/Sai để chọn đáp án.',
+      'Dán cú pháp: dòng 1 là câu khẳng định, dòng 2 chỉ ghi "T" (đúng) hoặc "F" (sai). Mỗi câu cách nhau 1 dòng trống.',
+    ],
+  },
+  {
+    type: 'match',
+    rules: [
+      'Dùng khi cần ghép 2 vế tương ứng (câu hỏi—câu trả lời, từ—nghĩa...).',
+      'Form trực quan: nhập từng cặp vào 2 ô "Vế trái" / "Vế phải".',
+      'Dán cú pháp: mỗi dòng 1 cặp, viết "vế trái==vế phải". Cần ít nhất 2 cặp. Học sinh sẽ thấy vế phải bị xáo trộn ngẫu nhiên khi làm bài.',
+    ],
+  },
+]
+
 export function QuestionBuilder({ questions, onChange }: Props) {
   const [pasteType, setPasteType] = useState<QuestionType>('mcq')
   const [pasteText, setPasteText] = useState('')
   const [pasteErrors, setPasteErrors] = useState<string[]>([])
   const [showPaste, setShowPaste] = useState(false)
+  const [showGuide, setShowGuide] = useState(false)
 
   function update(id: string, fn: (q: Question) => Question) {
     onChange(questions.map((q) => (q.id === id ? fn(q) : q)))
@@ -56,6 +92,30 @@ export function QuestionBuilder({ questions, onChange }: Props) {
 
   return (
     <div className="space-y-3">
+      {/* Hướng dẫn cách nhập câu hỏi */}
+      <div className="rounded-xl" style={{ border: `1px solid ${C.board}30`, background: C.board + '08' }}>
+        <button
+          onClick={() => setShowGuide((s) => !s)}
+          className="flex w-full items-center gap-1.5 px-3 py-2 text-xs font-bold"
+          style={{ color: C.board }}
+        >
+          <span>{showGuide ? '▼' : '▶'}</span>
+          <span>❓ Hướng dẫn cách nhập từng dạng câu hỏi</span>
+        </button>
+        {showGuide && (
+          <div className="space-y-2.5 px-3 pb-3 text-xs">
+            {GUIDE_ITEMS.map((g) => (
+              <div key={g.type}>
+                <div className="mb-0.5 font-bold" style={{ color: C.ink }}>{TYPE_LABELS[g.type]}</div>
+                <ul className="ml-4 list-disc space-y-0.5" style={{ color: C.muted }}>
+                  {g.rules.map((r, i) => <li key={i}>{r}</li>)}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Danh sách câu hỏi hiện có */}
       {questions.map((q, i) => (
         <div key={q.id} className="rounded-xl p-3" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
