@@ -1,17 +1,24 @@
 import { useMemo } from 'react'
 import type { AppData } from '@/types'
-import { C } from '@/constants/colors'
+import { C, scoreColor } from '@/constants/colors'
 import { RUBRICS } from '@/constants/rubrics'
 import { round1 } from '@/utils/format'
 import { rankingOf } from '@/business/ranking'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
+import { ProgressBar } from '@/components/atoms/ProgressBar'
 import { isMongoid } from '@/utils/mongoid'
 
 interface DashboardScreenProps {
   data: AppData
   setTab: (tab: string) => void
   setCurrent: (i: number) => void
+}
+
+function attendColor(rate: number): string {
+  if (rate >= 90) return C.emerald
+  if (rate >= 70) return C.gold
+  return C.rose
 }
 
 export function DashboardScreen({ data, setTab, setCurrent }: DashboardScreenProps) {
@@ -64,49 +71,64 @@ export function DashboardScreen({ data, setTab, setCurrent }: DashboardScreenPro
     setTab(tab)
   }
 
+  const syncColor = summary.synced === 0 ? C.rose : summary.synced === data.classes.length ? C.board2 : C.gold
+
   return (
     <div className="space-y-4">
       {/* Summary tiles */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {[
-          { label: 'Lớp học', value: data.classes.length, color: C.board },
-          { label: 'Học sinh', value: summary.totalStudents, color: C.board },
-          { label: 'Buổi đã dạy', value: summary.totalSessions, color: C.board },
-          { label: 'Đồng bộ Cloud', value: summary.synced, color: summary.synced === data.classes.length ? C.board2 : C.muted },
-        ].map(({ label, value, color }) => (
-          <Card key={label} className="p-4">
-            <div className="text-3xl font-black tabular-nums" style={{ color }}>
-              {value}
+          { label: 'Lớp học', value: data.classes.length, icon: '🏫', sub: 'đang hoạt động', accent: C.board2 },
+          { label: 'Học sinh', value: summary.totalStudents, icon: '🎓', sub: 'đang theo học', accent: C.violet },
+          { label: 'Buổi đã dạy', value: summary.totalSessions, icon: '📅', sub: 'tổng cộng', accent: C.gold },
+          {
+            label: 'Đồng bộ Cloud', value: summary.synced, icon: '☁️',
+            sub: `${summary.synced}/${data.classes.length} lớp`, accent: syncColor,
+          },
+        ].map(({ label, value, icon, sub, accent }) => (
+          <Card key={label} className="p-4" accentTop={accent}>
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="text-3xl font-black tabular-nums" style={{ color: C.ink }}>
+                  {value}
+                </div>
+                <div className="mt-0.5 text-xs font-medium" style={{ color: C.muted }}>
+                  {label}
+                </div>
+              </div>
+              <div
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-base"
+                style={{ background: accent + '18' }}
+              >
+                {icon}
+              </div>
             </div>
-            <div className="mt-0.5 text-xs font-medium" style={{ color: C.muted }}>
-              {label}
+            <div className="mt-1.5 text-[11px]" style={{ color: C.muted }}>
+              {sub}
             </div>
           </Card>
         ))}
       </div>
 
-      {/* Due report alert */}
+      {/* Cần làm hôm nay */}
       {summary.dueClasses.length > 0 && (
-        <div
-          className="rounded-2xl p-4"
-          style={{ background: C.gold + '28', border: `1.5px solid ${C.gold}` }}
-        >
+        <Card className="p-4" accentTop={C.gold}>
           <div className="mb-2 text-sm font-bold" style={{ color: '#7A5A05' }}>
-            ⏰ Đến kỳ gửi báo cáo cho phụ huynh
+            🔔 Cần làm hôm nay — đến kỳ gửi báo cáo cho phụ huynh
           </div>
           <div className="flex flex-wrap gap-2">
             {summary.dueClasses.map(({ cls, i }) => (
               <button
                 key={cls.id}
                 onClick={() => go(i, 'report')}
-                className="rounded-xl px-4 py-1.5 text-sm font-bold"
+                className="rounded-xl px-4 py-1.5 text-sm font-bold transition-all hover:brightness-[0.93]"
                 style={{ background: C.gold, color: '#2A1F05' }}
               >
                 {cls.name}
               </button>
             ))}
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Class cards */}
@@ -122,11 +144,11 @@ export function DashboardScreen({ data, setTab, setCurrent }: DashboardScreenPro
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
           {summary.classCards.map(({ cls, i, avg, attendRate, dueReport, lowCount }) => (
-            <Card key={cls.id} className="overflow-hidden">
+            <Card key={cls.id} className="overflow-hidden" hoverable>
               {/* Class header */}
               <div
                 className="flex items-center justify-between px-4 py-3"
-                style={{ background: C.board, color: '#fff' }}
+                style={{ background: C.gradHeader, color: '#fff' }}
               >
                 <div>
                   <div className="font-bold leading-tight">{cls.name}</div>
@@ -138,10 +160,7 @@ export function DashboardScreen({ data, setTab, setCurrent }: DashboardScreenPro
                 <div className="text-right">
                   <div
                     className="text-2xl font-black tabular-nums"
-                    style={{
-                      color:
-                        avg >= 80 ? '#7EE8B4' : avg >= 65 ? '#fff' : '#FFB2A8',
-                    }}
+                    style={{ color: cls.sessions.length > 0 ? scoreColor(avg) : '#fff' }}
                   >
                     {cls.sessions.length > 0 ? round1(avg) : '—'}
                   </div>
@@ -157,7 +176,7 @@ export function DashboardScreen({ data, setTab, setCurrent }: DashboardScreenPro
                   {
                     label: 'Có mặt',
                     val: `${Math.round(attendRate)}%`,
-                    color: attendRate >= 90 ? C.board2 : attendRate >= 70 ? C.ink : C.red,
+                    color: attendColor(attendRate),
                   },
                 ].map(({ label, val, color }) => (
                   <div key={label} className="p-3 text-center">
@@ -185,7 +204,7 @@ export function DashboardScreen({ data, setTab, setCurrent }: DashboardScreenPro
                   {lowCount > 0 && (
                     <div
                       className="rounded-lg px-2 py-1 text-xs font-semibold"
-                      style={{ background: C.red + '18', color: C.red }}
+                      style={{ background: C.rose + '18', color: C.rose }}
                     >
                       ⚠ {lowCount} học sinh điểm dưới 70
                     </div>
@@ -195,29 +214,30 @@ export function DashboardScreen({ data, setTab, setCurrent }: DashboardScreenPro
 
               {/* Attendance bar */}
               {cls.sessions.length > 0 && (
-                <div className="px-4 pb-1">
-                  <div className="h-1 rounded-full overflow-hidden" style={{ background: C.line }}>
-                    <div
-                      className="h-full rounded-full transition-all"
-                      style={{
-                        width: `${attendRate}%`,
-                        background: attendRate >= 90 ? C.board2 : attendRate >= 70 ? C.gold : C.red,
-                      }}
-                    />
-                  </div>
+                <div className="flex items-center gap-2 px-4 pb-3">
+                  <ProgressBar
+                    value={attendRate}
+                    color={attendColor(attendRate)}
+                    height={8}
+                    animated
+                    className="flex-1"
+                  />
+                  <span className="text-xs font-bold tabular-nums" style={{ color: attendColor(attendRate) }}>
+                    {Math.round(attendRate)}%
+                  </span>
                 </div>
               )}
 
               {/* Actions */}
               <div className="flex gap-2 p-3">
                 <Btn kind="solid" className="flex-1" onClick={() => go(i, 'entry')}>
-                  Nhập điểm
+                  ✏️ Nhập điểm
                 </Btn>
-                <Btn kind="ghost" className="flex-1" onClick={() => go(i, 'board')}>
-                  Xếp hạng
+                <Btn kind="outline-primary" className="flex-1" onClick={() => go(i, 'board')}>
+                  🏆 Xếp hạng
                 </Btn>
                 <Btn kind="ghost" className="flex-1" onClick={() => go(i, 'report')}>
-                  Báo cáo
+                  📊 Báo cáo
                 </Btn>
               </div>
             </Card>

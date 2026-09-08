@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { ClassData, SessionEntry } from '@/types'
-import { C } from '@/constants/colors'
+import { C, scoreColor } from '@/constants/colors'
 import { ATTEND } from '@/constants/tags'
 import { getClassRubric } from '@/constants/rubrics'
 import { uid } from '@/utils/uid'
@@ -10,6 +10,7 @@ import { emptyEntry } from '@/business/seed'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { Pick } from '@/components/atoms/Pick'
+import { ProgressBar } from '@/components/atoms/ProgressBar'
 import { CompEditor } from '@/components/molecules/CompEditor'
 import { sessionService } from '@/services/sessions'
 import { scoreService } from '@/services/scores'
@@ -263,11 +264,21 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
             ☑ Chọn nhóm
           </button>
           <div className="ml-auto flex items-center gap-3 text-sm" style={{ color: C.muted }}>
-            {syncStatus === 'saving' && <span style={{ color: C.board2 }}>☁ Đang lưu...</span>}
-            {syncStatus === 'saved' && <span style={{ color: '#059669' }}>☁ Đã lưu</span>}
+            {syncStatus === 'saving' && <span style={{ color: C.board2 }}>⟳ Đang lưu...</span>}
+            {syncStatus === 'saved' && (
+              <span className="animate-slide-down" style={{ color: C.emerald }}>✓ Đã lưu</span>
+            )}
             {syncStatus === 'error' && <span style={{ color: C.red }}>⚠ Lỗi lưu</span>}
             <span>Đã nhập <b style={{ color: C.ink }}>{done}</b>/{cls.students.length}</span>
           </div>
+        </div>
+
+        {/* Progress indicator */}
+        <div className="mt-2 flex items-center gap-2">
+          <ProgressBar value={(done / Math.max(1, cls.students.length)) * 100} color={C.emerald} height={6} animated className="flex-1" />
+          <span className="shrink-0 text-xs font-bold tabular-nums" style={{ color: C.emerald }}>
+            {done}/{cls.students.length} · {Math.round((done / Math.max(1, cls.students.length)) * 100)}%
+          </span>
         </div>
 
         {/* Homework */}
@@ -353,24 +364,24 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
                     setCur(i)
                   }
                 }}
-                className="relative rounded-lg px-2 py-1 text-xs font-semibold"
+                className="relative rounded-lg px-2 py-1 text-xs font-semibold transition-all"
                 style={{
                   background: active
                     ? C.board
                     : inGroup
-                    ? '#10B98122'
+                    ? C.emerald + '33'
                     : t !== null
-                    ? C.board2 + '1A'
+                    ? C.emerald + '26'
                     : '#fff',
                   color: active
                     ? '#fff'
                     : inGroup
-                    ? '#059669'
+                    ? C.emerald
                     : t !== null
-                    ? C.board2
+                    ? C.emerald
                     : C.muted,
-                  border: `1px solid ${active ? C.board : inGroup ? '#10B981' : C.line}`,
-                  outline: active && groupMode ? `2px solid #10B981` : undefined,
+                  border: `1px solid ${active ? C.board : inGroup ? C.emerald : t !== null ? C.emerald + '4D' : C.line}`,
+                  outline: active && groupMode ? `2px solid ${C.emerald}` : undefined,
                 }}
               >
                 {groupMode && (
@@ -435,7 +446,11 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
         <Card>
           <div
             className="flex items-center justify-between px-4 py-3"
-            style={{ background: groupMode ? '#10B981' : C.board, color: '#fff', borderRadius: '14px 14px 0 0' }}
+            style={{
+              background: groupMode ? C.emerald : e.attendance === 'absent' ? C.rose : C.board,
+              color: '#fff',
+              borderRadius: '14px 14px 0 0',
+            }}
           >
             <div>
               <div className="text-xs opacity-70">
@@ -449,7 +464,7 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
               <div className="text-xs opacity-70">Tổng buổi này</div>
               <div
                 className="text-3xl font-black"
-                style={{ fontVariantNumeric: 'tabular-nums' }}
+                style={{ fontVariantNumeric: 'tabular-nums', color: total === null ? '#fff' : scoreColor(total) }}
               >
                 {total === null ? '—' : total}
               </div>
@@ -564,6 +579,7 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
               ) : (
                 <Btn
                   kind="gold"
+                  size="lg"
                   className="flex-1"
                   onClick={() => {
                     syncScore(st.id, e)

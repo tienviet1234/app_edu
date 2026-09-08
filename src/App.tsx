@@ -18,6 +18,8 @@ import { ReportScreen } from '@/features/report/ReportScreen'
 import { StudentScreen } from '@/features/student/StudentScreen'
 import { StudentPortalScreen } from '@/features/student/StudentPortalScreen'
 import { NotificationBell } from '@/components/molecules/NotificationBell'
+import { Sidebar } from '@/components/molecules/Sidebar'
+import { BottomNav } from '@/components/molecules/BottomNav'
 import { useAppStore } from '@/store/appStore'
 import { useAuthStore } from '@/store/authStore'
 import { useClassStudents, usePwaInstall } from '@/hooks'
@@ -40,6 +42,26 @@ const ALL_TABS = [
   { key: 'my-child', label: 'Con tôi', icon: '👶', roles: ['parent'] },
 ]
 
+// Ưu tiên hiển thị trực tiếp trên Bottom Nav (mobile) — tối đa 4 tab, còn lại vào "☰ Thêm"
+const MOBILE_PRIMARY_KEYS: Record<string, string[]> = {
+  teacher: ['dashboard', 'entry', 'board', 'homework'],
+  admin: ['dashboard', 'entry', 'board', 'homework'],
+  student: ['my-scores', 'board', 'learn', 'notifications'],
+  parent: ['my-child'],
+}
+
+function splitMobileTabs(tabs: typeof ALL_TABS, role: string | undefined) {
+  const priority = role ? MOBILE_PRIMARY_KEYS[role] : undefined
+  if (priority) {
+    const primary = priority
+      .map((k) => tabs.find((t) => t.key === k))
+      .filter((t): t is typeof ALL_TABS[number] => !!t)
+    const overflow = tabs.filter((t) => !priority.includes(t.key))
+    return { primary, overflow }
+  }
+  return { primary: tabs.slice(0, 4), overflow: tabs.slice(4) }
+}
+
 export default function App() {
   const {
     data, currentClassIndex, activeTab, saving,
@@ -53,6 +75,7 @@ export default function App() {
   const [profileOpen, setProfileOpen] = useState(false)
 
   const TABS = ALL_TABS.filter((t) => !user || t.roles.includes(user.role))
+  const { primary: mobilePrimary, overflow: mobileOverflow } = splitMobileTabs(TABS, user?.role)
 
   // Re-init when user changes so each account gets its own scoped data
   useEffect(() => { init(user?.id) }, [init, user?.id])
@@ -103,153 +126,117 @@ export default function App() {
       }}
     >
       <header
+        className="sticky top-0 z-20"
         style={{
           background: 'linear-gradient(160deg, #1E3A8A 0%, #172d77 100%)',
           color: '#fff',
           paddingTop: 'env(safe-area-inset-top)',
-          boxShadow: '0 2px 16px 0 rgb(0 0 0 / 0.18)',
+          boxShadow: 'var(--shadow-header)',
         }}
       >
-        <div className="mx-auto max-w-6xl px-4 pt-3 pb-0">
-          <div className="flex flex-wrap items-center gap-2.5">
-            {/* Logo */}
-            <div className="flex items-center gap-2.5 shrink-0">
-              <div
-                className="flex h-9 w-9 items-center justify-center rounded-xl text-xs font-black tracking-wider shrink-0"
-                style={{
-                  background: C.gold,
-                  color: '#1C0F00',
-                  boxShadow: '0 2px 8px 0 rgb(245 158 11 / 0.35)',
-                }}
-              >
-                EDU
+        <div className="flex h-14 items-center gap-2.5 px-4">
+          {/* Logo */}
+          <div className="flex items-center gap-2.5 shrink-0">
+            <div
+              className="flex h-9 w-9 items-center justify-center rounded-xl text-xs font-black tracking-wider shrink-0"
+              style={{
+                background: C.gold,
+                color: '#1C0F00',
+                boxShadow: '0 2px 8px 0 rgb(245 158 11 / 0.35)',
+              }}
+            >
+              EDU
+            </div>
+            <div className="hidden sm:block">
+              <div className="text-xs uppercase tracking-widest" style={{ color: 'rgb(255 255 255 / 0.50)' }}>
+                Trung tâm Anh ngữ
               </div>
-              <div className="hidden sm:block">
-                <div className="text-xs uppercase tracking-widest" style={{ color: 'rgb(255 255 255 / 0.50)' }}>
-                  Trung tâm Anh ngữ
-                </div>
-                <div className="text-sm font-black leading-tight" style={{ color: '#fff' }}>
-                  Hệ thống quản lý chất lượng
-                </div>
+              <div className="text-sm font-black leading-tight" style={{ color: '#fff' }}>
+                Hệ thống quản lý chất lượng
               </div>
             </div>
-
-            <select
-              value={currentClassIndex}
-              onChange={(x) => setCurrentClass(Number(x.target.value))}
-              className="ml-auto rounded-xl px-3 py-2 text-sm font-bold"
-              style={{ background: 'rgb(255 255 255 / 0.12)', color: '#fff', border: '1px solid rgb(255 255 255 / 0.20)' }}
-            >
-              {data.classes.map((c, i) => (
-                <option key={c.id} value={i} style={{ color: '#000' }}>
-                  {c.name} · {c.students.length} HS
-                </option>
-              ))}
-            </select>
-
-            {user?.role === 'student' ? (
-              <button
-                onClick={() => navigate('/app/join')}
-                className="rounded-xl px-3 py-2 text-sm font-bold transition-all hover:brightness-[0.92] active:scale-[0.97]"
-                style={{ background: C.gold, color: '#2A1F05', boxShadow: '0 1px 4px 0 rgb(245 158 11 / 0.30)' }}
-              >
-                + Tham gia lớp
-              </button>
-            ) : (
-              <button
-                onClick={() => setTab('classes')}
-                className="rounded-xl px-3 py-2 text-sm font-bold transition-all hover:brightness-[0.92] active:scale-[0.97]"
-                style={{ background: C.gold, color: '#2A1F05', boxShadow: '0 1px 4px 0 rgb(245 158 11 / 0.30)' }}
-              >
-                + Thêm lớp
-              </button>
-            )}
-
-            {saving && <span className="text-xs" style={{ color: 'rgb(255 255 255 / 0.55)' }}>{saving}</span>}
-
-            {user && <NotificationBell />}
-
-            {user?.role === 'admin' && (
-              <button
-                onClick={() => navigate('/admin')}
-                className="rounded-xl px-3 py-1.5 text-xs font-bold transition-all hover:brightness-[0.92]"
-                style={{ background: C.gold, color: '#2A1F05' }}
-              >
-                Admin
-              </button>
-            )}
-
-            {user && (
-              <div
-                className="flex items-center gap-2 rounded-xl px-3 py-1.5"
-                style={{ background: 'rgb(255 255 255 / 0.10)', border: '1px solid rgb(255 255 255 / 0.12)' }}
-              >
-                <button
-                  onClick={() => setProfileOpen(true)}
-                  className="text-right hover:opacity-80 transition"
-                  title="Xem hồ sơ"
-                >
-                  <div className="text-xs font-bold leading-tight">
-                    {user.avatar ? `${user.avatar} ` : ''}{user.name}
-                  </div>
-                  <div className="text-xs" style={{ color: 'rgb(255 255 255 / 0.55)' }}>
-                    {ROLE_LABELS[user.role]}
-                  </div>
-                </button>
-                <div style={{ width: 1, height: 24, background: 'rgb(255 255 255 / 0.15)' }} />
-                <button
-                  onClick={() => logout()}
-                  className="rounded-lg px-2 py-1 text-xs font-semibold transition hover:opacity-100"
-                  style={{ color: 'rgb(255 255 255 / 0.65)' }}
-                  title="Đăng xuất"
-                >
-                  Thoát
-                </button>
-              </div>
-            )}
           </div>
 
-          {/* Desktop tabs — underline style */}
-          <nav className="mt-3 hidden gap-0.5 sm:flex">
-            {TABS.map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
-                className="relative whitespace-nowrap px-3.5 py-2.5 text-sm font-semibold transition-all"
-                style={{
-                  color: activeTab === t.key ? '#fff' : 'rgb(255 255 255 / 0.58)',
-                  borderBottom: activeTab === t.key
-                    ? `2.5px solid ${C.gold}`
-                    : '2.5px solid transparent',
-                  background: 'transparent',
-                }}
-              >
-                {t.label}
-              </button>
+          <select
+            value={currentClassIndex}
+            onChange={(x) => setCurrentClass(Number(x.target.value))}
+            className="ml-auto rounded-xl px-3 py-2 text-sm font-bold"
+            style={{ background: 'rgb(255 255 255 / 0.12)', color: '#fff', border: '1px solid rgb(255 255 255 / 0.20)' }}
+          >
+            {data.classes.map((c, i) => (
+              <option key={c.id} value={i} style={{ color: '#000' }}>
+                {c.name} · {c.students.length} HS
+              </option>
             ))}
-          </nav>
+          </select>
 
-          {/* Mobile tabs — horizontal scroll, icon + label */}
-          <div className="mt-2 -mx-4 overflow-x-auto sm:hidden">
-            <nav className="flex gap-0 px-4" style={{ width: 'max-content' }}>
-              {TABS.map((t) => (
-                <button
-                  key={t.key}
-                  onClick={() => setTab(t.key)}
-                  className="flex flex-col items-center gap-0.5 whitespace-nowrap px-3 py-2 text-xs font-semibold transition-all"
-                  style={{
-                    color: activeTab === t.key ? '#fff' : 'rgb(255 255 255 / 0.55)',
-                    borderBottom: activeTab === t.key
-                      ? `2.5px solid ${C.gold}`
-                      : '2.5px solid transparent',
-                  }}
-                >
-                  <span className="text-sm leading-none">{t.icon}</span>
-                  <span>{t.label}</span>
-                </button>
-              ))}
-            </nav>
-          </div>
+          {user?.role === 'student' ? (
+            <button
+              onClick={() => navigate('/app/join')}
+              className="rounded-xl px-3 py-2 text-sm font-bold transition-all hover:brightness-[0.92] active:scale-[0.97]"
+              style={{ background: C.gold, color: '#2A1F05', boxShadow: '0 1px 4px 0 rgb(245 158 11 / 0.30)' }}
+            >
+              + Tham gia lớp
+            </button>
+          ) : (
+            <button
+              onClick={() => setTab('classes')}
+              className="rounded-xl px-3 py-2 text-sm font-bold transition-all hover:brightness-[0.92] active:scale-[0.97]"
+              style={{ background: C.gold, color: '#2A1F05', boxShadow: '0 1px 4px 0 rgb(245 158 11 / 0.30)' }}
+            >
+              + Thêm lớp
+            </button>
+          )}
+
+          {saving && <span className="hidden text-xs sm:inline" style={{ color: 'rgb(255 255 255 / 0.55)' }}>{saving}</span>}
+
+          {user && <NotificationBell />}
+
+          {user?.role === 'admin' && (
+            <button
+              onClick={() => navigate('/admin')}
+              className="rounded-xl px-3 py-1.5 text-xs font-bold transition-all hover:brightness-[0.92]"
+              style={{ background: C.gold, color: '#2A1F05' }}
+            >
+              Admin
+            </button>
+          )}
+
+          {user && (
+            <div
+              className="flex items-center gap-2 rounded-xl px-3 py-1.5"
+              style={{ background: 'rgb(255 255 255 / 0.10)', border: '1px solid rgb(255 255 255 / 0.12)' }}
+            >
+              <button
+                onClick={() => setProfileOpen(true)}
+                className="hidden text-right hover:opacity-80 transition sm:block"
+                title="Xem hồ sơ"
+              >
+                <div className="text-xs font-bold leading-tight">
+                  {user.avatar ? `${user.avatar} ` : ''}{user.name}
+                </div>
+                <div className="text-xs" style={{ color: 'rgb(255 255 255 / 0.55)' }}>
+                  {ROLE_LABELS[user.role]}
+                </div>
+              </button>
+              <button
+                onClick={() => setProfileOpen(true)}
+                className="text-base sm:hidden"
+                title="Xem hồ sơ"
+              >
+                {user.avatar || '👤'}
+              </button>
+              <div className="hidden sm:block" style={{ width: 1, height: 24, background: 'rgb(255 255 255 / 0.15)' }} />
+              <button
+                onClick={() => logout()}
+                className="rounded-lg px-2 py-1 text-xs font-semibold transition hover:opacity-100"
+                style={{ color: 'rgb(255 255 255 / 0.65)' }}
+                title="Đăng xuất"
+              >
+                Thoát
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -269,7 +256,10 @@ export default function App() {
         </div>
       )}
 
-      <main className="mx-auto max-w-6xl p-4" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
+      <div className="flex">
+        <Sidebar tabs={TABS} activeTab={activeTab} onTabChange={setTab} />
+
+        <main className="mx-auto min-w-0 max-w-5xl flex-1 p-4 pb-24 sm:pb-4">
         {activeTab === 'dashboard' && (
           <DashboardScreen data={data} setTab={setTab} setCurrent={setCurrentClass} />
         )}
@@ -318,7 +308,16 @@ export default function App() {
             Xóa toàn bộ
           </button>
         </div>
-      </main>
+        </main>
+      </div>
+
+      <BottomNav
+        primaryTabs={mobilePrimary}
+        overflowTabs={mobileOverflow}
+        activeTab={activeTab}
+        onTabChange={setTab}
+      />
+
       {profileOpen && <ProfileModal onClose={() => setProfileOpen(false)} />}
     </div>
   )

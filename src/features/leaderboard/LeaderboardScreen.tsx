@@ -3,8 +3,8 @@ import { produce } from 'immer'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
-import type { ClassData } from '@/types'
-import { C } from '@/constants/colors'
+import type { ClassData, RankingEntry } from '@/types'
+import { C, scoreColor } from '@/constants/colors'
 import { getRubric } from '@/constants/rubrics'
 import { round1 } from '@/utils/format'
 import { statsOf } from '@/business/stats'
@@ -14,6 +14,7 @@ import { sessionScore } from '@/business/scoring'
 import { Card } from '@/components/atoms/Card'
 import { RankBadge } from '@/components/atoms/RankBadge'
 import { ExpBar } from '@/components/atoms/ExpBar'
+import { Avatar } from '@/components/atoms/Avatar'
 
 interface LeaderboardScreenProps {
   cls: ClassData
@@ -97,6 +98,55 @@ function CoinsHistory({ cls, studentId }: { cls: ClassData; studentId: string })
   )
 }
 
+// ── Podium top 3 ───────────────────────────────────────────────────────────────
+const PODIUM_HEIGHT: Record<1 | 2 | 3, number> = { 1: 112, 2: 80, 3: 64 }
+const PODIUM_ORDER: (1 | 2 | 3)[] = [2, 1, 3] // hiển thị trái→phải: hạng 2, hạng 1, hạng 3
+
+function PodiumColumn({ entry }: { entry: RankingEntry }) {
+  const place = entry.place as 1 | 2 | 3
+  const isFirst = place === 1
+  const avatar = entry.student.avatar ?? defaultAvatar(entry.student.id)
+
+  return (
+    <div className="flex flex-col items-center justify-end" style={{ height: 148 }}>
+      <span className="mb-1 text-2xl leading-none">{['🥇', '🥈', '🥉'][place - 1]}</span>
+      <div className={isFirst ? 'animate-pulse-gold rounded-full' : ''}>
+        <Avatar name={entry.student.name} emoji={avatar} size="lg" />
+      </div>
+      <div className="mt-1.5 max-w-full truncate text-sm font-bold" style={{ color: C.ink }}>
+        {entry.student.name}
+      </div>
+      <div className="text-lg font-black tabular-nums" style={{ color: scoreColor(entry.s.monthTotal) }}>
+        {round1(entry.s.monthTotal)}
+      </div>
+      <div
+        className="mt-1.5 flex w-full items-end justify-center rounded-t-xl text-sm font-black"
+        style={{
+          height: PODIUM_HEIGHT[place],
+          background: isFirst ? C.gold + '28' : '#F1F5F9',
+          border: isFirst ? `1.5px solid ${C.gold}` : `1px solid ${C.line}`,
+          borderBottom: 'none',
+          color: isFirst ? '#7A5A05' : C.muted,
+          paddingBottom: 8,
+        }}
+      >
+        {place}
+      </div>
+    </div>
+  )
+}
+
+function Podium({ top3 }: { top3: RankingEntry[] }) {
+  const ordered = PODIUM_ORDER.map((p) => top3.find((x) => x.place === p)).filter((x): x is RankingEntry => !!x)
+  return (
+    <div className="grid grid-cols-3 items-end gap-2 px-2 pb-0 pt-4">
+      {ordered.map((entry) => (
+        <PodiumColumn key={entry.student.id} entry={entry} />
+      ))}
+    </div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 export function LeaderboardScreen({ cls, update, userId }: LeaderboardScreenProps) {
   const r = getRubric(cls.level)
@@ -163,8 +213,9 @@ export function LeaderboardScreen({ cls, update, userId }: LeaderboardScreenProp
             onClick={() => setSubTab(t)}
             className="rounded-xl px-4 py-2 text-sm font-bold transition"
             style={{
-              background: subTab === t ? C.board : C.line,
+              background: subTab === t ? C.board : '#fff',
               color: subTab === t ? '#fff' : C.muted,
+              border: `1px solid ${subTab === t ? C.board : C.line}`,
             }}
           >
             {t === 'board' ? '🏆 Xếp hạng' : '📊 Lớp học'}
@@ -174,6 +225,13 @@ export function LeaderboardScreen({ cls, update, userId }: LeaderboardScreenProp
 
       {subTab === 'board' && (
         <>
+          {/* Podium top 3 */}
+          {now.length >= 3 && (
+            <Card className="overflow-visible">
+              <Podium top3={now.slice(0, 3)} />
+            </Card>
+          )}
+
           {/* Ranking list */}
           <Card className="overflow-hidden">
             <div className="px-4 py-3" style={{ background: C.board, color: '#fff' }}>
@@ -259,7 +317,7 @@ export function LeaderboardScreen({ cls, update, userId }: LeaderboardScreenProp
                       <div className="text-lg font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
                         {round1(x.s.monthTotal)}
                       </div>
-                      <div className="text-xs" style={{ color: d > 0 ? C.board2 : d < 0 ? C.red : C.muted }}>
+                      <div className="text-xs" style={{ color: d > 0 ? C.emerald : d < 0 ? C.rose : C.muted }}>
                         {d > 0 ? `↑ +${d}` : d < 0 ? `↓ ${d}` : '='}
                       </div>
                     </div>
@@ -366,7 +424,7 @@ export function LeaderboardScreen({ cls, update, userId }: LeaderboardScreenProp
               <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">
                 {tops.map((t) =>
                   t ? (
-                    <Card key={t.label} className="p-3">
+                    <Card key={t.label} className="p-3" accentTop={C.gold}>
                       <div className="text-xs font-semibold" style={{ color: C.gold }}>{t.label}</div>
                       <div className="text-lg font-bold">{t.name}</div>
                       <div className="text-xs" style={{ color: C.muted }}>{t.text}</div>
