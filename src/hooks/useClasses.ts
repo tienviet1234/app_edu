@@ -7,10 +7,11 @@ export const CLASS_KEYS = {
   detail: (id: string) => ['classes', id] as const,
 }
 
-export function useClasses(params?: Record<string, string>) {
+export function useClasses(params?: Record<string, string>, enabled = true) {
   return useQuery({
     queryKey: CLASS_KEYS.list(params),
     queryFn: () => classService.list(params),
+    enabled,
   })
 }
 

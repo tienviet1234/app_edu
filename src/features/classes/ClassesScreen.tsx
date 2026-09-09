@@ -2,7 +2,7 @@ import { useState, useMemo, useRef } from 'react'
 import { produce } from 'immer'
 import type { AppData, ClassData } from '@/types'
 import { C } from '@/constants/colors'
-import { RUBRICS, getRubric } from '@/constants/rubrics'
+import { RUBRICS, getRubric, autoLevel } from '@/constants/rubrics'
 import { sessionScore } from '@/business/scoring'
 import { uid } from '@/utils/uid'
 import { round1, viDate } from '@/utils/format'
@@ -15,12 +15,6 @@ import { importStudentNames, exportAttendance } from '@/utils/excel'
 import { useClassStudents } from '@/hooks'
 import { useAuthStore } from '@/store/authStore'
 import { isMongoid } from '@/utils/mongoid'
-
-function autoLevel(name: string): 'primary' | 'secondary' {
-  const m = String(name).match(/\d+/)
-  const g = m ? Number(m[0]) : 0
-  return g >= 1 && g <= 5 ? 'primary' : 'secondary'
-}
 
 function parseBulk(text: string): ClassData[] {
   return text

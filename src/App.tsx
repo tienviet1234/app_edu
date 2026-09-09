@@ -22,10 +22,11 @@ import { Sidebar } from '@/components/molecules/Sidebar'
 import { BottomNav } from '@/components/molecules/BottomNav'
 import { useAppStore } from '@/store/appStore'
 import { useAuthStore } from '@/store/authStore'
-import { useClassStudents, usePwaInstall } from '@/hooks'
+import { useClasses, useClassStudents, useSessions, useClassScores, usePwaInstall } from '@/hooks'
 import { isMongoid } from '@/utils/mongoid'
 import { emptyEntry } from '@/business/seed'
-import type { AppData } from '@/types'
+import { autoLevel } from '@/constants/rubrics'
+import type { AppData, SessionEntry } from '@/types'
 
 const ALL_TABS = [
   { key: 'dashboard', label: 'Tổng quan', icon: '📋', roles: ['teacher', 'admin'] },
@@ -82,6 +83,36 @@ export default function App() {
 
   const cls = data?.classes[currentClassIndex]
 
+  // Sync classes assigned by admin (or created elsewhere) into local store —
+  // backend already scopes /api/classes to teacherId for role=teacher
+  const { data: apiClasses } = useClasses(undefined, user?.role === 'teacher')
+  const apiClassesKey = apiClasses?.items.map((c) => c._id).join(',') ?? ''
+  useEffect(() => {
+    if (!data || !apiClasses?.items.length) return
+    const missing = apiClasses.items.filter((ac) => !data.classes.some((c) => c.id === ac._id))
+    if (!missing.length) return
+    setData(produce((d: AppData) => {
+      missing.forEach((ac) => {
+        const teacherName =
+          ac.teacherId && typeof ac.teacherId === 'object' && 'name' in ac.teacherId
+            ? (ac.teacherId as unknown as { name: string }).name
+            : user?.name ?? ''
+        const level = autoLevel(ac.name)
+        d.classes.push({
+          id: ac._id,
+          name: ac.name,
+          teacher: teacherName,
+          level,
+          perMonth: level === 'primary' ? 8 : 12,
+          students: [],
+          sessions: [],
+          comments: {},
+        })
+      })
+    }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiClassesKey, !!data])
+
   // Sync API-enrolled students into local store
   const { data: apiStudents } = useClassStudents(
     cls && isMongoid(cls.id) ? cls.id : '',
@@ -107,6 +138,55 @@ export default function App() {
     }))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiStudentsKey, currentClassIndex])
+
+  // Sync sessions + scores from server into local store — fills in what's
+  // missing locally (e.g. opening this class on a device for the first time),
+  // never overwrites entries that already exist locally.
+  // Restricted to teacher/admin: scores.list returns the WHOLE class's scores,
+  // which must never land in a student/parent's local storage.
+  const canSyncWholeClass = user?.role === 'teacher' || user?.role === 'admin'
+  const syncClassId = canSyncWholeClass && cls && isMongoid(cls.id) ? cls.id : ''
+  const { data: apiSessions } = useSessions(syncClassId)
+  const { data: apiScores } = useClassScores(syncClassId)
+  const apiSessionsKey = apiSessions?.items.map((s) => s._id).join(',') ?? ''
+  const apiScoresKey = apiScores?.items.map((s) => s._id + s.updatedAt).join(',') ?? ''
+  useEffect(() => {
+    if (!cls) return
+    const missingSessions = apiSessions?.items.filter((as) => !cls.sessions.some((s) => s.id === as._id)) ?? []
+    if (!missingSessions.length && !apiScores?.items.length) return
+
+    setData(produce((d: AppData) => {
+      const localCls = d.classes[currentClassIndex]
+
+      missingSessions.forEach((as, i) => {
+        localCls.sessions.push({
+          id: as._id,
+          no: as.lessonNo ?? localCls.sessions.length + i + 1,
+          date: as.scheduledAt.slice(0, 10),
+          homework: '',
+          entries: {},
+        })
+      })
+      localCls.sessions.sort((a, b) => a.no - b.no)
+
+      apiScores?.items.forEach((score) => {
+        const session = localCls.sessions.find((s) => s.id === score.sessionId)
+        if (!session || session.entries[score.studentId]) return // đã có local — không ghi đè
+        session.entries[score.studentId] = {
+          attendance: score.attendance,
+          scores: score.scores,
+          tags: score.tags,
+          ticks: score.ticks,
+          choice: score.choice,
+          parts: score.parts,
+          skip: score.skip,
+          ev: score.ev as SessionEntry['ev'],
+          note: score.note ?? '',
+        }
+      })
+    }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiSessionsKey, apiScoresKey, currentClassIndex])
 
   if (!data) {
     return (
@@ -134,7 +214,7 @@ export default function App() {
           boxShadow: 'var(--shadow-header)',
         }}
       >
-        <div className="flex h-14 items-center gap-2.5 px-4">
+        <div className="flex h-14 items-center gap-1.5 overflow-x-auto px-2 sm:gap-2.5 sm:px-4">
           {/* Logo */}
           <div className="flex items-center gap-2.5 shrink-0">
             <div

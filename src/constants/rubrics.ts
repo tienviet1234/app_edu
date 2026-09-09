@@ -119,6 +119,13 @@ export const RUBRICS: Record<string, RubricDef> = {
 
 export const getRubric = (level: string): RubricDef => RUBRICS[level] ?? RUBRICS.secondary
 
+/** Đoán rubric level từ tên lớp — lớp 1-5 dùng phiếu Cấp 1, còn lại Cấp 2&3 */
+export function autoLevel(name: string): 'primary' | 'secondary' {
+  const m = String(name).match(/\d+/)
+  const g = m ? Number(m[0]) : 0
+  return g >= 1 && g <= 5 ? 'primary' : 'secondary'
+}
+
 function extraToComp(ec: import('@/types').ExtraComp): import('@/types').RubricComponent {
   if (ec.type === 'choice' && ec.options?.length) {
     return { key: ec.key, label: ec.label, max: ec.max, type: 'choice', options: ec.options }

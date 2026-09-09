@@ -1,6 +1,6 @@
 export { useClasses, useCreateClass, useClassDetail, CLASS_KEYS } from './useClasses'
 export { useSessions, useCreateSession, SESSION_KEYS } from './useSessions'
-export { useUpsertScore } from './useScores'
+export { useUpsertScore, useClassScores, SCORE_KEYS } from './useScores'
 export { useClassStudents, STUDENT_KEYS, type ApiStudent } from './useClassStudents'
 export { useUnreadCount, useNotifications, useMarkRead, useMarkAllRead, NOTIF_KEYS } from './useNotifications'
 export { useUpsertReport, useStudentReports, REPORT_KEYS } from './useReports'
