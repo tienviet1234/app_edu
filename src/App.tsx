@@ -315,8 +315,12 @@ export default function App() {
               <div className="hidden sm:block" style={{ width: 1, height: 24, background: 'rgb(255 255 255 / 0.15)' }} />
               <button
                 onClick={() => logout()}
-                className="rounded-lg px-1.5 py-1 text-xs font-semibold transition hover:opacity-100 sm:px-2"
-                style={{ color: 'rgb(255 255 255 / 0.65)' }}
+                className="rounded-lg border px-2 py-1 text-xs font-semibold transition-all hover:brightness-125 active:scale-[0.94] sm:px-2"
+                style={{
+                  color: 'rgb(255 255 255 / 0.75)',
+                  background: 'rgb(255 255 255 / 0.08)',
+                  borderColor: 'rgb(255 255 255 / 0.20)',
+                }}
                 title="Đăng xuất"
               >
                 <span className="text-base sm:hidden">→</span>
