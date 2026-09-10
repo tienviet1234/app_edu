@@ -31,6 +31,8 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
   const [cur, setCur] = useState(0)
   const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [adding, setAdding] = useState(false)
+  const [backfilling, setBackfilling] = useState(false)
+  const [backfillProgress, setBackfillProgress] = useState({ done: 0, total: 0 })
 
   // Group selection state
   const [groupMode, setGroupMode] = useState(false)
@@ -62,6 +64,50 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
   useEffect(() => {
     if (idx > cls.sessions.length - 1) setIdx(Math.max(0, cls.sessions.length - 1))
   }, [cls.sessions.length, idx])
+
+  // Gom điểm đã nhập trước đây (còn kẹt trên máy này, chưa từng lên được
+  // server do lỗi kiểu dữ liệu đã sửa) và đẩy lên server, 1 lần.
+  async function backfillAllScores() {
+    if (backfilling) return
+    const jobs: Array<{ sessionId: string; studentId: string; entry: SessionEntry; total: number }> = []
+    cls.sessions.forEach((s) => {
+      if (!isMongoid(s.id)) return
+      const maxes = s.maxes ?? {}
+      const comps = r.comps.map((c) => (maxes[c.key] != null ? { ...c, max: maxes[c.key] } : c))
+      const rLocal = { ...r, comps }
+      cls.students.forEach((stu) => {
+        if (!isMongoid(stu.id)) return
+        const entry = s.entries[stu.id]
+        if (!entry) return
+        const total = sessionScore(entry, rLocal)
+        if (total === null) return
+        jobs.push({ sessionId: s.id, studentId: stu.id, entry, total })
+      })
+    })
+    if (!jobs.length) {
+      alert('Không có điểm nào cần đồng bộ — mọi thứ đã lên server rồi.')
+      return
+    }
+    if (!confirm(`Đồng bộ ${jobs.length} điểm đã nhập trước đây lên server?`)) return
+    setBackfilling(true)
+    setBackfillProgress({ done: 0, total: jobs.length })
+    let okCount = 0
+    let failCount = 0
+    for (const job of jobs) {
+      try {
+        await scoreService.upsert({
+          classId: cls.id, sessionId: job.sessionId, studentId: job.studentId,
+          ...job.entry, total: job.total,
+        })
+        okCount++
+      } catch {
+        failCount++
+      }
+      setBackfillProgress((p) => ({ ...p, done: p.done + 1 }))
+    }
+    setBackfilling(false)
+    alert(`Đồng bộ xong: ${okCount} điểm thành công${failCount ? `, ${failCount} lỗi (thử lại sau)` : ''}.`)
+  }
 
   // Đổi buổi học → bỏ bản nháp "Số câu" cũ, quay về hiển thị giá trị thật của buổi mới
   useEffect(() => { setMaxDrafts({}) }, [idx])
@@ -280,6 +326,15 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
             }}
           >
             ☑ Chọn nhóm
+          </button>
+          <button
+            onClick={backfillAllScores}
+            disabled={backfilling}
+            title="Đẩy điểm đã nhập trước đây (còn kẹt trên máy này) lên server"
+            className="rounded-xl px-3 py-1.5 text-sm font-semibold"
+            style={{ background: C.paper, color: C.muted, border: `1px solid ${C.line}` }}
+          >
+            {backfilling ? `☁ Đang đồng bộ ${backfillProgress.done}/${backfillProgress.total}...` : '☁ Đồng bộ điểm cũ'}
           </button>
           <div className="ml-auto flex items-center gap-3 text-sm" style={{ color: C.muted }}>
             {syncStatus === 'saving' && <span style={{ color: C.board2 }}>⟳ Đang lưu...</span>}
