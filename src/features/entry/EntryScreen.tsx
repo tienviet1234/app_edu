@@ -294,6 +294,15 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
             className="rounded-xl px-3 py-2 text-sm font-semibold"
             style={{ border: `1px solid ${C.line}` }}
           />
+          {st && (
+            <span
+              className="rounded-xl px-3 py-2 text-sm font-semibold"
+              style={{ background: C.paper, color: C.board, border: `1px solid ${C.line}` }}
+              title={`Buổi thứ ${session?.no ?? st.sessions.length + 1} của ${st.name}`}
+            >
+              Buổi {session?.no ?? st.sessions.length + 1}
+            </span>
+          )}
           <Btn onClick={presetClass} title="Đặt sẵn mức đạt cho cả lớp">
             ⚡ Mặc định
           </Btn>
