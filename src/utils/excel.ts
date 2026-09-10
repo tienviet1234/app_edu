@@ -11,10 +11,13 @@ export interface ExportPeriod {
   label: string
 }
 
-/** Export scores for all students in a class period as .xlsx */
+/** Export scores for all students in a class period as .xlsx.
+ *  p.from/p.to là chỉ số buổi RIÊNG của từng học sinh (mỗi em có buổi khác
+ *  nhau) — áp cùng khoảng chỉ số cho mọi học sinh; xếp hạng dùng chuẩn hiện
+ *  tại (không gắn với 1 mốc ngày cụ thể của kỳ, để đơn giản và luôn nhất quán). */
 export function exportScores(cls: ClassData, p: ExportPeriod): void {
   const r = getRubric(cls.level)
-  const ranking = rankingOf(cls, p.to)
+  const ranking = rankingOf(cls)
 
   const headers = [
     'STT',
@@ -28,7 +31,7 @@ export function exportScores(cls: ClassData, p: ExportPeriod): void {
   ]
 
   const rows = cls.students.map((st, i) => {
-    const s = statsOf(cls, st.id, p.from, p.to)
+    const s = statsOf(cls, st.sessions.slice(p.from, p.to))
     const place = ranking.find((x) => x.student.id === st.id)?.place ?? '-'
     return [
       i + 1,
@@ -64,7 +67,9 @@ export function exportScores(cls: ClassData, p: ExportPeriod): void {
   XLSX.writeFile(wb, `${cls.name}_${p.label}_diemso.xlsx`)
 }
 
-/** Export attendance sheet for all sessions as .xlsx */
+/** Export attendance sheet — cột là HỢP các ngày xuất hiện ở bất kỳ học sinh
+ *  nào (mỗi em có buổi riêng), ô trống (không phải "Vắng") cho ngày học sinh
+ *  đó không có buổi học. */
 export function exportAttendance(cls: ClassData): void {
   const ATTEND_LABEL: Record<string, string> = {
     present: 'P',
@@ -73,26 +78,26 @@ export function exportAttendance(cls: ClassData): void {
     absent: 'V',
   }
 
-  const headers = [
-    'STT',
-    'Học sinh',
-    ...cls.sessions.map((s) => `B${s.no}\n${s.date}`),
-    'Tổng buổi',
-    'Vắng',
-    'Muộn',
-    'Có phép',
-  ]
+  const dateSet = new Set<string>()
+  cls.students.forEach((st) => st.sessions.forEach((s) => dateSet.add(s.date)))
+  const dates = [...dateSet].sort()
+
+  const headers = ['STT', 'Học sinh', ...dates, 'Tổng buổi', 'Vắng', 'Muộn', 'Có phép']
 
   const rows = cls.students.map((st, i) => {
-    const marks = cls.sessions.map((s) => ATTEND_LABEL[s.entries[st.id]?.attendance ?? 'absent'] ?? '')
-    const absent = cls.sessions.filter((s) => s.entries[st.id]?.attendance === 'absent').length
-    const late = cls.sessions.filter((s) => s.entries[st.id]?.attendance === 'late').length
-    const excused = cls.sessions.filter((s) => s.entries[st.id]?.attendance === 'excused').length
-    return [i + 1, st.name, ...marks, cls.sessions.length, absent, late, excused]
+    const byDate = new Map(st.sessions.map((s) => [s.date, s]))
+    const marks = dates.map((d) => {
+      const s = byDate.get(d)
+      return s ? (ATTEND_LABEL[s.entry.attendance] ?? '') : ''
+    })
+    const absent = st.sessions.filter((s) => s.entry.attendance === 'absent').length
+    const late = st.sessions.filter((s) => s.entry.attendance === 'late').length
+    const excused = st.sessions.filter((s) => s.entry.attendance === 'excused').length
+    return [i + 1, st.name, ...marks, st.sessions.length, absent, late, excused]
   })
 
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
-  ws['!cols'] = [{ wch: 5 }, { wch: 20 }, ...cls.sessions.map(() => ({ wch: 6 })), { wch: 9 }, { wch: 6 }, { wch: 6 }, { wch: 8 }]
+  ws['!cols'] = [{ wch: 5 }, { wch: 20 }, ...dates.map(() => ({ wch: 10 })), { wch: 9 }, { wch: 6 }, { wch: 6 }, { wch: 8 }]
 
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Điểm danh')

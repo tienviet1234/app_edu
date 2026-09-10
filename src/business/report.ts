@@ -1,11 +1,12 @@
-import type { ClassData, StudentStats, DetailBlock } from '@/types'
+import type { Student, StudentStats, DetailBlock } from '@/types'
 import { getRubric } from '@/constants/rubrics'
 import { round1 } from '@/utils'
 
-export function periodsOf(cls: ClassData) {
-  const n = cls.sessions.length
+/** Kỳ báo cáo — theo buổi RIÊNG của đúng 1 học sinh (mỗi em tiến độ khác nhau). */
+export function periodsOf(student: Student, perMonth: number) {
+  const n = student.sessions.length
   const p: Array<{ from: number; to: number; label: string }> = []
-  if (cls.perMonth === 8) {
+  if (perMonth === 8) {
     for (let end = 8; end <= n; end += 8)
       p.push({ from: end - 8, to: end, label: `Báo cáo tháng — buổi ${end - 7}–${end}` })
   } else {

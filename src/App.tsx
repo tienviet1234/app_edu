@@ -107,7 +107,6 @@ export default function App() {
           level,
           perMonth: level === 'primary' ? 8 : 12,
           students: [],
-          sessions: [],
           comments: {},
         })
       })
@@ -147,21 +146,16 @@ export default function App() {
         if (existing) {
           existing.name = apiSt.name
         } else {
-          localCls.students.push({ id: apiSt._id, name: apiSt.name })
-          localCls.sessions.forEach((session) => {
-            if (!session.entries[apiSt._id]) {
-              session.entries[apiSt._id] = emptyEntry()
-            }
-          })
+          localCls.students.push({ id: apiSt._id, name: apiSt.name, sessions: [] })
         }
       })
     }))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiStudentsKey, currentClassIndex])
 
-  // Sync sessions + scores from server into local store — fills in what's
-  // missing locally (e.g. opening this class on a device for the first time),
-  // never overwrites entries that already exist locally.
+  // Sync per-student sessions + scores from server into local store — fills in
+  // sessions that don't exist locally yet (e.g. opening this class on a device
+  // for the first time), never touches sessions already present locally.
   // Restricted to teacher/admin: scores.list returns the WHOLE class's scores,
   // which must never land in a student/parent's local storage.
   const canSyncWholeClass = user?.role === 'teacher' || user?.role === 'admin'
@@ -172,37 +166,40 @@ export default function App() {
   const apiScoresKey = apiScores?.items.map((s) => s._id + s.updatedAt).join(',') ?? ''
   useEffect(() => {
     if (!cls) return
-    const missingSessions = apiSessions?.items.filter((as) => !cls.sessions.some((s) => s.id === as._id)) ?? []
-    if (!missingSessions.length && !apiScores?.items.length) return
+    const perStudentSessions = (apiSessions?.items ?? []).filter((s) => s.studentId)
+    const missing = perStudentSessions.filter(
+      (as) => !cls.students.some((st) => st.sessions.some((s) => s.id === as._id)),
+    )
+    if (!missing.length) return
+
+    const scoresBySession = new Map((apiScores?.items ?? []).map((s) => [s.sessionId, s]))
 
     setData(produce((d: AppData) => {
       const localCls = d.classes[currentClassIndex]
-
-      missingSessions.forEach((as, i) => {
-        localCls.sessions.push({
+      missing.forEach((as) => {
+        const student = localCls.students.find((st) => st.id === as.studentId)
+        if (!student) return
+        const score = scoresBySession.get(as._id)
+        student.sessions.push({
           id: as._id,
-          no: as.lessonNo ?? localCls.sessions.length + i + 1,
+          no: as.lessonNo ?? student.sessions.length + 1,
           date: as.scheduledAt.slice(0, 10),
           homework: '',
-          entries: {},
+          entry: score
+            ? {
+                attendance: score.attendance,
+                scores: score.scores,
+                tags: score.tags,
+                ticks: score.ticks,
+                choice: score.choice,
+                parts: score.parts,
+                skip: score.skip,
+                ev: score.ev as SessionEntry['ev'],
+                note: score.note ?? '',
+              }
+            : emptyEntry(),
         })
-      })
-      localCls.sessions.sort((a, b) => a.no - b.no)
-
-      apiScores?.items.forEach((score) => {
-        const session = localCls.sessions.find((s) => s.id === score.sessionId)
-        if (!session || session.entries[score.studentId]) return // đã có local — không ghi đè
-        session.entries[score.studentId] = {
-          attendance: score.attendance,
-          scores: score.scores,
-          tags: score.tags,
-          ticks: score.ticks,
-          choice: score.choice,
-          parts: score.parts,
-          skip: score.skip,
-          ev: score.ev as SessionEntry['ev'],
-          note: score.note ?? '',
-        }
+        student.sessions.sort((a, b) => a.date.localeCompare(b.date) || a.no - b.no)
       })
     }))
   // eslint-disable-next-line react-hooks/exhaustive-deps

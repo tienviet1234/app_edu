@@ -1,9 +1,16 @@
 import type { ClassData, RankingEntry } from '@/types'
 import { statsOf } from './stats'
 
-export function rankingOf(cls: ClassData, to: number | null = null): RankingEntry[] {
+/** toDate/fromDate: áp cùng 1 mốc ngày cho mọi học sinh (công bằng, vì mỗi học
+ *  sinh giờ có số buổi khác nhau — không thể so theo chỉ số buổi như trước). */
+export function rankingOf(cls: ClassData, toDate?: string, fromDate?: string): RankingEntry[] {
   return cls.students
-    .map((st) => ({ student: st, s: statsOf(cls, st.id, 0, to) }))
+    .map((st) => {
+      const sessions = st.sessions.filter(
+        (s) => (!toDate || s.date <= toDate) && (!fromDate || s.date >= fromDate),
+      )
+      return { student: st, s: statsOf(cls, sessions) }
+    })
     .sort((a, b) => b.s.monthTotal - a.s.monthTotal || b.s.exp - a.s.exp)
     .map((r, i) => ({ ...r, place: i + 1 }))
 }

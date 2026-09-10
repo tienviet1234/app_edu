@@ -30,20 +30,25 @@ const DAYS_VI = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 
 export function ParentScreen({ cls }: ParentScreenProps) {
   const r = getRubric(cls.level)
-  const periods = periodsOf(cls)
   const [stIdx, setStIdx] = useState(0)
-  const [pIdx, setPIdx] = useState(Math.max(0, periods.length - 1))
+  // Mặc định kỳ mới nhất của học sinh đang xem lúc mở màn hình.
+  const [pIdx, setPIdx] = useState(() => {
+    const first = cls.students[0]
+    return first ? Math.max(0, periodsOf(first, cls.perMonth).length - 1) : 0
+  })
   const [showReports, setShowReports] = useState(false)
 
   const st = cls.students[stIdx]
   if (!st) return <Card className="p-6 text-center">Lớp chưa có học sinh.</Card>
 
-  const p = periods[Math.min(pIdx, periods.length - 1)] ?? { from: 0, to: cls.sessions.length, label: 'Hiện tại' }
+  const periods = periodsOf(st, cls.perMonth)
+  const p = periods[Math.min(pIdx, periods.length - 1)] ?? { from: 0, to: st.sessions.length, label: 'Hiện tại' }
   const pPrev = pIdx > 0 ? periods[pIdx - 1] : null
 
-  const s = statsOf(cls, st.id, p.from, p.to)
-  const sPrev = pPrev ? statsOf(cls, st.id, pPrev.from, pPrev.to) : null
-  const place = rankingOf(cls, p.to).find((x) => x.student.id === st.id)?.place
+  const s = statsOf(cls, st.sessions.slice(p.from, p.to))
+  const sPrev = pPrev ? statsOf(cls, st.sessions.slice(pPrev.from, pPrev.to)) : null
+  const cutoffDate = st.sessions[Math.min(p.to, st.sessions.length) - 1]?.date
+  const place = rankingOf(cls, cutoffDate).find((x) => x.student.id === st.id)?.place
   const blocks = detailBlocks(s, r)
 
   const delta = sPrev ? round1(s.monthTotal - sPrev.monthTotal) : null
@@ -63,7 +68,7 @@ export function ParentScreen({ cls }: ParentScreenProps) {
   const apiReports = reportsData?.items ?? []
   const published = apiReports.filter((r) => r.status === 'published')
 
-  const attendSessions = cls.sessions.slice(p.from, p.to)
+  const attendSessions = st.sessions.slice(p.from, p.to)
 
   return (
     <div className="space-y-3">
@@ -156,7 +161,7 @@ export function ParentScreen({ cls }: ParentScreenProps) {
           </div>
           <div className="flex flex-wrap gap-1.5">
             {attendSessions.map((ss) => {
-              const att = ss.entries[st.id]?.attendance ?? 'absent'
+              const att = ss.entry.attendance
               const style = ATTEND_STYLE[att] ?? ATTEND_STYLE.absent
               return (
                 <div
@@ -244,7 +249,7 @@ export function ParentScreen({ cls }: ParentScreenProps) {
         <div className="mb-1 text-xs font-bold" style={{ color: C.muted }}>NHẬN XÉT CỦA GIÁO VIÊN</div>
         <div className="rounded-xl p-3 text-sm leading-relaxed" style={{ background: C.paper }}>
           {cls.comments?.[`${st.id}:${p.from}-${p.to}`]
-            ?? cls.comments?.[`${st.id}:0-${cls.sessions.length}`]
+            ?? cls.comments?.[`${st.id}:0-${st.sessions.length}`]
             ?? buildComment(st.name, s, r)}
         </div>
       </Card>

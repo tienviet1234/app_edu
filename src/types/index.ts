@@ -88,12 +88,14 @@ export interface SessionEntry {
 }
 
 // ─── Session ──────────────────────────────────────────────────────────────────
+// Mỗi học sinh có chuỗi buổi học độc lập — 1 Session luôn thuộc về đúng 1 học
+// sinh (đặt trong Student.sessions), không còn dùng chung cho cả lớp.
 export interface Session {
   id: string
   no: number
   date: string
-  homework?: string   // bài tập về nhà cả lớp
-  entries: Record<string, SessionEntry>
+  homework?: string   // bài tập về nhà riêng cho học sinh này, buổi này
+  entry: SessionEntry
   maxes?: Record<string, number> // overrides comp.max per session (e.g. mini=30, listen=15, hw__correct=20)
 }
 
@@ -112,6 +114,7 @@ export interface Student {
   id: string
   name: string
   avatar?: string
+  sessions: Session[]
 }
 
 // ─── Class ────────────────────────────────────────────────────────────────────
@@ -122,7 +125,6 @@ export interface ClassData {
   level: RubricLevel
   perMonth: number
   students: Student[]
-  sessions: Session[]
   comments: Record<string, string>
   extraComps?: ExtraComp[]   // admin-defined extra scoring components
   hiddenComps?: string[]     // keys of standard comps hidden for this class

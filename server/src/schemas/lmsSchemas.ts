@@ -62,6 +62,7 @@ export const lessonUpdateSchema = lessonBodySchema.partial().omit({ centerId: tr
 export const sessionBodySchema = z.object({
   centerId: objectIdSchema.optional(),
   classId: objectIdSchema,
+  studentId: objectIdSchema.optional(),
   courseId: objectIdSchema.optional(),
   lessonId: objectIdSchema.optional(),
   title: z.string().min(1).max(160).optional(),

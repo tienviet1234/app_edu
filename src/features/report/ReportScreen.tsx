@@ -26,28 +26,32 @@ type ReportTab = 'monthly' | 'sessions' | 'student'
 
 export function ReportScreen({ cls, update }: ReportScreenProps) {
   const r = getClassRubric(cls)
-  const periods = periodsOf(cls)
   const [tab, setTab] = useState<ReportTab>('monthly')
-  const [pIdx, setPIdx] = useState(periods.length - 1)
   const [stIdx, setStIdx] = useState(0)
+  // Mặc định kỳ mới nhất của học sinh đang xem lúc mở màn hình.
+  const [pIdx, setPIdx] = useState(() => {
+    const first = cls.students[0]
+    return first ? Math.max(0, periodsOf(first, cls.perMonth).length - 1) : 0
+  })
   const [editing, setEditing] = useState(false)
   const [copied, setCopied] = useState(false)
   const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const taRef = useRef<HTMLTextAreaElement>(null)
 
-  const p = periods[Math.min(pIdx, periods.length - 1)]
   const st = cls.students[stIdx]
+  const periods = st ? periodsOf(st, cls.perMonth) : []
+  const p = periods[Math.min(pIdx, periods.length - 1)]
 
   // ── Per-student full export ──────────────────────────────────────────────
   const printStudentFull = useCallback((studentIdx: number) => {
     const student = cls.students[studentIdx]
     if (!student) return
-    const s = statsOf(cls, student.id, 0, null)
+    const s = statsOf(cls, student.sessions)
 
-    const sessionRows = cls.sessions.map((sess, i) => {
-      const e = sess.entries[student.id]
+    const sessionRows = student.sessions.map((sess, i) => {
+      const e = sess.entry
       const t = sessionScore(e, r)
-      const attended = e?.attendance && e.attendance !== 'absent'
+      const attended = e.attendance !== 'absent'
       return { no: sess.no, date: sess.date, attended, total: t, entry: e, sessIdx: i }
     })
 
@@ -77,7 +81,7 @@ export function ReportScreen({ cls, update }: ReportScreenProps) {
 </head>
 <body>
 <h1>BÁO CÁO HỌC TẬP CÁ NHÂN — ${student.name.toUpperCase()}</h1>
-<div class="sub">Lớp: ${cls.name} · GV: ${cls.teacher || 'chưa điền'} · Tổng ${cls.sessions.length} buổi</div>
+<div class="sub">Lớp: ${cls.name} · GV: ${cls.teacher || 'chưa điền'} · Tổng ${student.sessions.length} buổi</div>
 
 <div class="stat-grid">
   <div class="stat"><div class="stat-val">${round1(s.avg)}/100</div><div class="stat-lbl">Điểm trung bình</div></div>
@@ -92,7 +96,7 @@ export function ReportScreen({ cls, update }: ReportScreenProps) {
 <th>Buổi</th><th>Ngày</th><th>Chuyên cần</th>
 ${r.comps.map((c) => `<th>${c.label}</th>`).join('')}
 <th>Tổng</th>
-${cls.sessions[0]?.homework !== undefined ? '<th>BTVN</th>' : ''}
+${student.sessions[0]?.homework !== undefined ? '<th>BTVN</th>' : ''}
 </tr></thead>
 <tbody>
 ${sessionRows.map(({ no, date, attended, total, entry, sessIdx: _ }) => {
@@ -128,14 +132,18 @@ ${r.comps.map(() => {
 
   // ── Monthly PDF ──────────────────────────────────────────────────────────
   const printReport = useCallback(() => {
-    if (!p || !cls.students.length) return
+    if (!p || !cls.students.length || !st) return
+    // Mốc ngày để xếp hạng cả lớp: theo buổi cuối cùng của kỳ này của học sinh
+    // đang chọn (mỗi em có buổi riêng, cần 1 mốc chung để so công bằng).
+    const cutoffDate = st.sessions[Math.min(p.to, st.sessions.length) - 1]?.date
+    const ranking = rankingOf(cls, cutoffDate)
     const rows = cls.students.map((student) => {
-      const s = statsOf(cls, student.id, p.from, p.to)
-      const place = rankingOf(cls, p.to).find((x) => x.student.id === student.id)?.place ?? '-'
+      const s = statsOf(cls, student.sessions.slice(p.from, p.to))
+      const place = ranking.find((x) => x.student.id === student.id)?.place ?? '-'
       return { st: student, s, place }
     }).sort((a, b) => b.s.monthTotal - a.s.monthTotal)
 
-    const sessionDates = cls.sessions.slice(p.from, p.to).map((s) => viDate(s.date)).join(', ')
+    const sessionDates = st.sessions.slice(p.from, p.to).map((s) => viDate(s.date)).join(', ')
 
     const html = `<!DOCTYPE html>
 <html lang="vi">
@@ -185,13 +193,14 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}</td>`).join
     w.document.close()
     w.focus()
     setTimeout(() => w.print(), 400)
-  }, [cls, p, r])
+  }, [cls, p, r, st])
 
   if (!st) return <Card className="p-6 text-center">Lớp chưa có học sinh.</Card>
 
-  const s = statsOf(cls, st.id, p?.from ?? 0, p?.to ?? cls.sessions.length)
-  const place = rankingOf(cls, p?.to ?? cls.sessions.length).find((x) => x.student.id === st.id)?.place
-  const key = `${st.id}:${p?.from ?? 0}-${p?.to ?? cls.sessions.length}`
+  const s = statsOf(cls, st.sessions.slice(p?.from ?? 0, p?.to ?? st.sessions.length))
+  const placeCutoff = st.sessions[(p?.to ?? st.sessions.length) - 1]?.date
+  const place = rankingOf(cls, placeCutoff).find((x) => x.student.id === st.id)?.place
+  const key = `${st.id}:${p?.from ?? 0}-${p?.to ?? st.sessions.length}`
   const saved = cls.comments?.[key]
   const comment = saved ?? buildComment(st.name, s, r)
   const blocks = detailBlocks(s, r)
@@ -199,7 +208,7 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}</td>`).join
   const text = [
     `BÁO CÁO HỌC TẬP — ${cls.name.toUpperCase()}`,
     `Học sinh: ${st.name.toUpperCase()} · GV: ${cls.teacher}`,
-    p ? `Giai đoạn: buổi ${p.from + 1}–${p.to}` : `Toàn bộ ${cls.sessions.length} buổi`,
+    p ? `Giai đoạn: buổi ${p.from + 1}–${p.to}` : `Toàn bộ ${st.sessions.length} buổi`,
     '',
     'ĐIỂM ĐÁNH GIÁ',
     ...r.comps.map((c) => `• ${c.label}: ${round1(s.catAvg[c.key])}/${c.max}`),
@@ -215,8 +224,8 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}</td>`).join
   async function syncReport() {
     if (!p || !isMongoid(cls.id) || !isMongoid(st.id)) return
     setSyncStatus('saving')
-    const fromSession = cls.sessions[p.from]
-    const toSession = cls.sessions[Math.min(p.to, cls.sessions.length) - 1] ?? fromSession
+    const fromSession = st.sessions[p.from]
+    const toSession = st.sessions[Math.min(p.to, st.sessions.length) - 1] ?? fromSession
     const strengths = r.comps
       .filter((c) => s.catAvg[c.key] >= c.max * 0.9)
       .map((c) => `${c.label}: ${round1(s.catAvg[c.key])}/${c.max}`)
@@ -354,30 +363,30 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}</td>`).join
                 </tr>
               </thead>
               <tbody>
-                {cls.sessions.map((sess) => {
-                  const e = sess.entries[st.id]
+                {st.sessions.map((sess) => {
+                  const e = sess.entry
                   const t = sessionScore(e, r)
                   const attendLabel: Record<string, string> = {
                     present: 'P', late: 'Muộn', excused: 'Phép', absent: 'Vắng',
                   }
-                  const absent = !e || e.attendance === 'absent'
+                  const absent = e.attendance === 'absent'
                   return (
                     <tr key={sess.id} style={{ borderTop: `1px solid ${C.line}`, opacity: absent ? 0.5 : 1 }}>
                       <td className="py-2 px-3 font-bold">{sessionLabel(sess.no, cls.perMonth)}</td>
                       <td className="py-2 px-3">{viDate(sess.date)}</td>
                       <td className="py-2 px-3 text-center">
-                        {e ? attendLabel[e.attendance] ?? '—' : '—'}
+                        {attendLabel[e.attendance] ?? '—'}
                       </td>
                       {r.comps.map((c) => (
                         <td key={c.key} className="py-2 px-3 text-right">
-                          {e && !absent ? compScore(c, e) : '—'}
+                          {!absent ? compScore(c, e) : '—'}
                         </td>
                       ))}
                       <td className="py-2 px-3 text-right font-bold">
                         {t !== null ? t : '—'}
                       </td>
                       <td className="py-2 px-3 text-xs" style={{ color: C.muted }}>
-                        {e?.note || ''}
+                        {e.note || ''}
                       </td>
                     </tr>
                   )
@@ -501,7 +510,7 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}</td>`).join
           </div>
           <div className="p-4 space-y-3">
             {(() => {
-              const full = statsOf(cls, st.id, 0, null)
+              const full = statsOf(cls, st.sessions)
               return (
                 <>
                   <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
@@ -513,8 +522,8 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}</td>`).join
                     <Stat label="Điểm trung bình" value={`${round1(full.avg)}/100`} color={C.board2} />
                     <Stat label="Có mặt" value={`${full.attended}/${full.attended + full.absent}`} />
                     <Stat label="Streak" value={`${full.streak} buổi`} sub="liên tiếp dài nhất" />
-                    <Stat label="Giờ tự học" value={`${cls.sessions.reduce((a, ss) => a + (ss.entries[st.id]?.homeHours ?? 0), 0)}h`} sub="tổng ở nhà" />
-                    <Stat label="Giờ ở lại" value={`${cls.sessions.reduce((a, ss) => a + (ss.entries[st.id]?.stayHours ?? 0), 0)}h`} sub="học thêm" />
+                    <Stat label="Giờ tự học" value={`${st.sessions.reduce((a, ss) => a + (ss.entry.homeHours ?? 0), 0)}h`} sub="tổng ở nhà" />
+                    <Stat label="Giờ ở lại" value={`${st.sessions.reduce((a, ss) => a + (ss.entry.stayHours ?? 0), 0)}h`} sub="học thêm" />
                   </div>
                   <div className="text-xs font-bold uppercase mt-2" style={{ color: C.muted }}>Nhận xét tổng kết</div>
                   <div className="rounded-xl p-3 text-sm leading-relaxed" style={{ background: C.paper }}>

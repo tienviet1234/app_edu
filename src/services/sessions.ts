@@ -3,6 +3,7 @@ import { api } from '@/utils/api'
 export interface ApiSession {
   _id: string
   classId: string
+  studentId?: string
   centerId?: string
   courseId?: string
   title?: string
@@ -29,6 +30,7 @@ export const sessionService = {
 
   create: (body: {
     classId: string
+    studentId?: string
     title?: string
     lessonNo?: number
     scheduledAt?: string

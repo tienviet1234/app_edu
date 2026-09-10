@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react'
-import type { ClassData, SessionEntry } from '@/types'
+import { useState } from 'react'
+import type { ClassData, Session, SessionEntry } from '@/types'
 import { C, scoreColor } from '@/constants/colors'
 import { ATTEND } from '@/constants/tags'
 import { getClassRubric } from '@/constants/rubrics'
 import { uid } from '@/utils/uid'
-import { todayISO, viDate, sessionLabel } from '@/utils/format'
+import { todayISO } from '@/utils/format'
 import { sessionScore } from '@/business/scoring'
 import { emptyEntry } from '@/business/seed'
 import { Card } from '@/components/atoms/Card'
@@ -22,15 +22,29 @@ interface EntryScreenProps {
   update: (fn: (c: ClassData) => void) => void
 }
 
+const FIELDS = ['scores', 'tags', 'ticks', 'choice', 'parts', 'skip', 'ev'] as const
+
 const cloneEntry = (e: SessionEntry): SessionEntry =>
   JSON.parse(JSON.stringify(e)) as SessionEntry
 
+/** Tìm buổi của đúng học sinh này vào đúng ngày này; nếu chưa có thì tạo mới
+ *  (chỉ ở local — đẩy lên server xảy ra khi lưu điểm, xem syncScore). */
+function findOrCreateSession(c: ClassData, studentId: string, date: string): Session {
+  const student = c.students.find((s) => s.id === studentId)!
+  let session = student.sessions.find((s) => s.date === date)
+  if (!session) {
+    session = { id: uid(), no: student.sessions.length + 1, date, homework: '', entry: emptyEntry() }
+    student.sessions.push(session)
+    student.sessions.sort((a, b) => a.date.localeCompare(b.date) || a.no - b.no)
+  }
+  return session
+}
+
 export function EntryScreen({ cls, update }: EntryScreenProps) {
   const r = getClassRubric(cls)
-  const [idx, setIdx] = useState(Math.max(0, cls.sessions.length - 1))
+  const [date, setDate] = useState(todayISO())
   const [cur, setCur] = useState(0)
   const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
-  const [adding, setAdding] = useState(false)
   const [backfilling, setBackfilling] = useState(false)
   const [backfillProgress, setBackfillProgress] = useState({ done: 0, total: 0 })
 
@@ -43,45 +57,66 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
   // số cũ trở lại mỗi khi xóa hết ô để gõ số mới (input là controlled).
   const [maxDrafts, setMaxDrafts] = useState<Record<string, string>>({})
 
-  const session = cls.sessions[idx]
+  const st = cls.students[cur]
+  const session = st?.sessions.find((s) => s.date === date)
+  const e = session?.entry ?? emptyEntry()
 
-  const showReminder =
-    cls.sessions.length > 0 && cls.sessions.length % cls.perMonth === 0
+  // Session-level overrides (comp max + ratio totals) — áp dụng cho ngày đang chọn
+  const sessionMaxes = session?.maxes ?? {}
+  const effectiveComps = r.comps.map((c) =>
+    sessionMaxes[c.key] != null ? { ...c, max: sessionMaxes[c.key] } : c,
+  )
+  const r2 = { ...r, comps: effectiveComps }
 
-  function syncScore(studentId: string, entry: SessionEntry) {
-    if (!isMongoid(cls.id) || !session || !isMongoid(session.id) || !isMongoid(studentId)) return
-    const total = sessionScore(entry, r2) ?? 0
+  async function syncScore(studentId: string) {
+    if (!isMongoid(cls.id) || !isMongoid(studentId)) return
+    const student = cls.students.find((s) => s.id === studentId)
+    const target = student?.sessions.find((s) => s.date === date)
+    if (!student || !target) return // chưa nhập gì cho học sinh này ngày này — không có gì để lưu
+    const maxes = target.maxes ?? {}
+    const comps = r.comps.map((c) => (maxes[c.key] != null ? { ...c, max: maxes[c.key] } : c))
+    const total = sessionScore(target.entry, { ...r, comps }) ?? 0
     setSyncStatus('saving')
-    scoreService
-      .upsert({ classId: cls.id, sessionId: session.id, studentId, ...entry, total })
-      .then(() => {
-        setSyncStatus('saved')
-        setTimeout(() => setSyncStatus('idle'), 2000)
-      })
-      .catch(() => setSyncStatus('error'))
+    try {
+      let sessionId = target.id
+      if (!isMongoid(sessionId)) {
+        const apiSession = await sessionService.create({
+          classId: cls.id,
+          studentId,
+          title: `Buổi ${target.no}`,
+          lessonNo: target.no,
+          scheduledAt: `${date}T00:00:00.000Z`,
+        })
+        sessionId = apiSession._id
+        update((c) => {
+          const stu = c.students.find((s) => s.id === studentId)
+          const ss = stu?.sessions.find((s) => s.date === date)
+          if (ss) ss.id = sessionId
+        })
+        logActivity('session.create', { className: cls.name, sessionNo: target.no, studentName: student.name }, 'ClassSession')
+      }
+      await scoreService.upsert({ classId: cls.id, sessionId, studentId, ...target.entry, total })
+      setSyncStatus('saved')
+      setTimeout(() => setSyncStatus('idle'), 2000)
+    } catch {
+      setSyncStatus('error')
+    }
   }
-
-  useEffect(() => {
-    if (idx > cls.sessions.length - 1) setIdx(Math.max(0, cls.sessions.length - 1))
-  }, [cls.sessions.length, idx])
 
   // Gom điểm đã nhập trước đây (còn kẹt trên máy này, chưa từng lên được
   // server do lỗi kiểu dữ liệu đã sửa) và đẩy lên server, 1 lần.
   async function backfillAllScores() {
     if (backfilling) return
     const jobs: Array<{ sessionId: string; studentId: string; entry: SessionEntry; total: number }> = []
-    cls.sessions.forEach((s) => {
-      if (!isMongoid(s.id)) return
-      const maxes = s.maxes ?? {}
-      const comps = r.comps.map((c) => (maxes[c.key] != null ? { ...c, max: maxes[c.key] } : c))
-      const rLocal = { ...r, comps }
-      cls.students.forEach((stu) => {
-        if (!isMongoid(stu.id)) return
-        const entry = s.entries[stu.id]
-        if (!entry) return
-        const total = sessionScore(entry, rLocal)
+    cls.students.forEach((stu) => {
+      if (!isMongoid(stu.id)) return
+      stu.sessions.forEach((s) => {
+        if (!isMongoid(s.id)) return
+        const maxes = s.maxes ?? {}
+        const comps = r.comps.map((c) => (maxes[c.key] != null ? { ...c, max: maxes[c.key] } : c))
+        const total = sessionScore(s.entry, { ...r, comps })
         if (total === null) return
-        jobs.push({ sessionId: s.id, studentId: stu.id, entry, total })
+        jobs.push({ sessionId: s.id, studentId: stu.id, entry: s.entry, total })
       })
     })
     if (!jobs.length) {
@@ -109,81 +144,41 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
     alert(`Đồng bộ xong: ${okCount} điểm thành công${failCount ? `, ${failCount} lỗi (thử lại sau)` : ''}.`)
   }
 
-  // Đổi buổi học → bỏ bản nháp "Số câu" cũ, quay về hiển thị giá trị thật của buổi mới
-  useEffect(() => { setMaxDrafts({}) }, [idx])
-
-  async function addSession() {
-    if (adding) return
-    setAdding(true)
-    const localId = uid()
-    const newNo = cls.sessions.length + 1
-    const entries: Record<string, SessionEntry> = {}
-    cls.students.forEach((s) => (entries[s.id] = emptyEntry()))
-
-    update((c) => {
-      c.sessions.push({ id: localId, no: newNo, date: todayISO(), homework: '', entries })
-    })
-    logActivity('session.create', { className: cls.name, sessionNo: newNo }, 'ClassSession')
-    setIdx(cls.sessions.length)
-    setCur(0)
-
-    if (isMongoid(cls.id)) {
-      try {
-        const apiSession = await sessionService.create({
-          classId: cls.id,
-          title: `Buổi ${newNo}`,
-          lessonNo: newNo,
-          scheduledAt: new Date().toISOString(),
-        })
-        update((c: ClassData) => {
-          const s = c.sessions.find((ss) => ss.id === localId)
-          if (s) s.id = apiSession._id
-        })
-      } catch {
-        // silently fail — local session still works
-      }
-    }
-    setAdding(false)
-  }
-
-  if (!session)
+  if (!cls.students.length)
     return (
       <Card className="p-6 text-center">
-        <div className="mb-3 text-sm" style={{ color: C.muted }}>
-          Lớp chưa có buổi học nào.
+        <div className="text-sm" style={{ color: C.muted }}>
+          Lớp chưa có học sinh nào. Vào tab <b>Lớp học</b> để thêm học sinh.
         </div>
-        <Btn kind="solid" onClick={addSession} disabled={adding}>
-          + Tạo buổi học đầu tiên
-        </Btn>
       </Card>
     )
 
-  const st = cls.students[cur]
-  const e = (st && session.entries[st.id]) || emptyEntry()
-  const FIELDS = ['scores', 'tags', 'ticks', 'choice', 'parts', 'skip', 'ev'] as const
-
   const mut = (fn: (en: SessionEntry) => void) =>
     update((c) => {
-      const en = (c.sessions[idx].entries[st.id] = c.sessions[idx].entries[st.id] ?? emptyEntry())
+      if (!st) return
+      const ss = findOrCreateSession(c, st.id, date)
       FIELDS.forEach((k) => {
-        if (!en[k]) (en as unknown as Record<string, unknown>)[k] = {}
+        if (!ss.entry[k]) (ss.entry as unknown as Record<string, unknown>)[k] = {}
       })
-      fn(en)
+      fn(ss.entry)
     })
 
-  // Session-level overrides (comp max + ratio totals)
-  const sessionMaxes = session?.maxes ?? {}
-  const effectiveComps = r.comps.map((c) =>
-    sessionMaxes[c.key] != null ? { ...c, max: sessionMaxes[c.key] } : c,
-  )
-  const r2 = { ...r, comps: effectiveComps }
+  function setHomework(v: string) {
+    update((c) => {
+      if (!st) return
+      findOrCreateSession(c, st.id, date).homework = v
+    })
+  }
 
   function setSessionMax(key: string, val: number) {
     if (!val || val < 1) return
+    // Áp dụng cho cả lớp trong ngày này — giáo viên chỉ cần đặt 1 lần mỗi buổi.
     update((c) => {
-      const s = c.sessions[idx]
-      if (!s.maxes) s.maxes = {}
-      s.maxes[key] = val
+      c.students.forEach((s) => {
+        const ss = findOrCreateSession(c, s.id, date)
+        ss.maxes = ss.maxes ?? {}
+        ss.maxes[key] = val
+      })
     })
   }
 
@@ -210,11 +205,12 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
 
   function presetClass() {
     update((c) => {
-      cls.students.forEach((s) => {
-        const en = (c.sessions[idx].entries[s.id] = c.sessions[idx].entries[s.id] ?? emptyEntry())
+      c.students.forEach((s) => {
+        const ss = findOrCreateSession(c, s.id, date)
         FIELDS.forEach((k) => {
-          if (!en[k]) (en as unknown as Record<string, unknown>)[k] = {}
+          if (!ss.entry[k]) (ss.entry as unknown as Record<string, unknown>)[k] = {}
         })
+        const en = ss.entry
         en.attendance = 'present'
         r2.comps.forEach((comp) => {
           if (comp.type === 'parts') {
@@ -259,11 +255,11 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
 
   function applyGroupScores() {
     if (!st || groupSelected.size === 0) return
-    const srcEntry = session.entries[st.id] ?? emptyEntry()
+    const srcEntry = e
     const count = groupSelected.size
     update((c) => {
       groupSelected.forEach((sid) => {
-        c.sessions[idx].entries[sid] = cloneEntry(srcEntry)
+        findOrCreateSession(c, sid, date).entry = cloneEntry(srcEntry)
       })
     })
     setGroupSelected(new Set())
@@ -274,44 +270,26 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
   // ──────────────────────────────────────────────────────────────────────────
 
   const total = sessionScore(e, r2)
-  const done = cls.students.filter((s) => sessionScore(session.entries[s.id], r2) !== null).length
+  const done = cls.students.filter((s) => {
+    const ss = s.sessions.find((x) => x.date === date)
+    return ss ? sessionScore(ss.entry, r2) !== null : false
+  }).length
+
+  const studentSessionCount = st?.sessions.length ?? 0
+  const showReminder = studentSessionCount > 0 && studentSessionCount % cls.perMonth === 0
 
   return (
     <div className="space-y-3">
-      {showReminder && (
-        <div
-          className="rounded-xl px-4 py-2.5 text-sm font-semibold"
-          style={{ background: C.gold + '22', color: '#7A5A05', border: `1px solid ${C.gold}55` }}
-        >
-          ⏰ Đã đủ <b>{cls.sessions.length}</b> buổi học! Nhớ vào <b>Báo cáo</b> để gửi nhận xét cho phụ huynh.
-        </div>
-      )}
-
       <Card className="p-3">
         {/* Toolbar */}
         <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={idx}
-            onChange={(x) => { setIdx(Number(x.target.value)); setCur(0) }}
-            className="rounded-xl px-3 py-2 text-sm font-semibold"
-            style={{ border: `1px solid ${C.line}` }}
-          >
-            {cls.sessions.map((s, i) => (
-              <option key={s.id} value={i}>
-                {sessionLabel(s.no, cls.perMonth)} — {viDate(s.date)}{isMongoid(s.id) ? ' ☁' : ''}
-              </option>
-            ))}
-          </select>
           <input
             type="date"
-            value={session.date}
-            onChange={(x) => update((c) => { c.sessions[idx].date = x.target.value })}
-            className="rounded-xl px-3 py-2 text-sm"
+            value={date}
+            onChange={(x) => setDate(x.target.value)}
+            className="rounded-xl px-3 py-2 text-sm font-semibold"
             style={{ border: `1px solid ${C.line}` }}
           />
-          <Btn kind="solid" onClick={addSession} disabled={adding}>
-            {adding ? '...' : '+ Buổi mới'}
-          </Btn>
           <Btn onClick={presetClass} title="Đặt sẵn mức đạt cho cả lớp">
             ⚡ Mặc định
           </Btn>
@@ -352,17 +330,6 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
           <span className="shrink-0 text-xs font-bold tabular-nums" style={{ color: C.emerald }}>
             {done}/{cls.students.length} · {Math.round((done / Math.max(1, cls.students.length)) * 100)}%
           </span>
-        </div>
-
-        {/* Homework */}
-        <div className="mt-2">
-          <input
-            value={session.homework ?? ''}
-            onChange={(x) => update((c) => { c.sessions[idx].homework = x.target.value })}
-            placeholder="Bài tập về nhà cả lớp (bỏ trống nếu không có)"
-            className="w-full rounded-xl px-3 py-2 text-sm"
-            style={{ border: `1px solid ${C.line}` }}
-          />
         </div>
 
         {/* Session-level question count settings */}
@@ -425,10 +392,11 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
         {/* Student pills */}
         <div className="mt-2 flex flex-wrap gap-1">
           {cls.students.map((s, i) => {
-            const t = sessionScore(session.entries[s.id], r2)
+            const ss = s.sessions.find((x) => x.date === date)
+            const t = ss ? sessionScore(ss.entry, r2) : null
             const active = i === cur
             const inGroup = groupSelected.has(s.id)
-            const missing = t === null && session.entries[s.id]?.attendance !== 'excused'
+            const missing = t === null && ss?.entry.attendance !== 'excused'
 
             return (
               <button
@@ -437,7 +405,7 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
                   if (groupMode) {
                     toggleStudentSelection(s.id)
                   } else {
-                    if (st) syncScore(st.id, e)
+                    if (st) void syncScore(st.id)
                     setCur(i)
                   }
                 }}
@@ -549,6 +517,15 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
           </div>
 
           <div className="space-y-4 p-4">
+            {showReminder && (
+              <div
+                className="rounded-xl px-4 py-2.5 text-sm font-semibold"
+                style={{ background: C.gold + '22', color: '#7A5A05', border: `1px solid ${C.gold}55` }}
+              >
+                ⏰ {st.name} đã đủ <b>{studentSessionCount}</b> buổi học! Nhớ vào <b>Báo cáo</b> để gửi nhận xét cho phụ huynh.
+              </div>
+            )}
+
             <div>
               <div className="mb-1.5 text-xs font-bold uppercase" style={{ color: C.muted }}>
                 Chuyên cần{' '}
@@ -628,6 +605,14 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
             </div>
 
             <input
+              value={session?.homework ?? ''}
+              onChange={(x) => setHomework(x.target.value)}
+              placeholder="Bài tập về nhà riêng cho học sinh này (bỏ trống nếu không có)"
+              className="w-full rounded-xl px-3 py-2 text-sm"
+              style={{ border: `1px solid ${C.line}` }}
+            />
+
+            <input
               value={e.note}
               onChange={(x) => mut((en) => { en.note = x.target.value })}
               placeholder="Ghi chú riêng cho học sinh này (không bắt buộc)"
@@ -638,8 +623,8 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
             <div className="flex gap-2">
               <Btn
                 onClick={() => {
-                  syncScore(st.id, e)
-                  logActivity('score.entry', { className: cls.name, sessionNo: session.no, studentName: st.name }, 'Score')
+                  void syncScore(st.id)
+                  logActivity('score.entry', { className: cls.name, sessionNo: session?.no ?? 0, studentName: st.name }, 'Score')
                   setCur(Math.max(0, cur - 1))
                 }}
               >
@@ -659,8 +644,8 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
                   size="lg"
                   className="flex-1"
                   onClick={() => {
-                    syncScore(st.id, e)
-                    logActivity('score.entry', { className: cls.name, sessionNo: session.no, studentName: st.name }, 'Score')
+                    void syncScore(st.id)
+                    logActivity('score.entry', { className: cls.name, sessionNo: session?.no ?? 0, studentName: st.name }, 'Score')
                     setCur(Math.min(cls.students.length - 1, cur + 1))
                   }}
                 >

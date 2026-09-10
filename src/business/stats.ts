@@ -1,4 +1,4 @@
-import type { ClassData, StudentStats, EvidenceItem } from '@/types'
+import type { ClassData, Session, StudentStats, EvidenceItem } from '@/types'
 import { RANKS } from '@/constants'
 import { getClassRubric } from '@/constants/rubrics'
 import { attInfo, compScore, compErrors, sessionScore } from './scoring'
@@ -6,6 +6,20 @@ import { attInfo, compScore, compErrors, sessionScore } from './scoring'
 const mean = (a: number[]): number => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0)
 
 export const rankOf = (avg: number) => RANKS.find((x) => avg >= x.min) ?? RANKS[RANKS.length - 1]
+
+/** Tổng số buổi đã dạy trong lớp — cộng dồn buổi riêng của tất cả học sinh
+ *  (mỗi học sinh có chuỗi buổi độc lập, không còn 1 con số chung cho cả lớp). */
+export function totalSessionsOf(cls: ClassData): number {
+  return cls.students.reduce((a, st) => a + st.sessions.length, 0)
+}
+
+/** Tập hợp các ngày học đã diễn ra trong lớp — hợp (union) ngày của mọi học
+ *  sinh, sắp xếp tăng dần. Dùng cho các bảng/biểu đồ tổng hợp cả lớp. */
+export function allDatesOf(cls: ClassData): string[] {
+  const set = new Set<string>()
+  cls.students.forEach((st) => st.sessions.forEach((s) => set.add(s.date)))
+  return [...set].sort()
+}
 
 export function mergeEvidence(values: (string | undefined)[]): EvidenceItem[] {
   const m = new Map<string, EvidenceItem>()
@@ -22,9 +36,11 @@ export function mergeEvidence(values: (string | undefined)[]): EvidenceItem[] {
   return [...m.values()].sort((a, b) => b.n - a.n)
 }
 
-export function statsOf(cls: ClassData, sid: string, from = 0, to: number | null = null): StudentStats {
+/** sessions: buổi học của ĐÚNG 1 học sinh (student.sessions, hoặc 1 đoạn con của nó
+ *  đã được lọc theo ngày/kỳ báo cáo bởi caller — statsOf không tự lọc gì thêm). */
+export function statsOf(cls: ClassData, sessions: Session[]): StudentStats {
   const r = getClassRubric(cls)
-  const list = cls.sessions.slice(from, to === null ? cls.sessions.length : to)
+  const list = sessions
   const totals: number[] = []
   const cat: Record<string, number[]> = {}
   r.comps.forEach((c) => (cat[c.key] = []))
@@ -37,8 +53,7 @@ export function statsOf(cls: ClassData, sid: string, from = 0, to: number | null
   let present = 0, late = 0, excused = 0, absent = 0, exp = 0, streak = 0, best = 0, perfect = 0
 
   list.forEach((s) => {
-    const e = s.entries[sid]
-    if (!e) return
+    const e = s.entry
     const a = e.attendance
     if (a === 'present') present++
     else if (a === 'late') late++
@@ -96,12 +111,7 @@ export function statsOf(cls: ClassData, sid: string, from = 0, to: number | null
   const attendScore =
     r.attendance.mode === 'deduct'
       ? Math.max(0, (r.attendance.base ?? 10) - late * 2 - excused * 3 - absent * 5)
-      : mean(
-          list
-            .map((s) => s.entries[sid])
-            .filter(Boolean)
-            .map((e) => attInfo(e.attendance).pts),
-        )
+      : mean(list.map((s) => attInfo(s.entry.attendance).pts))
 
   const monthTotal = r.comps.reduce((a, c) => a + catAvg[c.key], 0) + attendScore
   const avg = mean(totals)

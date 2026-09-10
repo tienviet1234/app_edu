@@ -6,9 +6,9 @@ import {
 import type { ClassData, RankingEntry } from '@/types'
 import { C, scoreColor } from '@/constants/colors'
 import { getRubric } from '@/constants/rubrics'
-import { round1 } from '@/utils/format'
-import { statsOf } from '@/business/stats'
+import { round1, daysAgoISO } from '@/utils/format'
 import { rankingOf, badgesOf } from '@/business/ranking'
+import { totalSessionsOf } from '@/business/stats'
 import { missionsOf, AVATARS, defaultAvatar } from '@/business/missions'
 import { sessionScore } from '@/business/scoring'
 import { Card } from '@/components/atoms/Card'
@@ -64,10 +64,10 @@ function AvatarPicker({ current, onPick, onClose }: {
 // ── Coins history mini-list ───────────────────────────────────────────────────
 function CoinsHistory({ cls, studentId }: { cls: ClassData; studentId: string }) {
   const r = getRubric(cls.level)
-  const rows = cls.sessions
+  const student = cls.students.find((s) => s.id === studentId)
+  const rows = (student?.sessions ?? [])
     .map((s, i) => {
-      const e = s.entries[studentId]
-      const score = e ? (sessionScore(e, r) ?? null) : null
+      const score = sessionScore(s.entry, r) ?? null
       const coins = score !== null ? 5 + score + (score >= 90 ? 10 : 0) : null
       return { no: s.no ?? i + 1, score, coins }
     })
@@ -155,7 +155,7 @@ export function LeaderboardScreen({ cls, update, userId }: LeaderboardScreenProp
   const [subTab, setSubTab] = useState<'board' | 'class'>('board')
 
   const now = rankingOf(cls)
-  const prev = cls.sessions.length > 1 ? rankingOf(cls, cls.sessions.length - 1) : null
+  const prev = rankingOf(cls, daysAgoISO(7))
   const pp: Record<string, number> = {}
   if (prev) prev.forEach((x) => (pp[x.student.id] = x.place))
 
@@ -235,7 +235,7 @@ export function LeaderboardScreen({ cls, update, userId }: LeaderboardScreenProp
           {/* Ranking list */}
           <Card className="overflow-hidden">
             <div className="px-4 py-3" style={{ background: C.board, color: '#fff' }}>
-              <div className="text-sm opacity-80">{r.label} · sau buổi {cls.sessions.length}</div>
+              <div className="text-sm opacity-80">{r.label} · tổng {totalSessionsOf(cls)} buổi</div>
               <div className="text-lg font-bold">{cls.name}</div>
             </div>
 
@@ -381,7 +381,7 @@ export function LeaderboardScreen({ cls, update, userId }: LeaderboardScreenProp
                           {/* Stats mini */}
                           <div className="mt-3 grid grid-cols-2 gap-1.5">
                             {[
-                              { label: 'Có mặt', val: `${x.s.present + x.s.late}/${x.s.counted || cls.sessions.length}` },
+                              { label: 'Có mặt', val: `${x.s.present + x.s.late}/${x.s.counted || x.student.sessions.length}` },
                               { label: 'Điểm TB', val: round1(x.s.avg) },
                               { label: 'Chuỗi tốt', val: `${x.s.streak} buổi` },
                               { label: 'Tổng XP', val: `${x.s.exp} 🪙` },
@@ -448,7 +448,7 @@ export function LeaderboardScreen({ cls, update, userId }: LeaderboardScreenProp
               <div className="text-sm" style={{ color: C.muted }}>Chưa có học sinh.</div>
             ) : (
               <div className="space-y-2">
-                {missionsOf(statsOf(cls, now[0]?.student.id ?? '', 0, null)).map((template) => {
+                {missionsOf(now[0].s).map((template) => {
                   const done = now.filter((x) => missionsOf(x.s).find((m) => m.id === template.id)?.done).length
                   const pct = now.length > 0 ? Math.round((done / now.length) * 100) : 0
                   return (

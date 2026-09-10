@@ -7,7 +7,7 @@ import { sessionScore } from '@/business/scoring'
 import { uid } from '@/utils/uid'
 import { round1, viDate } from '@/utils/format'
 import { rankingOf } from '@/business/ranking'
-import { emptyEntry } from '@/business/seed'
+import { totalSessionsOf } from '@/business/stats'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { classService } from '@/services/classes'
@@ -35,8 +35,7 @@ function parseBulk(text: string): ClassData[] {
           .flatMap((l) => l.split(','))
           .map((x) => x.trim())
           .filter(Boolean)
-          .map((n) => ({ id: uid(), name: n })),
-        sessions: [],
+          .map((n) => ({ id: uid(), name: n, sessions: [] })),
         comments: {},
       }
     })
@@ -56,6 +55,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
   const [joinCode, setJoinCode] = useState<string | null>(null)
   const [joinCodeLoading, setJoinCodeLoading] = useState(false)
   const [sessionTab, setSessionTab] = useState<'students' | 'sessions'>('students')
+  const [sessionStudentIdx, setSessionStudentIdx] = useState(0)
   const [importError, setImportError] = useState('')
   const xlsxRef = useRef<HTMLInputElement>(null)
   const { user } = useAuthStore()
@@ -123,14 +123,10 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
         localOnly.forEach((oldSt, i) => {
           const newSt = created[i]
           if (!newSt) return
+          // Buổi học nằm ngay trong student object — đổi id là đủ, không cần
+          // remap gì thêm (khác trước đây khi entries nằm ở cấp lớp).
           const student = c.students.find((s) => s.id === oldSt.id)
           if (student) student.id = newSt._id
-          c.sessions.forEach((ss) => {
-            if (ss.entries[oldSt.id]) {
-              ss.entries[newSt._id] = ss.entries[oldSt.id]
-              delete ss.entries[oldSt.id]
-            }
-          })
         })
       }))
       alert(`Đã đồng bộ ${created.length} học sinh lên server thành công.`)
@@ -203,9 +199,10 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
         {data.classes.map((c, i) => {
           const rk = rankingOf(c)
           const avg = rk.length ? rk.reduce((a, b) => a + b.s.monthTotal, 0) / rk.length : 0
-          const due =
-            c.sessions.length > 0 &&
-            (c.perMonth === 8 ? c.sessions.length % 8 === 0 : c.sessions.length % 6 === 0)
+          const totalSessions = totalSessionsOf(c)
+          const due = c.students.some(
+            (st) => st.sessions.length > 0 && st.sessions.length % c.perMonth === 0,
+          )
           return (
             <Card
               key={c.id}
@@ -231,7 +228,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                     </div>
                     <div className="text-right">
                       <div className="text-sm font-bold">
-                        Buổi {c.sessions.length}/{c.perMonth}
+                        Tổng buổi: {totalSessions}
                       </div>
                       <div className="text-xs" style={{ color: C.muted }}>
                         TB lớp {round1(avg)}
@@ -273,7 +270,6 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                     level: 'primary',
                     perMonth: 8,
                     students: [],
-                    sessions: [],
                     comments: {},
                   })
                 }),
@@ -352,7 +348,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                     color: sessionTab === t ? '#fff' : C.muted,
                   }}
                 >
-                  {t === 'students' ? `Học sinh (${cls.students.length})` : `Buổi học (${cls.sessions.length})`}
+                  {t === 'students' ? `Học sinh (${cls.students.length})` : `Buổi học (${totalSessionsOf(cls)})`}
                 </button>
               ))}
             </div>
@@ -388,8 +384,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                               const c = d.classes[current]
                               created.forEach((s) => {
                                 if (c.students.some((st: { id: string }) => st.id === s._id)) return
-                                c.students.push({ id: s._id, name: s.name })
-                                c.sessions.forEach((ss: { entries: Record<string, ReturnType<typeof emptyEntry>> }) => { ss.entries[s._id] = emptyEntry() })
+                                c.students.push({ id: s._id, name: s.name, sessions: [] })
                               })
                             }))
                           } catch {
@@ -402,9 +397,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                           setData(produce((d) => {
                             const c = d.classes[current]
                             list.forEach((n) => {
-                              const s = { id: uid(), name: n }
-                              c.students.push(s)
-                              c.sessions.forEach((ss: { entries: Record<string, ReturnType<typeof emptyEntry>> }) => { ss.entries[s.id] = emptyEntry() })
+                              c.students.push({ id: uid(), name: n, sessions: [] })
                             })
                           }))
                         }
@@ -445,8 +438,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                                 const c = d.classes[current]
                                 created.forEach((s) => {
                                   if (c.students.some((st: { id: string }) => st.id === s._id)) return
-                                  c.students.push({ id: s._id, name: s.name })
-                                  c.sessions.forEach((ss: { entries: Record<string, ReturnType<typeof emptyEntry>> }) => { ss.entries[s._id] = emptyEntry() })
+                                  c.students.push({ id: s._id, name: s.name, sessions: [] })
                                 })
                               }))
                             } catch {
@@ -459,9 +451,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                               produce((d) => {
                                 const c = d.classes[current]
                                 newNames.forEach((n) => {
-                                  const s = { id: uid(), name: n }
-                                  c.students.push(s)
-                                  c.sessions.forEach((ss: { entries: Record<string, ReturnType<typeof emptyEntry>> }) => { ss.entries[s.id] = emptyEntry() })
+                                  c.students.push({ id: uid(), name: n, sessions: [] })
                                 })
                               }),
                             )
@@ -473,7 +463,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                     />
                     {importError && <div className="w-full text-xs" style={{ color: C.red }}>{importError}</div>}
                   </div>
-                  {cls.sessions.length > 0 && (
+                  {cls.students.some((s) => s.sessions.length > 0) && (
                     <Btn kind="ghost" className="mt-2" onClick={() => exportAttendance(cls)}>
                       Xuất điểm danh Excel
                     </Btn>
@@ -538,81 +528,103 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
 
             {sessionTab === 'sessions' && (
               <div>
-                {cls.sessions.length === 0 ? (
+                {cls.students.length === 0 ? (
                   <div className="rounded-xl p-6 text-center text-sm" style={{ background: C.paper, color: C.muted }}>
-                    Chưa có buổi học nào. Vào tab <b>Nhập điểm</b> để thêm buổi đầu tiên.
+                    Lớp chưa có học sinh nào.
                   </div>
                 ) : (
-                  <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr style={{ background: C.paper }}>
-                          <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Buổi</th>
-                          <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Ngày</th>
-                          <th className="py-2 px-3 text-center font-semibold" style={{ color: C.muted }}>Đi học</th>
-                          <th className="py-2 px-3 text-center font-semibold" style={{ color: C.muted }}>TB điểm</th>
-                          <th className="py-2 px-3"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {cls.sessions.map((ss) => {
-                          const presentCount = cls.students.filter(
-                            (st) => ['present', 'late', 'excused'].includes(ss.entries[st.id]?.attendance ?? 'absent'),
-                          ).length
-                          const r = getRubric(cls.level)
-                          const scores = cls.students
-                            .map((st) => {
-                              const e = ss.entries[st.id]
-                              if (!e) return null
-                              return sessionScore(e, r) ?? null
-                            })
-                            .filter((x): x is number => x !== null)
-                          const avg = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null
-
-                          return (
-                            <tr key={ss.id} style={{ borderTop: `1px solid ${C.line}` }}>
-                              <td className="py-2 px-3 font-bold">B{ss.no}</td>
-                              <td className="py-2 px-3">
-                                <input
-                                  type="date"
-                                  value={ss.date}
-                                  onChange={(x) =>
-                                    edit((c) => {
-                                      const found = c.sessions.find((s) => s.id === ss.id)
-                                      if (found) found.date = x.target.value
-                                    })
-                                  }
-                                  className="rounded-lg px-2 py-1 text-sm"
-                                  style={{ border: `1px solid ${C.line}` }}
-                                />
-                              </td>
-                              <td className="py-2 px-3 text-center">
-                                {presentCount}/{cls.students.length}
-                              </td>
-                              <td className="py-2 px-3 text-center font-semibold">
-                                {avg !== null ? round1(avg) : '—'}
-                              </td>
-                              <td className="py-2 px-3 text-right">
-                                <button
-                                  className="text-xs font-bold"
-                                  style={{ color: C.red }}
-                                  onClick={() => {
-                                    if (!confirm(`Xóa buổi ${ss.no} (${viDate(ss.date)})? Toàn bộ điểm buổi này sẽ mất.`)) return
-                                    edit((c) => {
-                                      c.sessions = c.sessions.filter((s) => s.id !== ss.id)
-                                      c.sessions.forEach((s, idx) => { s.no = idx + 1 })
-                                    })
-                                  }}
-                                >
-                                  Xóa
-                                </button>
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                  <>
+                    <div className="mb-2 flex items-center gap-2">
+                      <span className="text-sm" style={{ color: C.muted }}>Học sinh:</span>
+                      <select
+                        value={Math.min(sessionStudentIdx, cls.students.length - 1)}
+                        onChange={(x) => setSessionStudentIdx(Number(x.target.value))}
+                        className="rounded-xl px-3 py-2 text-sm font-semibold"
+                        style={{ border: `1px solid ${C.line}` }}
+                      >
+                        {cls.students.map((s, i) => (
+                          <option key={s.id} value={i}>{s.name} ({s.sessions.length} buổi)</option>
+                        ))}
+                      </select>
+                    </div>
+                    {(() => {
+                      const stu = cls.students[Math.min(sessionStudentIdx, cls.students.length - 1)]
+                      const r = getRubric(cls.level)
+                      if (!stu.sessions.length) {
+                        return (
+                          <div className="rounded-xl p-6 text-center text-sm" style={{ background: C.paper, color: C.muted }}>
+                            {stu.name} chưa có buổi học nào. Vào tab <b>Nhập điểm</b> để thêm buổi đầu tiên.
+                          </div>
+                        )
+                      }
+                      return (
+                        <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr style={{ background: C.paper }}>
+                                <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Buổi</th>
+                                <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Ngày</th>
+                                <th className="py-2 px-3 text-center font-semibold" style={{ color: C.muted }}>Đi học</th>
+                                <th className="py-2 px-3 text-center font-semibold" style={{ color: C.muted }}>Điểm</th>
+                                <th className="py-2 px-3"></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {stu.sessions.map((ss) => {
+                                const t = sessionScore(ss.entry, r)
+                                const attendLabel: Record<string, string> = {
+                                  present: 'Có mặt', late: 'Muộn', excused: 'Phép', absent: 'Vắng',
+                                }
+                                return (
+                                  <tr key={ss.id} style={{ borderTop: `1px solid ${C.line}` }}>
+                                    <td className="py-2 px-3 font-bold">B{ss.no}</td>
+                                    <td className="py-2 px-3">
+                                      <input
+                                        type="date"
+                                        value={ss.date}
+                                        onChange={(x) =>
+                                          edit((c) => {
+                                            const s = c.students.find((y) => y.id === stu.id)
+                                            const found = s?.sessions.find((y) => y.id === ss.id)
+                                            if (found) found.date = x.target.value
+                                          })
+                                        }
+                                        className="rounded-lg px-2 py-1 text-sm"
+                                        style={{ border: `1px solid ${C.line}` }}
+                                      />
+                                    </td>
+                                    <td className="py-2 px-3 text-center">
+                                      {attendLabel[ss.entry.attendance] ?? '—'}
+                                    </td>
+                                    <td className="py-2 px-3 text-center font-semibold">
+                                      {t !== null ? t : '—'}
+                                    </td>
+                                    <td className="py-2 px-3 text-right">
+                                      <button
+                                        className="text-xs font-bold"
+                                        style={{ color: C.red }}
+                                        onClick={() => {
+                                          if (!confirm(`Xóa buổi ${ss.no} (${viDate(ss.date)}) của ${stu.name}? Điểm buổi này sẽ mất.`)) return
+                                          edit((c) => {
+                                            const s = c.students.find((y) => y.id === stu.id)
+                                            if (!s) return
+                                            s.sessions = s.sessions.filter((y) => y.id !== ss.id)
+                                            s.sessions.forEach((y, idx) => { y.no = idx + 1 })
+                                          })
+                                        }}
+                                      >
+                                        Xóa
+                                      </button>
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )
+                    })()}
+                  </>
                 )}
               </div>
             )}

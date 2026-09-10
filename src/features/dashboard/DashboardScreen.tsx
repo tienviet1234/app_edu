@@ -2,8 +2,9 @@ import { useMemo } from 'react'
 import type { AppData } from '@/types'
 import { C, scoreColor } from '@/constants/colors'
 import { RUBRICS } from '@/constants/rubrics'
-import { round1 } from '@/utils/format'
+import { round1, daysAgoISO } from '@/utils/format'
 import { rankingOf } from '@/business/ranking'
+import { totalSessionsOf } from '@/business/stats'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { ProgressBar } from '@/components/atoms/ProgressBar'
@@ -24,41 +25,35 @@ function attendColor(rate: number): string {
 export function DashboardScreen({ data, setTab, setCurrent }: DashboardScreenProps) {
   const summary = useMemo(() => {
     const totalStudents = data.classes.reduce((a, c) => a + c.students.length, 0)
-    const totalSessions = data.classes.reduce((a, c) => a + c.sessions.length, 0)
+    const totalSessions = data.classes.reduce((a, c) => a + totalSessionsOf(c), 0)
     const synced = data.classes.filter((c) => isMongoid(c.id)).length
+    const last30 = daysAgoISO(30)
 
     const classCards = data.classes.map((cls, i) => {
       const ranking = rankingOf(cls)
       const avg = ranking.length ? ranking.reduce((a, b) => a + b.s.monthTotal, 0) / ranking.length : 0
 
-      const totalEntries = cls.students.length * cls.sessions.length
-      const presentCount = cls.sessions.reduce(
-        (a, s) =>
-          a +
-          cls.students.filter((st) =>
-            ['present', 'late', 'excused'].includes(s.entries[st.id]?.attendance ?? 'absent'),
-          ).length,
-        0,
-      )
+      const allSessions = cls.students.flatMap((st) => st.sessions)
+      const totalEntries = allSessions.length
+      const presentCount = allSessions.filter((s) =>
+        ['present', 'late', 'excused'].includes(s.entry.attendance),
+      ).length
       const attendRate = totalEntries > 0 ? (presentCount / totalEntries) * 100 : 100
 
-      const dueReport =
-        cls.sessions.length > 0 &&
-        (cls.perMonth === 8 ? cls.sessions.length % 8 === 0 : cls.sessions.length % 6 === 0)
+      const dueReport = cls.students.some(
+        (st) => st.sessions.length > 0 && st.sessions.length % cls.perMonth === 0,
+      )
 
       const lowCount = ranking.filter((r) => r.s.monthTotal < 70).length
 
-      // This month's sessions (last perMonth or fewer)
-      const recentSessions = cls.sessions.slice(-cls.perMonth)
-      const recentAvg =
-        recentSessions.length > 0
-          ? (() => {
-              const rk = rankingOf({ ...cls, sessions: recentSessions })
-              return rk.length ? rk.reduce((a, b) => a + b.s.monthTotal, 0) / rk.length : 0
-            })()
-          : 0
+      // 30 ngày gần nhất — mỗi học sinh giờ có buổi riêng nên không còn "perMonth
+      // buổi cuối cùng" chung được, dùng cửa sổ thời gian thay thế.
+      const recentAvg = (() => {
+        const rk = rankingOf(cls, undefined, last30)
+        return rk.length ? rk.reduce((a, b) => a + b.s.monthTotal, 0) / rk.length : 0
+      })()
 
-      return { cls, i, avg, recentAvg, attendRate, dueReport, lowCount }
+      return { cls, i, avg, recentAvg, attendRate, dueReport, lowCount, totalSessions: totalEntries }
     })
 
     const dueClasses = classCards.filter((x) => x.dueReport)
@@ -143,7 +138,7 @@ export function DashboardScreen({ data, setTab, setCurrent }: DashboardScreenPro
         </Card>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
-          {summary.classCards.map(({ cls, i, avg, attendRate, dueReport, lowCount }) => (
+          {summary.classCards.map(({ cls, i, avg, attendRate, dueReport, lowCount, totalSessions: clsSessions }) => (
             <Card key={cls.id} className="overflow-hidden" hoverable>
               {/* Class header */}
               <div
@@ -160,9 +155,9 @@ export function DashboardScreen({ data, setTab, setCurrent }: DashboardScreenPro
                 <div className="text-right">
                   <div
                     className="text-2xl font-black tabular-nums"
-                    style={{ color: cls.sessions.length > 0 ? scoreColor(avg) : '#fff' }}
+                    style={{ color: clsSessions > 0 ? scoreColor(avg) : '#fff' }}
                   >
-                    {cls.sessions.length > 0 ? round1(avg) : '—'}
+                    {clsSessions > 0 ? round1(avg) : '—'}
                   </div>
                   <div className="text-xs opacity-50">TB lớp</div>
                 </div>
@@ -172,7 +167,7 @@ export function DashboardScreen({ data, setTab, setCurrent }: DashboardScreenPro
               <div className="grid grid-cols-3 divide-x" style={{ borderBottom: `1px solid ${C.line}` }}>
                 {[
                   { label: 'Học sinh', val: cls.students.length },
-                  { label: `Buổi (${cls.perMonth}/kỳ)`, val: `${cls.sessions.length}/${cls.perMonth}` },
+                  { label: 'Tổng buổi', val: clsSessions },
                   {
                     label: 'Có mặt',
                     val: `${Math.round(attendRate)}%`,
@@ -213,7 +208,7 @@ export function DashboardScreen({ data, setTab, setCurrent }: DashboardScreenPro
               )}
 
               {/* Attendance bar */}
-              {cls.sessions.length > 0 && (
+              {clsSessions > 0 && (
                 <div className="flex items-center gap-2 px-4 pb-3">
                   <ProgressBar
                     value={attendRate}
