@@ -107,6 +107,40 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
     }
   }
 
+  // Khôi phục học sinh đang kẹt local-only (thêm khi lớp chưa có ID server,
+  // hoặc thêm qua Excel import trước khi luồng này được đồng bộ) lên server thật.
+  async function syncLocalOnlyStudents() {
+    if (!cls || !isMongoid(cls.id)) return
+    const localOnly = cls.students.filter((s) => !isMongoid(s.id))
+    if (!localOnly.length) return
+    if (!confirm(`Đồng bộ ${localOnly.length} học sinh đang lưu tạm trên máy này lên server?`)) return
+
+    setSyncing(true)
+    try {
+      const created = await classService.addManagedStudents(cls.id, localOnly.map((s) => s.name))
+      setData(produce((d: AppData) => {
+        const c = d.classes[current]
+        localOnly.forEach((oldSt, i) => {
+          const newSt = created[i]
+          if (!newSt) return
+          const student = c.students.find((s) => s.id === oldSt.id)
+          if (student) student.id = newSt._id
+          c.sessions.forEach((ss) => {
+            if (ss.entries[oldSt.id]) {
+              ss.entries[newSt._id] = ss.entries[oldSt.id]
+              delete ss.entries[oldSt.id]
+            }
+          })
+        })
+      }))
+      alert(`Đã đồng bộ ${created.length} học sinh lên server thành công.`)
+    } catch {
+      alert('Lỗi khi đồng bộ. Thử lại.')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   return (
     <div className="space-y-3">
       <Card className="p-4">
@@ -396,17 +430,39 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                         try {
                           const parsed = await importStudentNames(file)
                           if (!parsed.length) { setImportError('Không tìm thấy tên học sinh trong file.'); return }
-                          setData(
-                            produce((d) => {
-                              const c = d.classes[current]
-                              parsed.forEach((n) => {
-                                if (c.students.some((st2: { name: string }) => st2.name === n)) return
-                                const s = { id: uid(), name: n }
-                                c.students.push(s)
-                                c.sessions.forEach((ss: { entries: Record<string, ReturnType<typeof emptyEntry>> }) => { ss.entries[s.id] = emptyEntry() })
-                              })
-                            }),
-                          )
+                          const newNames = parsed.filter((n) => !cls.students.some((st2) => st2.name === n))
+                          if (!newNames.length) return
+
+                          // API-synced class → create managed student accounts on server (giống nhánh dán tên)
+                          if (cls && isMongoid(cls.id)) {
+                            setSyncing(true)
+                            try {
+                              const created = await classService.addManagedStudents(cls.id, newNames)
+                              setData(produce((d) => {
+                                const c = d.classes[current]
+                                created.forEach((s) => {
+                                  if (c.students.some((st: { id: string }) => st.id === s._id)) return
+                                  c.students.push({ id: s._id, name: s.name })
+                                  c.sessions.forEach((ss: { entries: Record<string, ReturnType<typeof emptyEntry>> }) => { ss.entries[s._id] = emptyEntry() })
+                                })
+                              }))
+                            } catch {
+                              setImportError('Lỗi khi thêm học sinh lên server. Thử lại.')
+                            } finally {
+                              setSyncing(false)
+                            }
+                          } else {
+                            setData(
+                              produce((d) => {
+                                const c = d.classes[current]
+                                newNames.forEach((n) => {
+                                  const s = { id: uid(), name: n }
+                                  c.students.push(s)
+                                  c.sessions.forEach((ss: { entries: Record<string, ReturnType<typeof emptyEntry>> }) => { ss.entries[s.id] = emptyEntry() })
+                                })
+                              }),
+                            )
+                          }
                         } catch {
                           setImportError('Lỗi đọc file. Hãy thử lại với file .xlsx hoặc .csv.')
                         }
@@ -421,9 +477,27 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                   )}
                 </div>
                 <div>
-                  <div className="mb-1 text-sm" style={{ color: C.muted }}>
-                    Danh sách ({cls.students.length})
+                  <div className="mb-1 flex items-center justify-between text-sm" style={{ color: C.muted }}>
+                    <span>Danh sách ({cls.students.length})</span>
                   </div>
+                  {isMongoid(cls.id) && cls.students.some((s) => !isMongoid(s.id)) && (
+                    <div
+                      className="mb-2 flex flex-wrap items-center gap-2 rounded-xl px-3 py-2 text-xs"
+                      style={{ background: C.gold + '18', border: `1px solid ${C.gold}55` }}
+                    >
+                      <span style={{ color: '#7A5A05' }}>
+                        ⚠ {cls.students.filter((s) => !isMongoid(s.id)).length} học sinh đang lưu tạm trên máy này, chưa lên server
+                      </span>
+                      <button
+                        onClick={syncLocalOnlyStudents}
+                        disabled={syncing}
+                        className="ml-auto rounded-lg px-3 py-1 text-xs font-bold"
+                        style={{ background: C.gold, color: '#2A1F05' }}
+                      >
+                        {syncing ? 'Đang đồng bộ...' : 'Đồng bộ ngay'}
+                      </button>
+                    </div>
+                  )}
                   <div
                     className="max-h-48 overflow-y-auto rounded-xl p-2"
                     style={{ background: C.paper }}
