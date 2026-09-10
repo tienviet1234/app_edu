@@ -63,6 +63,9 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
     if (idx > cls.sessions.length - 1) setIdx(Math.max(0, cls.sessions.length - 1))
   }, [cls.sessions.length, idx])
 
+  // Đổi buổi học → bỏ bản nháp "Số câu" cũ, quay về hiển thị giá trị thật của buổi mới
+  useEffect(() => { setMaxDrafts({}) }, [idx])
+
   async function addSession() {
     if (adding) return
     setAdding(true)
@@ -137,9 +140,6 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
       s.maxes[key] = val
     })
   }
-
-  // Đổi buổi học → bỏ bản nháp cũ, quay về hiển thị giá trị thật của buổi mới
-  useEffect(() => { setMaxDrafts({}) }, [idx])
 
   function commitSessionMax(key: string, raw: string) {
     const val = Number(raw)
