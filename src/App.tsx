@@ -260,7 +260,7 @@ export default function App() {
           <select
             value={currentClassIndex}
             onChange={(x) => setCurrentClass(Number(x.target.value))}
-            className="ml-auto min-w-0 flex-1 truncate rounded-xl px-2 py-2 text-xs font-bold sm:ml-0 sm:max-w-[220px] sm:flex-none sm:px-3 sm:text-sm"
+            className="ml-auto min-w-0 flex-1 truncate rounded-xl px-2 py-2 text-xs font-bold sm:max-w-[220px] sm:flex-none sm:px-3 sm:text-sm"
             style={{ background: 'rgb(255 255 255 / 0.12)', color: '#fff', border: '1px solid rgb(255 255 255 / 0.20)' }}
           >
             {data.classes.map((c, i) => (
