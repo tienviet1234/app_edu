@@ -240,7 +240,7 @@ export default function App() {
           <select
             value={currentClassIndex}
             onChange={(x) => setCurrentClass(Number(x.target.value))}
-            className="ml-auto rounded-xl px-3 py-2 text-sm font-bold"
+            className="ml-auto min-w-0 max-w-[84px] truncate rounded-xl px-2 py-2 text-xs font-bold sm:max-w-none sm:px-3 sm:text-sm"
             style={{ background: 'rgb(255 255 255 / 0.12)', color: '#fff', border: '1px solid rgb(255 255 255 / 0.20)' }}
           >
             {data.classes.map((c, i) => (
@@ -253,18 +253,20 @@ export default function App() {
           {user?.role === 'student' ? (
             <button
               onClick={() => navigate('/app/join')}
-              className="rounded-xl px-3 py-2 text-sm font-bold transition-all hover:brightness-[0.92] active:scale-[0.97]"
+              className="shrink-0 rounded-xl px-2.5 py-2 text-sm font-bold transition-all hover:brightness-[0.92] active:scale-[0.97] sm:px-3"
               style={{ background: C.gold, color: '#2A1F05', boxShadow: '0 1px 4px 0 rgb(245 158 11 / 0.30)' }}
+              title="Tham gia lớp"
             >
-              + Tham gia lớp
+              +<span className="hidden sm:inline"> Tham gia lớp</span>
             </button>
           ) : (
             <button
               onClick={() => setTab('classes')}
-              className="rounded-xl px-3 py-2 text-sm font-bold transition-all hover:brightness-[0.92] active:scale-[0.97]"
+              className="shrink-0 rounded-xl px-2.5 py-2 text-sm font-bold transition-all hover:brightness-[0.92] active:scale-[0.97] sm:px-3"
               style={{ background: C.gold, color: '#2A1F05', boxShadow: '0 1px 4px 0 rgb(245 158 11 / 0.30)' }}
+              title="Thêm lớp"
             >
-              + Thêm lớp
+              +<span className="hidden sm:inline"> Thêm lớp</span>
             </button>
           )}
 
@@ -275,16 +277,18 @@ export default function App() {
           {user?.role === 'admin' && (
             <button
               onClick={() => navigate('/admin')}
-              className="rounded-xl px-3 py-1.5 text-xs font-bold transition-all hover:brightness-[0.92]"
+              className="shrink-0 rounded-xl px-2 py-1.5 text-xs font-bold transition-all hover:brightness-[0.92] sm:px-3"
               style={{ background: C.gold, color: '#2A1F05' }}
+              title="Admin"
             >
-              Admin
+              <span className="sm:hidden">⚙</span>
+              <span className="hidden sm:inline">Admin</span>
             </button>
           )}
 
           {user && (
             <div
-              className="flex items-center gap-2 rounded-xl px-3 py-1.5"
+              className="flex shrink-0 items-center gap-2 rounded-xl px-2 py-1.5 sm:px-3"
               style={{ background: 'rgb(255 255 255 / 0.10)', border: '1px solid rgb(255 255 255 / 0.12)' }}
             >
               <button
@@ -309,11 +313,12 @@ export default function App() {
               <div className="hidden sm:block" style={{ width: 1, height: 24, background: 'rgb(255 255 255 / 0.15)' }} />
               <button
                 onClick={() => logout()}
-                className="rounded-lg px-2 py-1 text-xs font-semibold transition hover:opacity-100"
+                className="rounded-lg px-1.5 py-1 text-xs font-semibold transition hover:opacity-100 sm:px-2"
                 style={{ color: 'rgb(255 255 255 / 0.65)' }}
                 title="Đăng xuất"
               >
-                Thoát
+                <span className="sm:hidden">⏻</span>
+                <span className="hidden sm:inline">Thoát</span>
               </button>
             </div>
           )}
