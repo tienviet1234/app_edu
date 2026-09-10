@@ -15,6 +15,17 @@ export interface IClassSession extends Document {
   status: SessionStatus
   notes?: string
   createdBy: Types.ObjectId
+
+  // ── Per-student session timeline (migration in progress) ──────────────────
+  // studentId optional at the Mongoose level so legacy (pre-migration, shared)
+  // documents stay valid; enforced as required for NEW writes at the zod layer.
+  studentId?: Types.ObjectId
+  // Set on the ORIGINAL shared doc once it has been fanned out into per-student
+  // copies. Never deleted — this is the audit/rollback anchor.
+  migratedAt?: Date
+  // Set on each NEW per-student doc, pointing back to the shared doc it came from.
+  legacySharedSessionId?: Types.ObjectId
+
   createdAt: Date
   updatedAt: Date
 }
@@ -37,11 +48,16 @@ const classSessionSchema = new Schema<IClassSession>(
     },
     notes: { type: String, trim: true, maxlength: 2000 },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+
+    studentId: { type: Schema.Types.ObjectId, ref: 'User', index: true },
+    migratedAt: { type: Date },
+    legacySharedSessionId: { type: Schema.Types.ObjectId, ref: 'ClassSession' },
   },
   { timestamps: true },
 )
 
 classSessionSchema.index({ classId: 1, scheduledAt: 1 })
+classSessionSchema.index({ classId: 1, studentId: 1, scheduledAt: 1 })
 classSessionSchema.index({ centerId: 1, status: 1, scheduledAt: -1 })
 
 export const ClassSession = model<IClassSession>('ClassSession', classSessionSchema)

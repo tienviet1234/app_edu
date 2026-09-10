@@ -17,6 +17,9 @@ server/.env
 .env.local
 server/.env.local
 
+# Migration script backups — chứa dữ liệu học sinh thật, không commit
+server/backups/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

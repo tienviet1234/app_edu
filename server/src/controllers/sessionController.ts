@@ -11,6 +11,11 @@ export async function listSessions(req: Request, res: Response): Promise<void> {
     ...(req.query.classId ? { classId: req.query.classId } : {}),
     ...(req.query.courseId ? { courseId: req.query.courseId } : {}),
     ...(req.query.status ? { status: req.query.status } : {}),
+    ...(req.query.studentId ? { studentId: req.query.studentId } : {}),
+    // Bản ghi buổi học CHUNG cũ, đã được fan-out sang per-student — ẩn mặc định
+    // khỏi client (client chưa hiểu cấu trúc mới cho đến khi Phase 2 lên production).
+    // ?includeMigrated=true để công cụ admin/debug xem lại bản gốc nếu cần.
+    ...(req.query.includeMigrated === 'true' ? {} : { migratedAt: { $exists: false } }),
   }
   ok(res, await paginate(ClassSession, filter, req.query))
 }

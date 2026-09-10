@@ -3,7 +3,7 @@ import { Types } from 'mongoose'
 import { Score } from '../models/Score.js'
 import { Class } from '../models/Class.js'
 import { ClassSession } from '../models/ClassSession.js'
-import { created, forbidden, notFound, ok } from '../utils/response.js'
+import { badRequest, created, forbidden, notFound, ok } from '../utils/response.js'
 import { paginate } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit } from '../services/auditService.js'
@@ -78,6 +78,15 @@ export async function upsertScore(req: Request, res: Response): Promise<void> {
     sessionId: string
     studentId: string
     [key: string]: unknown
+  }
+
+  // Bảo vệ tính nhất quán: nếu session đã được gắn cho 1 học sinh cụ thể
+  // (per-student session), không cho ghi điểm cho học sinh khác vào đó.
+  // Bỏ qua kiểm tra nếu session chưa có studentId (bản ghi cũ, dùng chung).
+  const session = await ClassSession.findById(sessionId, 'studentId').lean()
+  if (session?.studentId && String(session.studentId) !== studentId) {
+    badRequest(res, 'Buổi học này không thuộc về học sinh đang chấm.')
+    return
   }
 
   const score = await Score.findOneAndUpdate(
