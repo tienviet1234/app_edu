@@ -134,8 +134,11 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
         })
       }))
       alert(`Đã đồng bộ ${created.length} học sinh lên server thành công.`)
-    } catch {
-      alert('Lỗi khi đồng bộ. Thử lại.')
+    } catch (err: unknown) {
+      const detail = (err as { response?: { status?: number; data?: { message?: string } } })?.response
+      const msg = detail?.data?.message
+      console.error('syncLocalOnlyStudents error:', err)
+      alert(`Lỗi khi đồng bộ${detail?.status ? ` (${detail.status})` : ''}${msg ? `: ${msg}` : ''}. Xem console để biết chi tiết.`)
     } finally {
       setSyncing(false)
     }

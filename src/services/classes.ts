@@ -64,10 +64,15 @@ export const classService = {
       .get<{ data: { joinCode: string; className: string } }>(`/classes/${classId}/join-code`)
       .then((r) => r.data.data),
 
-  /** Teacher adds students by name — creates managed accounts + enrolls in one call */
+  /** Teacher adds students by name — creates managed accounts + enrolls in one call.
+   *  Server hashes 1 password per student sequentially — can be slow for larger
+   *  batches, especially after a Render cold start — so use a longer timeout
+   *  than the default. */
   addManagedStudents: (classId: string, names: string[]) =>
     api
-      .post<{ data: Array<{ _id: string; name: string }> }>(`/classes/${classId}/students/bulk`, { names })
+      .post<{ data: Array<{ _id: string; name: string }> }>(
+        `/classes/${classId}/students/bulk`, { names }, { timeout: 90_000 },
+      )
       .then((r) => r.data.data),
 
   /** Permanently deletes a class (teacher or admin) */
