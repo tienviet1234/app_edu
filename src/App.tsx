@@ -204,7 +204,7 @@ export default function App() {
               }
             : emptyEntry(),
         })
-        student.sessions.sort((a, b) => a.date.localeCompare(b.date) || a.no - b.no)
+        student.sessions.sort((a, b) => a.no - b.no)
       })
     }))
   // eslint-disable-next-line react-hooks/exhaustive-deps

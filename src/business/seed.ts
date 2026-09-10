@@ -94,7 +94,7 @@ export function normalize(d: unknown): AppData {
             })
           })
         })
-        students.forEach((s) => s.sessions.sort((a, b) => a.date.localeCompare(b.date) || a.no - b.no))
+        students.forEach((s) => s.sessions.sort((a, b) => a.no - b.no))
       }
 
       return {
