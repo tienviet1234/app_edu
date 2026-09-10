@@ -50,11 +50,16 @@ export function SessionCountScreen({ cls }: SessionCountScreenProps) {
     })
 
     const studentCount = new Map<string, number>()
-    const teacherCount = new Map<string, number>()
+    // Buổi của giáo viên = số NGÀY khác nhau giáo viên đó có điểm danh học
+    // sinh — không đếm theo từng học sinh (1 ngày dạy 8 em vẫn tính 1 buổi).
+    const teacherDates = new Map<string, Set<string>>()
     all.forEach((r) => {
       studentCount.set(r.studentName, (studentCount.get(r.studentName) ?? 0) + 1)
-      teacherCount.set(r.teacherName, (teacherCount.get(r.teacherName) ?? 0) + 1)
+      const dates = teacherDates.get(r.teacherName) ?? new Set<string>()
+      dates.add(r.date)
+      teacherDates.set(r.teacherName, dates)
     })
+    const teacherCount = new Map([...teacherDates.entries()].map(([name, dates]) => [name, dates.size]))
 
     const q = search.trim().toLowerCase()
     const filtered = all.filter(
