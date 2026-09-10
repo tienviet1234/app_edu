@@ -11,6 +11,7 @@ import { totalSessionsOf } from '@/business/stats'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { classService } from '@/services/classes'
+import { sessionService } from '@/services/sessions'
 import { importStudentNames, exportAttendance } from '@/utils/excel'
 import { useClassStudents } from '@/hooks'
 import { useAuthStore } from '@/store/authStore'
@@ -582,13 +583,19 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                                       <input
                                         type="date"
                                         value={ss.date}
-                                        onChange={(x) =>
+                                        onChange={(x) => {
+                                          const newDate = x.target.value
                                           edit((c) => {
                                             const s = c.students.find((y) => y.id === stu.id)
                                             const found = s?.sessions.find((y) => y.id === ss.id)
-                                            if (found) found.date = x.target.value
+                                            if (found) found.date = newDate
                                           })
-                                        }
+                                          if (isMongoid(ss.id)) {
+                                            sessionService
+                                              .update(ss.id, { scheduledAt: `${newDate}T00:00:00.000Z` })
+                                              .catch(() => alert('Lỗi khi lưu ngày mới lên server. Thử lại.'))
+                                          }
+                                        }}
                                         className="rounded-lg px-2 py-1 text-sm"
                                         style={{ border: `1px solid ${C.line}` }}
                                       />
@@ -603,8 +610,16 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                                       <button
                                         className="text-xs font-bold"
                                         style={{ color: C.red }}
-                                        onClick={() => {
+                                        onClick={async () => {
                                           if (!confirm(`Xóa buổi ${ss.no} (${viDate(ss.date)}) của ${stu.name}? Điểm buổi này sẽ mất.`)) return
+                                          if (isMongoid(ss.id)) {
+                                            try {
+                                              await sessionService.remove(ss.id)
+                                            } catch {
+                                              alert('Lỗi khi xóa buổi trên server. Thử lại.')
+                                              return
+                                            }
+                                          }
                                           edit((c) => {
                                             const s = c.students.find((y) => y.id === stu.id)
                                             if (!s) return

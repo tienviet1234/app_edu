@@ -42,6 +42,12 @@ export const sessionService = {
   get: (id: string) =>
     api.get<{ data: ApiSession }>(`/sessions/${id}`).then((r) => r.data.data),
 
+  update: (id: string, body: { title?: string; scheduledAt?: string; durationMinutes?: number; notes?: string }) =>
+    api.patch<{ data: ApiSession }>(`/sessions/${id}`, body).then((r) => r.data.data),
+
+  remove: (id: string) =>
+    api.delete<{ data: { deleted: boolean } }>(`/sessions/${id}`).then((r) => r.data.data),
+
   complete: (id: string) =>
     api.post<{ data: ApiSession }>(`/sessions/${id}/complete`, {}).then((r) => r.data.data),
 }

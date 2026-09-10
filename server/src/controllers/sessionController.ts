@@ -1,6 +1,8 @@
 import type { Request, Response } from 'express'
 import { Types } from 'mongoose'
 import { ClassSession } from '../models/ClassSession.js'
+import { Score } from '../models/Score.js'
+import { Attendance } from '../models/Attendance.js'
 import { created, notFound, ok } from '../utils/response.js'
 import { parsePagination } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
@@ -56,6 +58,23 @@ export async function updateSession(req: Request, res: Response): Promise<void> 
   }
   await writeAudit(req, { action: 'session.update', resource: 'ClassSession', resourceId: String(session._id) })
   ok(res, session)
+}
+
+/** DELETE /api/sessions/:id — xóa 1 buổi học riêng của học sinh (và điểm/điểm
+ *  danh gắn với nó), dùng khi giáo viên tạo nhầm buổi hoặc muốn xóa hẳn. */
+export async function deleteSession(req: Request, res: Response): Promise<void> {
+  const session = await ClassSession.findById(req.params.id)
+  if (!session) {
+    notFound(res, 'Session not found.')
+    return
+  }
+  await Promise.all([
+    Score.deleteMany({ sessionId: session._id }),
+    Attendance.deleteMany({ sessionId: session._id }),
+  ])
+  await session.deleteOne()
+  await writeAudit(req, { action: 'session.delete', resource: 'ClassSession', resourceId: String(session._id) })
+  ok(res, { deleted: true })
 }
 
 export async function completeSession(req: Request, res: Response): Promise<void> {

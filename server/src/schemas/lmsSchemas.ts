@@ -73,7 +73,7 @@ export const sessionBodySchema = z.object({
   notes: z.string().max(2000).optional(),
 })
 
-export const sessionUpdateSchema = sessionBodySchema.partial().omit({ centerId: true, classId: true })
+export const sessionUpdateSchema = sessionBodySchema.partial().omit({ centerId: true, classId: true, studentId: true })
 
 // ─── Attendance ───────────────────────────────────────────────────────────────
 export const attendanceBodySchema = z.object({
