@@ -130,6 +130,10 @@ export interface ClassData {
   comments: Record<string, string>
   extraComps?: ExtraComp[]   // admin-defined extra scoring components
   hiddenComps?: string[]     // keys of standard comps hidden for this class
+  // Admin chỉnh điểm từng phần nhỏ/mức của tiêu chí GỐC (không phải tiêu chí
+  // tùy chỉnh) — key ngoài = comp.key, key trong = part.id/option.id/item.id,
+  // riêng comp loại 'score' (không có phần nhỏ) dùng key đặc biệt '_max'.
+  compOverrides?: Record<string, Record<string, number>>
 }
 
 // ─── App Data ─────────────────────────────────────────────────────────────────

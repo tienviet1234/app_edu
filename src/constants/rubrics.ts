@@ -140,15 +140,44 @@ function extraToComp(ec: import('@/types').ExtraComp): import('@/types').RubricC
   return { key: ec.key, label: ec.label, max: ec.max, type: 'score' as const }
 }
 
+/** Áp override điểm từng phần nhỏ/mức (do admin chỉnh) lên 1 tiêu chí GỐC —
+ *  tổng max luôn tính lại từ các phần nhỏ, không bao giờ lệch với thực tế
+ *  chấm điểm được (xem business/scoring.ts compScore). */
+export function applyCompOverride(
+  comp: import('@/types').RubricComponent,
+  overrides: Record<string, number> | undefined,
+): import('@/types').RubricComponent {
+  if (!overrides) return comp
+  if (comp.type === 'parts' && comp.parts) {
+    const parts = comp.parts.map((p) => (overrides[p.id] != null ? { ...p, max: overrides[p.id] } : p))
+    return { ...comp, parts, max: parts.reduce((a, p) => a + p.max, 0) }
+  }
+  if (comp.type === 'choice' && comp.options) {
+    const options = comp.options.map((o) => (overrides[o.id] != null ? { ...o, pts: overrides[o.id] } : o))
+    return { ...comp, options, max: options.reduce((a, o) => Math.max(a, o.pts), 0) }
+  }
+  if (comp.type === 'ticks' && comp.items) {
+    const items = comp.items.map((it) => (overrides[it.id] != null ? { ...it, pts: overrides[it.id] } : it))
+    return { ...comp, items, max: items.reduce((a, it) => a + it.pts, 0) }
+  }
+  if (comp.type === 'score' && overrides._max != null) {
+    return { ...comp, max: overrides._max }
+  }
+  return comp
+}
+
 export function getClassRubric(cls: ClassData): RubricDef {
   const base = getRubric(cls.level)
   const hidden = new Set(cls.hiddenComps ?? [])
   const extras = cls.extraComps ?? []
-  if (!hidden.size && !extras.length) return base
+  const overrides = cls.compOverrides ?? {}
+  if (!hidden.size && !extras.length && !Object.keys(overrides).length) return base
   return {
     ...base,
     comps: [
-      ...base.comps.filter((c) => !hidden.has(c.key)),
+      ...base.comps
+        .filter((c) => !hidden.has(c.key))
+        .map((c) => applyCompOverride(c, overrides[c.key])),
       ...extras.map(extraToComp),
     ],
   }

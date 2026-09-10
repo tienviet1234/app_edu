@@ -1,7 +1,7 @@
 import { useState, useEffect, type ChangeEvent } from 'react'
 import type { ClassData, ExtraComp } from '@/types'
 import { C } from '@/constants/colors'
-import { getRubric } from '@/constants/rubrics'
+import { getRubric, applyCompOverride } from '@/constants/rubrics'
 import { uid } from '@/utils/uid'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
@@ -62,6 +62,7 @@ const TYPE_DESC: Record<CompType, string> = {
 export function RubricEditor() {
   const [allClasses, setAllClasses] = useState<StoredClass[]>([])
   const [selectedIdx, setSelectedIdx] = useState(0)
+  const [editingComp, setEditingComp] = useState<string | null>(null)
 
   // Add form state
   const [showAdd, setShowAdd] = useState(false)
@@ -112,6 +113,23 @@ export function RubricEditor() {
     if (idx >= 0) hidden.splice(idx, 1)
     else hidden.push(key)
     patchClass(current.storageKey, current.classIdx, { hiddenComps: hidden })
+    refresh()
+  }
+
+  function setCompOverride(compKey: string, itemId: string, value: number) {
+    const overrides = { ...(cls.compOverrides ?? {}) }
+    overrides[compKey] = { ...(overrides[compKey] ?? {}), [itemId]: value }
+    patchClass(current.storageKey, current.classIdx, { compOverrides: overrides })
+    refresh()
+  }
+
+  function resetCompOverride(compKey: string, itemId: string) {
+    const overrides = { ...(cls.compOverrides ?? {}) }
+    if (!overrides[compKey]) return
+    const inner = { ...overrides[compKey] }
+    delete inner[itemId]
+    overrides[compKey] = inner
+    patchClass(current.storageKey, current.classIdx, { compOverrides: overrides })
     refresh()
   }
 
@@ -244,39 +262,135 @@ export function RubricEditor() {
         <div className="space-y-2">
           {baseRubric.comps.map((comp) => {
             const hidden = hiddenSet.has(comp.key)
+            const effComp = applyCompOverride(comp, cls.compOverrides?.[comp.key])
+            const isEditing = editingComp === comp.key
+            const overrides = cls.compOverrides?.[comp.key] ?? {}
             return (
               <div
                 key={comp.key}
-                className="flex items-center justify-between rounded-xl px-3 py-2.5"
+                className="rounded-xl px-3 py-2.5"
                 style={{
                   background: hidden ? '#F3F4F6' : C.paper,
                   opacity: hidden ? 0.65 : 1,
                   border: `1px solid ${hidden ? C.line : 'transparent'}`,
                 }}
               >
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-sm font-semibold truncate" style={{ color: C.ink }}>
-                    {comp.label}
-                  </span>
-                  <span
-                    className="text-xs px-1.5 py-0.5 rounded-md shrink-0"
-                    style={{ background: C.line, color: C.muted }}
-                  >
-                    {TYPE_LABELS[comp.type as CompType] ?? comp.type}
-                  </span>
-                  <span className="text-xs shrink-0" style={{ color: C.muted }}>{comp.max}đ</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-sm font-semibold truncate" style={{ color: C.ink }}>
+                      {comp.label}
+                    </span>
+                    <span
+                      className="text-xs px-1.5 py-0.5 rounded-md shrink-0"
+                      style={{ background: C.line, color: C.muted }}
+                    >
+                      {TYPE_LABELS[comp.type as CompType] ?? comp.type}
+                    </span>
+                    <span className="text-xs shrink-0" style={{ color: C.muted }}>
+                      {effComp.max}đ{Object.keys(overrides).length > 0 ? ` (gốc ${comp.max}đ)` : ''}
+                    </span>
+                  </div>
+                  <div className="flex shrink-0 gap-1.5">
+                    <button
+                      onClick={() => setEditingComp(isEditing ? null : comp.key)}
+                      className="rounded-lg px-2.5 py-1 text-xs font-bold"
+                      style={{
+                        color: isEditing ? '#fff' : C.board,
+                        border: `1px solid ${C.board}`,
+                        background: isEditing ? C.board : C.board + '10',
+                      }}
+                    >
+                      {isEditing ? 'Xong' : 'Sửa'}
+                    </button>
+                    <button
+                      onClick={() => toggleHidden(comp.key)}
+                      className="rounded-lg px-2.5 py-1 text-xs font-bold"
+                      style={{
+                        color: hidden ? C.board : C.muted,
+                        border: `1px solid ${hidden ? C.board : C.line}`,
+                        background: hidden ? C.board + '10' : 'transparent',
+                      }}
+                    >
+                      {hidden ? '+ Hiện lại' : 'Ẩn'}
+                    </button>
+                  </div>
                 </div>
-                <button
-                  onClick={() => toggleHidden(comp.key)}
-                  className="shrink-0 ml-3 rounded-lg px-2.5 py-1 text-xs font-bold"
-                  style={{
-                    color: hidden ? C.board : C.muted,
-                    border: `1px solid ${hidden ? C.board : C.line}`,
-                    background: hidden ? C.board + '10' : 'transparent',
-                  }}
-                >
-                  {hidden ? '+ Hiện lại' : 'Ẩn'}
-                </button>
+
+                {isEditing && (
+                  <div className="mt-2.5 space-y-1.5 rounded-lg p-2.5" style={{ background: '#fff', border: `1px solid ${C.line}` }}>
+                    {comp.type === 'score' && (
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm" style={{ color: C.ink }}>Điểm tối đa</span>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="number" min="0"
+                            value={overrides._max ?? comp.max}
+                            onChange={(e) => setCompOverride(comp.key, '_max', Number(e.target.value))}
+                            className="w-20 rounded-lg px-2 py-1 text-center text-sm font-bold"
+                            style={{ border: `1px solid ${C.line}` }}
+                          />
+                          {overrides._max != null && (
+                            <button onClick={() => resetCompOverride(comp.key, '_max')} className="text-xs" style={{ color: C.muted }}>↺</button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {comp.type === 'parts' && (comp.parts ?? []).map((p) => (
+                      <div key={p.id} className="flex items-center justify-between gap-2">
+                        <span className="text-sm truncate" style={{ color: C.ink }}>{p.label}</span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <input
+                            type="number" min="0"
+                            value={overrides[p.id] ?? p.max}
+                            onChange={(e) => setCompOverride(comp.key, p.id, Number(e.target.value))}
+                            className="w-20 rounded-lg px-2 py-1 text-center text-sm font-bold"
+                            style={{ border: `1px solid ${C.line}` }}
+                          />
+                          {overrides[p.id] != null && (
+                            <button onClick={() => resetCompOverride(comp.key, p.id)} className="text-xs" style={{ color: C.muted }}>↺</button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {comp.type === 'choice' && (comp.options ?? []).map((o) => (
+                      <div key={o.id} className="flex items-center justify-between gap-2">
+                        <span className="text-sm truncate" style={{ color: C.ink }}>{o.label}</span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <input
+                            type="number" min="0"
+                            value={overrides[o.id] ?? o.pts}
+                            onChange={(e) => setCompOverride(comp.key, o.id, Number(e.target.value))}
+                            className="w-20 rounded-lg px-2 py-1 text-center text-sm font-bold"
+                            style={{ border: `1px solid ${C.line}` }}
+                          />
+                          {overrides[o.id] != null && (
+                            <button onClick={() => resetCompOverride(comp.key, o.id)} className="text-xs" style={{ color: C.muted }}>↺</button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {comp.type === 'ticks' && (comp.items ?? []).map((it) => (
+                      <div key={it.id} className="flex items-center justify-between gap-2">
+                        <span className="text-sm truncate" style={{ color: C.ink }}>{it.label}</span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <input
+                            type="number" min="0"
+                            value={overrides[it.id] ?? it.pts}
+                            onChange={(e) => setCompOverride(comp.key, it.id, Number(e.target.value))}
+                            className="w-20 rounded-lg px-2 py-1 text-center text-sm font-bold"
+                            style={{ border: `1px solid ${C.line}` }}
+                          />
+                          {overrides[it.id] != null && (
+                            <button onClick={() => resetCompOverride(comp.key, it.id)} className="text-xs" style={{ color: C.muted }}>↺</button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    <div className="pt-1 text-xs" style={{ color: C.muted }}>
+                      Tổng điểm ({effComp.max}đ) tự cộng lại từ các phần trên.
+                    </div>
+                  </div>
+                )}
               </div>
             )
           })}
