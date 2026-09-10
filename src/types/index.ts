@@ -134,6 +134,9 @@ export interface ClassData {
   // tùy chỉnh) — key ngoài = comp.key, key trong = part.id/option.id/item.id,
   // riêng comp loại 'score' (không có phần nhỏ) dùng key đặc biệt '_max'.
   compOverrides?: Record<string, Record<string, number>>
+  // Admin đổi TÊN tiêu chí gốc/tên từng phần nhỏ — cùng cấu trúc key như
+  // compOverrides ở trên, riêng '_label' đổi tên chính tiêu chí đó.
+  compLabelOverrides?: Record<string, Record<string, string>>
 }
 
 // ─── App Data ─────────────────────────────────────────────────────────────────

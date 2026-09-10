@@ -166,18 +166,38 @@ export function applyCompOverride(
   return comp
 }
 
+/** Áp override TÊN (do admin đổi) lên 1 tiêu chí GỐC — '_label' đổi tên
+ *  chính tiêu chí, còn lại đổi tên từng phần nhỏ/mức theo id. */
+export function applyCompLabelOverride(
+  comp: import('@/types').RubricComponent,
+  labels: Record<string, string> | undefined,
+): import('@/types').RubricComponent {
+  if (!labels) return comp
+  let next = comp
+  if (labels._label) next = { ...next, label: labels._label }
+  if (next.type === 'parts' && next.parts) {
+    next = { ...next, parts: next.parts.map((p) => (labels[p.id] ? { ...p, label: labels[p.id] } : p)) }
+  } else if (next.type === 'choice' && next.options) {
+    next = { ...next, options: next.options.map((o) => (labels[o.id] ? { ...o, label: labels[o.id] } : o)) }
+  } else if (next.type === 'ticks' && next.items) {
+    next = { ...next, items: next.items.map((it) => (labels[it.id] ? { ...it, label: labels[it.id] } : it)) }
+  }
+  return next
+}
+
 export function getClassRubric(cls: ClassData): RubricDef {
   const base = getRubric(cls.level)
   const hidden = new Set(cls.hiddenComps ?? [])
   const extras = cls.extraComps ?? []
   const overrides = cls.compOverrides ?? {}
-  if (!hidden.size && !extras.length && !Object.keys(overrides).length) return base
+  const labelOverrides = cls.compLabelOverrides ?? {}
+  if (!hidden.size && !extras.length && !Object.keys(overrides).length && !Object.keys(labelOverrides).length) return base
   return {
     ...base,
     comps: [
       ...base.comps
         .filter((c) => !hidden.has(c.key))
-        .map((c) => applyCompOverride(c, overrides[c.key])),
+        .map((c) => applyCompLabelOverride(applyCompOverride(c, overrides[c.key]), labelOverrides[c.key])),
       ...extras.map(extraToComp),
     ],
   }

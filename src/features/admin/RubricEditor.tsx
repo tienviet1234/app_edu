@@ -1,7 +1,7 @@
 import { useState, useEffect, type ChangeEvent } from 'react'
 import type { ClassData, ExtraComp } from '@/types'
 import { C } from '@/constants/colors'
-import { getRubric, applyCompOverride } from '@/constants/rubrics'
+import { getRubric, applyCompOverride, applyCompLabelOverride } from '@/constants/rubrics'
 import { uid } from '@/utils/uid'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
@@ -130,6 +130,23 @@ export function RubricEditor() {
     delete inner[itemId]
     overrides[compKey] = inner
     patchClass(current.storageKey, current.classIdx, { compOverrides: overrides })
+    refresh()
+  }
+
+  function setBaseLabelOverride(compKey: string, itemId: string, value: string) {
+    const labels = { ...(cls.compLabelOverrides ?? {}) }
+    labels[compKey] = { ...(labels[compKey] ?? {}), [itemId]: value }
+    patchClass(current.storageKey, current.classIdx, { compLabelOverrides: labels })
+    refresh()
+  }
+
+  function resetBaseLabelOverride(compKey: string, itemId: string) {
+    const labels = { ...(cls.compLabelOverrides ?? {}) }
+    if (!labels[compKey]) return
+    const inner = { ...labels[compKey] }
+    delete inner[itemId]
+    labels[compKey] = inner
+    patchClass(current.storageKey, current.classIdx, { compLabelOverrides: labels })
     refresh()
   }
 
@@ -262,9 +279,13 @@ export function RubricEditor() {
         <div className="space-y-2">
           {baseRubric.comps.map((comp) => {
             const hidden = hiddenSet.has(comp.key)
-            const effComp = applyCompOverride(comp, cls.compOverrides?.[comp.key])
+            const effComp = applyCompLabelOverride(
+              applyCompOverride(comp, cls.compOverrides?.[comp.key]),
+              cls.compLabelOverrides?.[comp.key],
+            )
             const isEditing = editingComp === comp.key
             const overrides = cls.compOverrides?.[comp.key] ?? {}
+            const labels = cls.compLabelOverrides?.[comp.key] ?? {}
             return (
               <div
                 key={comp.key}
@@ -278,7 +299,7 @@ export function RubricEditor() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="text-sm font-semibold truncate" style={{ color: C.ink }}>
-                      {comp.label}
+                      {effComp.label}
                     </span>
                     <span
                       className="text-xs px-1.5 py-0.5 rounded-md shrink-0"
@@ -318,6 +339,20 @@ export function RubricEditor() {
 
                 {isEditing && (
                   <div className="mt-2.5 space-y-1.5 rounded-lg p-2.5" style={{ background: '#fff', border: `1px solid ${C.line}` }}>
+                    <div className="flex items-center justify-between gap-2 pb-1.5" style={{ borderBottom: `1px solid ${C.line}` }}>
+                      <span className="text-xs font-bold shrink-0" style={{ color: C.muted }}>Tên tiêu chí</span>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          value={labels._label ?? comp.label}
+                          onChange={(e) => setBaseLabelOverride(comp.key, '_label', e.target.value)}
+                          className="w-48 rounded-lg px-2 py-1 text-sm font-semibold"
+                          style={{ border: `1px solid ${C.line}` }}
+                        />
+                        {labels._label != null && (
+                          <button onClick={() => resetBaseLabelOverride(comp.key, '_label')} className="text-xs" style={{ color: C.muted }}>↺</button>
+                        )}
+                      </div>
+                    </div>
                     {comp.type === 'score' && (
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-sm" style={{ color: C.ink }}>Điểm tối đa</span>
@@ -337,13 +372,23 @@ export function RubricEditor() {
                     )}
                     {comp.type === 'parts' && (comp.parts ?? []).map((p) => (
                       <div key={p.id} className="flex items-center justify-between gap-2">
-                        <span className="text-sm truncate" style={{ color: C.ink }}>{p.label}</span>
+                        <div className="flex min-w-0 flex-1 items-center gap-1">
+                          <input
+                            value={labels[p.id] ?? p.label}
+                            onChange={(e) => setBaseLabelOverride(comp.key, p.id, e.target.value)}
+                            className="min-w-0 flex-1 rounded-lg px-2 py-1 text-sm"
+                            style={{ border: `1px solid ${C.line}` }}
+                          />
+                          {labels[p.id] != null && (
+                            <button onClick={() => resetBaseLabelOverride(comp.key, p.id)} className="shrink-0 text-xs" style={{ color: C.muted }}>↺</button>
+                          )}
+                        </div>
                         <div className="flex items-center gap-1.5 shrink-0">
                           <input
                             type="number" min="0"
                             value={overrides[p.id] ?? p.max}
                             onChange={(e) => setCompOverride(comp.key, p.id, Number(e.target.value))}
-                            className="w-20 rounded-lg px-2 py-1 text-center text-sm font-bold"
+                            className="w-16 rounded-lg px-2 py-1 text-center text-sm font-bold"
                             style={{ border: `1px solid ${C.line}` }}
                           />
                           {overrides[p.id] != null && (
@@ -354,13 +399,23 @@ export function RubricEditor() {
                     ))}
                     {comp.type === 'choice' && (comp.options ?? []).map((o) => (
                       <div key={o.id} className="flex items-center justify-between gap-2">
-                        <span className="text-sm truncate" style={{ color: C.ink }}>{o.label}</span>
+                        <div className="flex min-w-0 flex-1 items-center gap-1">
+                          <input
+                            value={labels[o.id] ?? o.label}
+                            onChange={(e) => setBaseLabelOverride(comp.key, o.id, e.target.value)}
+                            className="min-w-0 flex-1 rounded-lg px-2 py-1 text-sm"
+                            style={{ border: `1px solid ${C.line}` }}
+                          />
+                          {labels[o.id] != null && (
+                            <button onClick={() => resetBaseLabelOverride(comp.key, o.id)} className="shrink-0 text-xs" style={{ color: C.muted }}>↺</button>
+                          )}
+                        </div>
                         <div className="flex items-center gap-1.5 shrink-0">
                           <input
                             type="number" min="0"
                             value={overrides[o.id] ?? o.pts}
                             onChange={(e) => setCompOverride(comp.key, o.id, Number(e.target.value))}
-                            className="w-20 rounded-lg px-2 py-1 text-center text-sm font-bold"
+                            className="w-16 rounded-lg px-2 py-1 text-center text-sm font-bold"
                             style={{ border: `1px solid ${C.line}` }}
                           />
                           {overrides[o.id] != null && (
@@ -371,13 +426,23 @@ export function RubricEditor() {
                     ))}
                     {comp.type === 'ticks' && (comp.items ?? []).map((it) => (
                       <div key={it.id} className="flex items-center justify-between gap-2">
-                        <span className="text-sm truncate" style={{ color: C.ink }}>{it.label}</span>
+                        <div className="flex min-w-0 flex-1 items-center gap-1">
+                          <input
+                            value={labels[it.id] ?? it.label}
+                            onChange={(e) => setBaseLabelOverride(comp.key, it.id, e.target.value)}
+                            className="min-w-0 flex-1 rounded-lg px-2 py-1 text-sm"
+                            style={{ border: `1px solid ${C.line}` }}
+                          />
+                          {labels[it.id] != null && (
+                            <button onClick={() => resetBaseLabelOverride(comp.key, it.id)} className="shrink-0 text-xs" style={{ color: C.muted }}>↺</button>
+                          )}
+                        </div>
                         <div className="flex items-center gap-1.5 shrink-0">
                           <input
                             type="number" min="0"
                             value={overrides[it.id] ?? it.pts}
                             onChange={(e) => setCompOverride(comp.key, it.id, Number(e.target.value))}
-                            className="w-20 rounded-lg px-2 py-1 text-center text-sm font-bold"
+                            className="w-16 rounded-lg px-2 py-1 text-center text-sm font-bold"
                             style={{ border: `1px solid ${C.line}` }}
                           />
                           {overrides[it.id] != null && (

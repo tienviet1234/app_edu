@@ -60,6 +60,7 @@ export function normalize(d: unknown): AppData {
         sessions?: Array<{ id?: string; no?: number; date?: string; homework?: string; maxes?: Record<string, number>; entries?: Record<string, unknown> }>
         comments?: Record<string, string>; extraComps?: AppData['classes'][number]['extraComps']; hiddenComps?: string[]
         compOverrides?: Record<string, Record<string, number>>
+        compLabelOverrides?: Record<string, Record<string, string>>
       }
       const level = RUBRICS[c.level ?? ''] ? (c.level as 'primary' | 'secondary') : 'primary'
 
@@ -107,6 +108,7 @@ export function normalize(d: unknown): AppData {
         extraComps: c.extraComps ?? [],
         hiddenComps: c.hiddenComps ?? [],
         compOverrides: c.compOverrides ?? {},
+        compLabelOverrides: c.compLabelOverrides ?? {},
       }
     }),
   }
