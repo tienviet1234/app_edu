@@ -37,9 +37,14 @@ function findOrCreateSession(c: ClassData, studentId: string, no: number, dateFo
   const student = c.students.find((s) => s.id === studentId)!
   let session = student.sessions.find((s) => s.no === no)
   if (!session) {
+    // Kế thừa "Số câu" đã đặt cho buổi này ở học sinh khác (nếu có) — để cả
+    // lớp nhất quán mà KHÔNG cần tạo sẵn buổi (với điểm danh mặc định) cho
+    // mọi học sinh ngay khi chỉ 1 người sửa ô "Số câu".
+    const siblingMaxes = c.students.flatMap((s) => s.sessions).find((s) => s.no === no)?.maxes
     session = {
       id: uid(), no, date: dateForNew, homework: '', entry: emptyEntry(),
       createdByName: teacherName, recordedAt: new Date().toISOString(),
+      maxes: siblingMaxes ? { ...siblingMaxes } : undefined,
     }
     student.sessions.push(session)
     student.sessions.sort((a, b) => a.no - b.no)
@@ -203,13 +208,25 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
 
   function setSessionMax(key: string, val: number) {
     if (!val || val < 1) return
-    // Áp dụng cho cả lớp ở buổi số này — giáo viên chỉ cần đặt 1 lần mỗi buổi.
+    // Chỉ cập nhật những buổi ĐÃ có sẵn — không tự tạo buổi (kèm điểm danh
+    // mặc định "Có mặt") cho học sinh chưa được chấm chỉ vì sửa "Số câu".
+    // Học sinh nào được tạo buổi sau sẽ tự kế thừa số này (xem
+    // findOrCreateSession — lấy maxes từ 1 học sinh khác cùng buổi).
     update((c) => {
       c.students.forEach((s) => {
-        const ss = findOrCreateSession(c, s.id, selectedNo, effectiveDate, teacherName)
+        if (s.id === st?.id) return // học sinh đang xem xử lý riêng bên dưới (được phép tạo buổi)
+        const ss = s.sessions.find((x) => x.no === selectedNo)
+        if (!ss) return
         ss.maxes = ss.maxes ?? {}
         ss.maxes[key] = val
       })
+      // Học sinh đang xem là người đang được chấm — tạo buổi cho em này nếu
+      // chưa có, vì giáo viên rõ ràng đang thao tác trên buổi của em đó.
+      if (st) {
+        const ss = findOrCreateSession(c, st.id, selectedNo, effectiveDate, teacherName)
+        ss.maxes = ss.maxes ?? {}
+        ss.maxes[key] = val
+      }
     })
   }
 
