@@ -83,9 +83,11 @@ export default function App() {
 
   const cls = data?.classes[currentClassIndex]
 
-  // Sync classes assigned by admin (or created elsewhere) into local store —
-  // backend already scopes /api/classes to teacherId for role=teacher
-  const { data: apiClasses } = useClasses(undefined, user?.role === 'teacher')
+  // Sync classes into local store — backend scopes /api/classes to teacherId
+  // for role=teacher; admin gets every active class in the center (no
+  // teacherId filter applied server-side for that role).
+  const canSyncClassList = user?.role === 'teacher' || user?.role === 'admin'
+  const { data: apiClasses } = useClasses({ status: 'active', limit: '100' }, canSyncClassList)
   const apiClassesKey = apiClasses?.items.map((c) => c._id).join(',') ?? ''
   useEffect(() => {
     if (!data || !apiClasses?.items.length) return
