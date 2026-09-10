@@ -12,9 +12,12 @@ interface CompEditorProps {
   e: SessionEntry
   mut: (fn: (en: SessionEntry) => void) => void
   ratioTotals?: Record<string, number>
+  maxDraft?: string
+  onMaxInput?: (raw: string) => void
+  onMaxCommit?: (raw: string) => void
 }
 
-export function CompEditor({ comp, e, mut, ratioTotals }: CompEditorProps) {
+export function CompEditor({ comp, e, mut, ratioTotals, maxDraft, onMaxInput, onMaxCommit }: CompEditorProps) {
   const val = compScore(comp, e)
   const head = (
     <div className="mb-1.5 text-xs font-bold uppercase" style={{ color: C.muted }}>
@@ -88,7 +91,20 @@ export function CompEditor({ comp, e, mut, ratioTotals }: CompEditorProps) {
             className="w-20 rounded-lg px-2 py-1 text-center text-lg font-bold"
             style={{ border: `1px solid ${C.line}` }}
           />
-          <span className="text-sm" style={{ color: C.muted }}>/ {comp.max} · nhập tay</span>
+          <span className="text-sm" style={{ color: C.muted }}>/</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={maxDraft ?? String(comp.max)}
+            onFocus={(x) => x.target.select()}
+            onChange={(x) => onMaxInput?.(x.target.value.replace(/\D/g, ''))}
+            onBlur={(x) => onMaxCommit?.(x.target.value)}
+            onKeyDown={(x) => { if (x.key === 'Enter') x.currentTarget.blur() }}
+            title="Đổi số câu tối đa của tiêu chí này"
+            className="w-12 rounded-lg px-1 py-1 text-center text-sm font-bold"
+            style={{ border: `1px solid ${C.board}66` }}
+          />
+          <span className="text-sm" style={{ color: C.muted }}>· nhập tay</span>
         </div>
         <div className="mt-1.5 flex flex-wrap gap-1.5">
           {(comp.tags ?? []).map((t) => (

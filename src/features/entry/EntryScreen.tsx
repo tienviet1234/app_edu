@@ -583,7 +583,16 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
               </div>
             ) : (
               r2.comps.map((comp) => (
-                <CompEditor key={comp.key} comp={comp} e={e} mut={mut} ratioTotals={ratioTotals} />
+                <CompEditor
+                  key={comp.key}
+                  comp={comp}
+                  e={e}
+                  mut={mut}
+                  ratioTotals={ratioTotals}
+                  maxDraft={maxDrafts[comp.key]}
+                  onMaxInput={(raw) => setMaxDrafts((d) => ({ ...d, [comp.key]: raw }))}
+                  onMaxCommit={(raw) => commitSessionMax(comp.key, raw)}
+                />
               ))
             )}
 
