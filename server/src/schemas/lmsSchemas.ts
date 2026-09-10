@@ -88,6 +88,31 @@ export const attendanceBodySchema = z.object({
 export const attendanceUpdateSchema = attendanceBodySchema.partial().omit({ centerId: true, classId: true, sessionId: true, studentId: true })
 
 // ─── Score ────────────────────────────────────────────────────────────────────
+// Client giữ scores/parts dạng `string | number` (ô nhập tự do — có thể đang là
+// chuỗi rỗng '' khi giáo viên gõ dở). Preprocess sang number trước khi validate,
+// bỏ qua giá trị rỗng/không hợp lệ thay vì reject cả request.
+function toNumberRecord(val: unknown): Record<string, number> {
+  const out: Record<string, number> = {}
+  if (!val || typeof val !== 'object') return out
+  for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+    if (v === '' || v == null) continue
+    const n = Number(v)
+    if (!Number.isNaN(n)) out[k] = n
+  }
+  return out
+}
+
+const numericRecordSchema = z.preprocess(toNumberRecord, z.record(z.number()))
+
+const nestedNumericRecordSchema = z.preprocess((val) => {
+  const out: Record<string, Record<string, number>> = {}
+  if (!val || typeof val !== 'object') return out
+  for (const [k, group] of Object.entries(val as Record<string, unknown>)) {
+    out[k] = toNumberRecord(group)
+  }
+  return out
+}, z.record(z.record(z.number())))
+
 export const scoreBodySchema = z.object({
   centerId: objectIdSchema.optional(),
   classId: objectIdSchema,
@@ -95,11 +120,11 @@ export const scoreBodySchema = z.object({
   studentId: objectIdSchema,
   rubricId: objectIdSchema.optional(),
   attendance: z.enum(['present', 'late', 'excused', 'absent']),
-  scores: z.record(z.number()).default({}),
+  scores: numericRecordSchema.default({}),
   tags: z.record(z.array(z.string())).default({}),
   ticks: z.record(z.array(z.string())).default({}),
   choice: z.record(z.string()).default({}),
-  parts: z.record(z.record(z.number())).default({}),
+  parts: nestedNumericRecordSchema.default({}),
   skip: z.record(z.boolean()).default({}),
   ev: z.record(z.unknown()).default({}),
   note: z.string().max(2000).optional(),
