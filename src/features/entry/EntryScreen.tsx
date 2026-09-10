@@ -113,9 +113,11 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
     const comps = r.comps.map((c) => (maxes[c.key] != null ? rescaleComp(c, maxes[c.key]) : c))
     const total = sessionScore(target.entry, { ...r, comps }) ?? 0
     setSyncStatus('saving')
+    let isNewSession = false
     try {
       let sessionId = target.id
       if (!isMongoid(sessionId)) {
+        isNewSession = true
         const apiSession = await sessionService.create({
           classId: cls.id,
           studentId,
@@ -135,6 +137,7 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
       await scoreService.upsert({ classId: cls.id, sessionId, studentId, ...target.entry, total })
       setSyncStatus('saved')
       setTimeout(() => setSyncStatus('idle'), 2000)
+      if (!isNewSession) toast.success(`✓ Đã lưu điểm Buổi ${target.no} của ${student.name}`)
     } catch {
       setSyncStatus('error')
       toast.error(`Lỗi lưu điểm Buổi ${target.no} của ${student.name}`, { persist: true })
@@ -264,6 +267,7 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
   })
 
   function presetClass() {
+    if (!confirm(`Đặt điểm mặc định (đạt tối đa) cho CẢ LỚP ở Buổi ${selectedNo}? Điểm đã nhập trước đó của từng em sẽ bị ghi đè.`)) return
     update((c) => {
       c.students.forEach((s) => {
         const ss = findOrCreateSession(c, s.id, selectedNo, effectiveDate, teacherName)
