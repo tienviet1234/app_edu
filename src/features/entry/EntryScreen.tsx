@@ -37,6 +37,10 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
   const [groupSelected, setGroupSelected] = useState<Set<string>>(new Set())
   const [groupMsg, setGroupMsg] = useState('')
 
+  // "Số câu" — bản nháp đang gõ, tách khỏi giá trị đã lưu để không bị nhảy
+  // số cũ trở lại mỗi khi xóa hết ô để gõ số mới (input là controlled).
+  const [maxDrafts, setMaxDrafts] = useState<Record<string, string>>({})
+
   const session = cls.sessions[idx]
 
   const showReminder =
@@ -131,6 +135,20 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
       const s = c.sessions[idx]
       if (!s.maxes) s.maxes = {}
       s.maxes[key] = val
+    })
+  }
+
+  // Đổi buổi học → bỏ bản nháp cũ, quay về hiển thị giá trị thật của buổi mới
+  useEffect(() => { setMaxDrafts({}) }, [idx])
+
+  function commitSessionMax(key: string, raw: string) {
+    const val = Number(raw)
+    if (raw.trim() && val >= 1) setSessionMax(key, val)
+    // Luôn xóa draft sau khi rời ô — input quay về đọc giá trị thật (đã lưu, hoặc mặc định nếu gõ rỗng/không hợp lệ)
+    setMaxDrafts((d) => {
+      const next = { ...d }
+      delete next[key]
+      return next
     })
   }
 
@@ -299,11 +317,13 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
             <label key={comp.key} className="flex items-center gap-1">
               <span style={{ color: C.muted }}>{comp.label}</span>
               <input
-                type="number"
-                min="1"
-                value={sessionMaxes[comp.key] ?? comp.max}
+                type="text"
+                inputMode="numeric"
+                value={maxDrafts[comp.key] ?? String(sessionMaxes[comp.key] ?? comp.max)}
                 onFocus={(x) => x.target.select()}
-                onChange={(x) => setSessionMax(comp.key, Number(x.target.value))}
+                onChange={(x) => setMaxDrafts((d) => ({ ...d, [comp.key]: x.target.value.replace(/\D/g, '') }))}
+                onBlur={(x) => commitSessionMax(comp.key, x.target.value)}
+                onKeyDown={(x) => { if (x.key === 'Enter') x.currentTarget.blur() }}
                 className="w-14 rounded-lg px-1 py-0.5 text-center font-bold"
                 style={{ border: `1px solid ${C.board}66` }}
               />
@@ -319,11 +339,13 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
                   <label key={k} className="flex items-center gap-1">
                     <span style={{ color: C.muted }}>BTVN</span>
                     <input
-                      type="number"
-                      min="1"
-                      value={sessionMaxes[k] ?? 20}
+                      type="text"
+                      inputMode="numeric"
+                      value={maxDrafts[k] ?? String(sessionMaxes[k] ?? 20)}
                       onFocus={(x) => x.target.select()}
-                      onChange={(x) => setSessionMax(k, Number(x.target.value))}
+                      onChange={(x) => setMaxDrafts((d) => ({ ...d, [k]: x.target.value.replace(/\D/g, '') }))}
+                      onBlur={(x) => commitSessionMax(k, x.target.value)}
+                      onKeyDown={(x) => { if (x.key === 'Enter') x.currentTarget.blur() }}
                       className="w-14 rounded-lg px-1 py-0.5 text-center font-bold"
                       style={{ border: `1px solid ${C.board}66` }}
                     />
