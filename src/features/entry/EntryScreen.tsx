@@ -51,6 +51,7 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
   const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [backfilling, setBackfilling] = useState(false)
   const [backfillProgress, setBackfillProgress] = useState({ done: 0, total: 0 })
+  const [showSummary, setShowSummary] = useState(false)
 
   // Group selection state
   const [groupMode, setGroupMode] = useState(false)
@@ -283,6 +284,13 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
   const studentSessionCount = st?.sessions.length ?? 0
   const showReminder = studentSessionCount > 0 && studentSessionCount % cls.perMonth === 0
 
+  // Xem nhanh kết quả cả lớp cho đúng ngày đang chọn — không cần xuất Excel
+  const daySummary = cls.students.map((s) => {
+    const ss = s.sessions.find((x) => x.date === date)
+    const t = ss ? sessionScore(ss.entry, r2) : null
+    return { student: s, session: ss, total: t }
+  })
+
   return (
     <div className="space-y-3">
       <Card className="p-3">
@@ -330,6 +338,18 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
             ☑ Chọn nhóm
           </button>
           <button
+            onClick={() => setShowSummary((v) => !v)}
+            title="Xem điểm cả lớp trong ngày đang chọn, không cần xuất Excel"
+            className="rounded-xl px-3 py-1.5 text-sm font-semibold"
+            style={{
+              background: showSummary ? C.board : C.paper,
+              color: showSummary ? '#fff' : C.muted,
+              border: `1px solid ${showSummary ? C.board : C.line}`,
+            }}
+          >
+            📋 Xem cả lớp
+          </button>
+          <button
             onClick={backfillAllScores}
             disabled={backfilling}
             title="Đẩy điểm đã nhập trước đây (còn kẹt trên máy này) lên server"
@@ -355,6 +375,39 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
             {done}/{cls.students.length} · {Math.round((done / Math.max(1, cls.students.length)) * 100)}%
           </span>
         </div>
+
+        {/* Xem nhanh cả lớp trong ngày */}
+        {showSummary && (
+          <div className="mt-2 overflow-hidden rounded-xl" style={{ border: `1px solid ${C.line}` }}>
+            <table className="w-full text-sm">
+              <thead>
+                <tr style={{ background: C.paper }}>
+                  <th className="py-1.5 px-3 text-left font-semibold" style={{ color: C.muted }}>Học sinh</th>
+                  <th className="py-1.5 px-3 text-center font-semibold" style={{ color: C.muted }}>Điểm danh</th>
+                  <th className="py-1.5 px-3 text-center font-semibold" style={{ color: C.muted }}>Tổng điểm</th>
+                </tr>
+              </thead>
+              <tbody>
+                {daySummary.map(({ student, session: ss, total: t }, i) => (
+                  <tr
+                    key={student.id}
+                    onClick={() => setCur(i)}
+                    className="cursor-pointer"
+                    style={{ borderTop: `1px solid ${C.line}`, background: i === cur ? C.board + '0D' : undefined }}
+                  >
+                    <td className="py-1.5 px-3 font-semibold">{student.name}</td>
+                    <td className="py-1.5 px-3 text-center" style={{ color: C.muted }}>
+                      {ss ? (ATTEND.find((a) => a.key === ss.entry.attendance)?.label ?? '—') : '—'}
+                    </td>
+                    <td className="py-1.5 px-3 text-center font-bold" style={{ color: t !== null ? scoreColor(t) : C.muted }}>
+                      {t !== null ? t : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         {/* Session-level question count settings */}
         <div className="mt-2 flex flex-wrap items-center gap-3 rounded-xl px-3 py-2 text-xs" style={{ background: C.paper }}>
