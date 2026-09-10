@@ -129,8 +129,6 @@ export interface ClassData {
   comments: Record<string, string>
   extraComps?: ExtraComp[]   // admin-defined extra scoring components
   hiddenComps?: string[]     // keys of standard comps hidden for this class
-  studentRate?: number       // học phí phụ huynh trả / buổi (VNĐ) — dùng tính thanh toán
-  teacherRate?: number       // lương giáo viên nhận / buổi (VNĐ) — dùng tính thanh toán
 }
 
 // ─── App Data ─────────────────────────────────────────────────────────────────

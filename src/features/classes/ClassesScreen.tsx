@@ -333,28 +333,6 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                 {cls.perMonth === 8 ? 'Sau buổi 8' : 'Sau buổi 6 và 12'}
               </div>
             </label>
-            <label className="text-sm">
-              <div style={{ color: C.muted }}>Học phí / buổi (đ)</div>
-              <input
-                type="number" min="0" step="1000"
-                value={cls.studentRate ?? ''}
-                onChange={(x) => edit((c) => { c.studentRate = x.target.value === '' ? undefined : Number(x.target.value) })}
-                placeholder="VD: 150000"
-                className="mt-1 w-full rounded-xl px-3 py-2"
-                style={{ border: `1px solid ${C.line}` }}
-              />
-            </label>
-            <label className="text-sm">
-              <div style={{ color: C.muted }}>Lương GV / buổi (đ)</div>
-              <input
-                type="number" min="0" step="1000"
-                value={cls.teacherRate ?? ''}
-                onChange={(x) => edit((c) => { c.teacherRate = x.target.value === '' ? undefined : Number(x.target.value) })}
-                placeholder="VD: 100000"
-                className="mt-1 w-full rounded-xl px-3 py-2"
-                style={{ border: `1px solid ${C.line}` }}
-              />
-            </label>
           </div>
 
           {/* Tab: Học sinh / Buổi học */}
