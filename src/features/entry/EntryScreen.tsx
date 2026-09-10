@@ -104,6 +104,20 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
   )
   const r2 = { ...r, comps: effectiveComps }
 
+  // Báo ngay lúc bấm (đồng bộ) — không đợi lưu server xong mới báo, vì lúc
+  // đó màn hình đã chuyển sang học sinh khác rồi, dễ tưởng nhầm toast báo
+  // sai tên. syncScore() vẫn lưu thật ở dưới nền, chỉ báo lỗi mới cần đợi.
+  function announceSave(studentId: string) {
+    const student = cls.students.find((s) => s.id === studentId)
+    const target = student?.sessions.find((s) => s.no === selectedNo)
+    if (!student || !target) return
+    if (isMongoid(target.id)) {
+      toast.success(`✓ Đã lưu điểm Buổi ${target.no} của ${student.name}`)
+    } else {
+      toast.info(`Đã tạo Buổi ${target.no} cho ${student.name} (${viDate(target.date)})`)
+    }
+  }
+
   async function syncScore(studentId: string) {
     if (!isMongoid(cls.id) || !isMongoid(studentId)) return
     const student = cls.students.find((s) => s.id === studentId)
@@ -113,11 +127,9 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
     const comps = r.comps.map((c) => (maxes[c.key] != null ? rescaleComp(c, maxes[c.key]) : c))
     const total = sessionScore(target.entry, { ...r, comps }) ?? 0
     setSyncStatus('saving')
-    let isNewSession = false
     try {
       let sessionId = target.id
       if (!isMongoid(sessionId)) {
-        isNewSession = true
         const apiSession = await sessionService.create({
           classId: cls.id,
           studentId,
@@ -132,12 +144,10 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
           if (ss) ss.id = sessionId
         })
         logActivity('session.create', { className: cls.name, sessionNo: target.no, studentName: student.name }, 'ClassSession')
-        toast.info(`Đã tự tạo Buổi ${target.no} cho ${student.name} (${viDate(target.date)})`)
       }
       await scoreService.upsert({ classId: cls.id, sessionId, studentId, ...target.entry, total })
       setSyncStatus('saved')
       setTimeout(() => setSyncStatus('idle'), 2000)
-      if (!isNewSession) toast.success(`✓ Đã lưu điểm Buổi ${target.no} của ${student.name}`)
     } catch {
       setSyncStatus('error')
       toast.error(`Lỗi lưu điểm Buổi ${target.no} của ${student.name}`, { persist: true })
@@ -545,7 +555,7 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
                   if (groupMode) {
                     toggleStudentSelection(s.id)
                   } else {
-                    if (st) void syncScore(st.id)
+                    if (st) { announceSave(st.id); void syncScore(st.id) }
                     setCur(i)
                   }
                 }}
@@ -763,6 +773,7 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
             <div className="flex gap-2">
               <Btn
                 onClick={() => {
+                  announceSave(st.id)
                   void syncScore(st.id)
                   logActivity('score.entry', { className: cls.name, sessionNo: session?.no ?? 0, studentName: st.name }, 'Score')
                   setCur(Math.max(0, cur - 1))
@@ -784,6 +795,7 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
                   size="lg"
                   className="flex-1"
                   onClick={() => {
+                    announceSave(st.id)
                     void syncScore(st.id)
                     logActivity('score.entry', { className: cls.name, sessionNo: session?.no ?? 0, studentName: st.name }, 'Score')
                     setCur(Math.min(cls.students.length - 1, cur + 1))
