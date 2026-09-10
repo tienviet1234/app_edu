@@ -34,7 +34,10 @@ function findOrCreateSession(c: ClassData, studentId: string, date: string, teac
   const student = c.students.find((s) => s.id === studentId)!
   let session = student.sessions.find((s) => s.date === date)
   if (!session) {
-    session = { id: uid(), no: student.sessions.length + 1, date, homework: '', entry: emptyEntry(), createdByName: teacherName }
+    session = {
+      id: uid(), no: student.sessions.length + 1, date, homework: '', entry: emptyEntry(),
+      createdByName: teacherName, recordedAt: new Date().toISOString(),
+    }
     student.sessions.push(session)
     student.sessions.sort((a, b) => a.date.localeCompare(b.date) || a.no - b.no)
   }

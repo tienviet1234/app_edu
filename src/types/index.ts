@@ -97,7 +97,8 @@ export interface Session {
   homework?: string   // bài tập về nhà riêng cho học sinh này, buổi này
   entry: SessionEntry
   maxes?: Record<string, number> // overrides comp.max per session (e.g. mini=30, listen=15, hw__correct=20)
-  createdByName?: string // giáo viên đã ghi buổi này — dùng tính lương/học phí theo buổi
+  createdByName?: string // giáo viên đã ghi buổi này
+  recordedAt?: string    // thời điểm thực sự ghi buổi này (ISO datetime) — để xem giờ chi tiết
 }
 
 // ─── Extra scoring component (admin-added) ────────────────────────────────────

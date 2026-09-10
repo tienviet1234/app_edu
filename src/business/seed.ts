@@ -46,6 +46,7 @@ function normalizeSession(s: unknown, i: number): Session {
     entry: normalizeEntry(raw.entry),
     maxes: raw.maxes,
     createdByName: raw.createdByName,
+    recordedAt: raw.recordedAt,
   }
 }
 

@@ -189,6 +189,7 @@ export default function App() {
           date: as.scheduledAt.slice(0, 10),
           homework: '',
           createdByName: teacherName,
+          recordedAt: as.createdAt,
           entry: score
             ? {
                 attendance: score.attendance,
