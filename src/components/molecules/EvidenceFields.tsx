@@ -7,9 +7,12 @@ interface EvidenceFieldsProps {
   mut: (fn: (en: SessionEntry) => void) => void
   /** session-level default totals: key = compKey__evKey → total */
   ratioTotals?: Record<string, number>
+  /** Sửa tổng câu ("/Y") ở đây thì cũng đổi luôn tổng điểm + các phần nhỏ
+   *  của cả tiêu chí (dùng chung với ô "Số câu" trên thanh công cụ). */
+  onTotalCommit?: (raw: string) => void
 }
 
-export function EvidenceFields({ comp, e, mut, ratioTotals }: EvidenceFieldsProps) {
+export function EvidenceFields({ comp, e, mut, ratioTotals, onTotalCommit }: EvidenceFieldsProps) {
   if (!comp.evidence) return null
   const get = (k: string) => e.ev?.[comp.key]?.[k]
   const set = (k: string, v: unknown) =>
@@ -46,6 +49,7 @@ export function EvidenceFields({ comp, e, mut, ratioTotals }: EvidenceFieldsProp
                 value={defaultTotal}
                 onFocus={(x) => x.target.select()}
                 onChange={(x) => set(ev.key, { ok: '', ...v, total: x.target.value })}
+                onBlur={(x) => onTotalCommit?.(x.target.value)}
                 className="w-16 rounded-lg px-2 py-1 text-center font-bold"
                 style={{ border: `1px solid ${C.line}`, background: '#fff' }}
               />

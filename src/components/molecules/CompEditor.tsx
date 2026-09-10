@@ -123,7 +123,7 @@ export function CompEditor({ comp, e, mut, ratioTotals, maxDraft, onMaxInput, on
             </Chip>
           ))}
         </div>
-        <EvidenceFields comp={comp} e={e} mut={mut} ratioTotals={ratioTotals} />
+        <EvidenceFields comp={comp} e={e} mut={mut} ratioTotals={ratioTotals} onTotalCommit={onMaxCommit} />
       </div>
     )
   }
@@ -161,7 +161,7 @@ export function CompEditor({ comp, e, mut, ratioTotals, maxDraft, onMaxInput, on
             </Chip>
           ))}
         </div>
-        <EvidenceFields comp={comp} e={e} mut={mut} ratioTotals={ratioTotals} />
+        <EvidenceFields comp={comp} e={e} mut={mut} ratioTotals={ratioTotals} onTotalCommit={onMaxCommit} />
       </div>
     )
   }
@@ -186,7 +186,7 @@ export function CompEditor({ comp, e, mut, ratioTotals, maxDraft, onMaxInput, on
             </Pick>
           ))}
         </div>
-        <EvidenceFields comp={comp} e={e} mut={mut} ratioTotals={ratioTotals} />
+        <EvidenceFields comp={comp} e={e} mut={mut} ratioTotals={ratioTotals} onTotalCommit={onMaxCommit} />
       </div>
     )
   }
@@ -260,7 +260,7 @@ export function CompEditor({ comp, e, mut, ratioTotals, maxDraft, onMaxInput, on
             })}
           </div>
         )}
-        <EvidenceFields comp={comp} e={e} mut={mut} ratioTotals={ratioTotals} />
+        <EvidenceFields comp={comp} e={e} mut={mut} ratioTotals={ratioTotals} onTotalCommit={onMaxCommit} />
       </div>
     )
   }

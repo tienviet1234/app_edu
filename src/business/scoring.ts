@@ -3,6 +3,40 @@ import { TAG_BY_ID, ATTEND } from '@/constants'
 
 export const attInfo = (k: string) => ATTEND.find((a) => a.key === k) ?? ATTEND[0]
 
+/** Phân bổ lại `newMax` cho 1 danh sách phần nhỏ theo đúng tỷ lệ điểm cũ,
+ *  làm tròn xuống rồi bù phần dư (largest-remainder) để tổng khớp CHÍNH XÁC
+ *  newMax — không lệch 1-2 điểm do làm tròn từng phần riêng lẻ. */
+function distribute(values: number[], newMax: number): number[] {
+  const oldTotal = values.reduce((a, b) => a + b, 0)
+  if (oldTotal <= 0) return values.map(() => 0)
+  const raw = values.map((v) => (v * newMax) / oldTotal)
+  const floors = raw.map(Math.floor)
+  let remainder = newMax - floors.reduce((a, b) => a + b, 0)
+  const order = raw
+    .map((v, i) => ({ i, frac: v - Math.floor(v) }))
+    .sort((a, b) => b.frac - a.frac)
+  const result = [...floors]
+  for (let k = 0; k < remainder && k < order.length; k++) result[order[k].i] += 1
+  return result
+}
+
+/** Đổi tổng điểm 1 tiêu chí (ticks/parts) sang `newMax`, tự chia lại điểm
+ *  từng phần nhỏ bên trong theo đúng tỷ lệ cũ — dùng khi giáo viên sửa
+ *  "Số câu"/tổng ngay tại màn Nhập điểm, không cần sửa tay từng phần. */
+export function rescaleComp(comp: RubricComponent, newMax: number): RubricComponent {
+  if (comp.type === 'ticks' && comp.items?.length) {
+    const pts = distribute(comp.items.map((it) => it.pts), newMax)
+    const items = comp.items.map((it, i) => ({ ...it, pts: pts[i] }))
+    return { ...comp, items, max: items.reduce((a, it) => a + it.pts, 0) }
+  }
+  if (comp.type === 'parts' && comp.parts?.length) {
+    const maxes = distribute(comp.parts.map((p) => p.max), newMax)
+    const parts = comp.parts.map((p, i) => ({ ...p, max: maxes[i] }))
+    return { ...comp, parts, max: parts.reduce((a, p) => a + p.max, 0) }
+  }
+  return { ...comp, max: newMax }
+}
+
 export function compScore(comp: RubricComponent, e: SessionEntry): number {
   switch (comp.type) {
     case 'score':

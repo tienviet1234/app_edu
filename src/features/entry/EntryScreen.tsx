@@ -5,7 +5,7 @@ import { ATTEND } from '@/constants/tags'
 import { getClassRubric } from '@/constants/rubrics'
 import { uid } from '@/utils/uid'
 import { todayISO, viDate } from '@/utils/format'
-import { sessionScore } from '@/business/scoring'
+import { sessionScore, rescaleComp } from '@/business/scoring'
 import { emptyEntry } from '@/business/seed'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
@@ -68,7 +68,7 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
   // Session-level overrides (comp max + ratio totals) — áp dụng cho ngày đang chọn
   const sessionMaxes = session?.maxes ?? {}
   const effectiveComps = r.comps.map((c) =>
-    sessionMaxes[c.key] != null ? { ...c, max: sessionMaxes[c.key] } : c,
+    sessionMaxes[c.key] != null ? rescaleComp(c, sessionMaxes[c.key]) : c,
   )
   const r2 = { ...r, comps: effectiveComps }
 
@@ -78,7 +78,7 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
     const target = student?.sessions.find((s) => s.date === date)
     if (!student || !target) return // chưa nhập gì cho học sinh này ngày này — không có gì để lưu
     const maxes = target.maxes ?? {}
-    const comps = r.comps.map((c) => (maxes[c.key] != null ? { ...c, max: maxes[c.key] } : c))
+    const comps = r.comps.map((c) => (maxes[c.key] != null ? rescaleComp(c, maxes[c.key]) : c))
     const total = sessionScore(target.entry, { ...r, comps }) ?? 0
     setSyncStatus('saving')
     try {
@@ -117,7 +117,7 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
       stu.sessions.forEach((s) => {
         if (!isMongoid(s.id)) return
         const maxes = s.maxes ?? {}
-        const comps = r.comps.map((c) => (maxes[c.key] != null ? { ...c, max: maxes[c.key] } : c))
+        const comps = r.comps.map((c) => (maxes[c.key] != null ? rescaleComp(c, maxes[c.key]) : c))
         const total = sessionScore(s.entry, { ...r, comps })
         if (total === null) return
         jobs.push({ sessionId: s.id, studentId: stu.id, entry: s.entry, total })
@@ -197,12 +197,13 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
     })
   }
 
+  // Tổng câu của tiêu chí (VD "Bài tập về nhà") dùng luôn làm mẫu số mặc định
+  // cho ô "Kết quả: đúng X/Y câu" — sửa 1 trong 2 chỗ đều ra cùng 1 số.
   const ratioTotals: Record<string, number> = {}
   r2.comps.forEach((comp) => {
     comp.evidence?.forEach((ev) => {
-      if (ev.type === 'ratio') {
-        const k = comp.key + '__' + ev.key
-        if (sessionMaxes[k] != null) ratioTotals[k] = sessionMaxes[k]
+      if (ev.type === 'ratio' && sessionMaxes[comp.key] != null) {
+        ratioTotals[comp.key + '__' + ev.key] = sessionMaxes[comp.key]
       }
     })
   })
@@ -379,14 +380,14 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
             (comp.evidence ?? [])
               .filter((ev) => ev.type === 'ratio')
               .map((ev) => {
-                const k = comp.key + '__' + ev.key
+                const k = comp.key
                 return (
-                  <label key={k} className="flex items-center gap-1">
-                    <span style={{ color: C.muted }}>BTVN</span>
+                  <label key={comp.key + '_' + ev.key} className="flex items-center gap-1">
+                    <span style={{ color: C.muted }}>{comp.label}</span>
                     <input
                       type="text"
                       inputMode="numeric"
-                      value={maxDrafts[k] ?? String(sessionMaxes[k] ?? 20)}
+                      value={maxDrafts[k] ?? String(sessionMaxes[k] ?? comp.max)}
                       onFocus={(x) => x.target.select()}
                       onChange={(x) => setMaxDrafts((d) => ({ ...d, [k]: x.target.value.replace(/\D/g, '') }))}
                       onBlur={(x) => commitSessionMax(k, x.target.value)}
