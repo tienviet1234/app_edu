@@ -11,44 +11,41 @@ interface SessionCountScreenProps {
 interface DetailRow {
   date: string
   recordedAt?: string
+  studentName: string
+  teacherName: string
 }
 
 export function SessionCountScreen({ cls }: SessionCountScreenProps) {
   const [month, setMonth] = useState(todayISO().slice(0, 7)) // "YYYY-MM"
-  const [openStudent, setOpenStudent] = useState<string | null>(null)
-  const [openTeacher, setOpenTeacher] = useState<string | null>(null)
 
-  const { byStudent, byTeacher } = useMemo(() => {
-    const studentRows = cls.students
-      .map((st) => ({
-        name: st.name,
-        details: st.sessions
-          .filter((s) => s.date.startsWith(month))
-          .map((s): DetailRow => ({ date: s.date, recordedAt: s.recordedAt }))
-          .sort((a, b) => a.date.localeCompare(b.date)),
-      }))
-      .filter((r) => r.details.length > 0)
-      .sort((a, b) => b.details.length - a.details.length)
-
-    const teacherMap = new Map<string, Array<DetailRow & { studentName: string }>>()
+  const { rows, byStudent, byTeacher } = useMemo(() => {
+    const all: DetailRow[] = []
     cls.students.forEach((st) => {
       st.sessions
         .filter((s) => s.date.startsWith(month))
         .forEach((s) => {
-          const name = s.createdByName ?? 'Chưa rõ giáo viên'
-          const list = teacherMap.get(name) ?? []
-          list.push({ date: s.date, recordedAt: s.recordedAt, studentName: st.name })
-          teacherMap.set(name, list)
+          all.push({
+            date: s.date,
+            recordedAt: s.recordedAt,
+            studentName: st.name,
+            teacherName: s.createdByName ?? 'Chưa rõ giáo viên',
+          })
         })
     })
-    const teacherRows = [...teacherMap.entries()]
-      .map(([name, details]) => ({
-        name,
-        details: details.sort((a, b) => a.date.localeCompare(b.date) || a.studentName.localeCompare(b.studentName)),
-      }))
-      .sort((a, b) => b.details.length - a.details.length)
+    all.sort((a, b) => (a.recordedAt ?? a.date).localeCompare(b.recordedAt ?? b.date))
 
-    return { byStudent: studentRows, byTeacher: teacherRows }
+    const studentCount = new Map<string, number>()
+    const teacherCount = new Map<string, number>()
+    all.forEach((r) => {
+      studentCount.set(r.studentName, (studentCount.get(r.studentName) ?? 0) + 1)
+      teacherCount.set(r.teacherName, (teacherCount.get(r.teacherName) ?? 0) + 1)
+    })
+
+    return {
+      rows: all,
+      byStudent: [...studentCount.entries()].sort((a, b) => b[1] - a[1]),
+      byTeacher: [...teacherCount.entries()].sort((a, b) => b[1] - a[1]),
+    }
   }, [cls, month])
 
   return (
@@ -67,80 +64,64 @@ export function SessionCountScreen({ cls }: SessionCountScreenProps) {
       </Card>
 
       <div className="grid gap-3 md:grid-cols-2">
-        <Card className="overflow-hidden">
-          <div className="px-4 py-3" style={{ background: C.board, color: '#fff' }}>
-            <div className="text-xs opacity-80">{month}</div>
-            <div className="text-lg font-bold">Số buổi mỗi học sinh đã học</div>
+        <Card className="p-3">
+          <div className="mb-1.5 text-xs font-bold uppercase" style={{ color: C.muted }}>Tổng theo học sinh</div>
+          <div className="flex flex-wrap gap-1.5">
+            {byStudent.length === 0 && <span className="text-sm" style={{ color: C.muted }}>Chưa có buổi nào.</span>}
+            {byStudent.map(([name, n]) => (
+              <span key={name} className="rounded-lg px-2 py-1 text-xs font-semibold" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+                {name}: <b style={{ color: C.board2 }}>{n}</b>
+              </span>
+            ))}
           </div>
-          {byStudent.length === 0 ? (
-            <div className="p-6 text-center text-sm" style={{ color: C.muted }}>Chưa có buổi học nào trong tháng này.</div>
-          ) : (
-            <div className="divide-y" style={{ borderColor: C.line }}>
-              {byStudent.map((r) => {
-                const isOpen = openStudent === r.name
-                return (
-                  <div key={r.name}>
-                    <button
-                      onClick={() => setOpenStudent(isOpen ? null : r.name)}
-                      className="flex w-full items-center justify-between px-4 py-2 text-sm text-left"
-                    >
-                      <span>{isOpen ? '▾' : '▸'} {r.name}</span>
-                      <span className="font-bold tabular-nums" style={{ color: C.board2 }}>{r.details.length} buổi</span>
-                    </button>
-                    {isOpen && (
-                      <div className="px-4 pb-2 space-y-1" style={{ background: C.paper }}>
-                        {r.details.map((d, i) => (
-                          <div key={i} className="flex items-center justify-between py-1 text-xs" style={{ color: C.muted }}>
-                            <span>{i + 1}. {viDate(d.date)}</span>
-                            <span>{d.recordedAt ? viDateTime(d.recordedAt) : ''}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
         </Card>
-
-        <Card className="overflow-hidden">
-          <div className="px-4 py-3" style={{ background: C.board, color: '#fff' }}>
-            <div className="text-xs opacity-80">{month}</div>
-            <div className="text-lg font-bold">Số buổi mỗi giáo viên đã dạy</div>
+        <Card className="p-3">
+          <div className="mb-1.5 text-xs font-bold uppercase" style={{ color: C.muted }}>Tổng theo giáo viên</div>
+          <div className="flex flex-wrap gap-1.5">
+            {byTeacher.length === 0 && <span className="text-sm" style={{ color: C.muted }}>Chưa có buổi nào.</span>}
+            {byTeacher.map(([name, n]) => (
+              <span key={name} className="rounded-lg px-2 py-1 text-xs font-semibold" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+                {name}: <b style={{ color: C.board2 }}>{n}</b>
+              </span>
+            ))}
           </div>
-          {byTeacher.length === 0 ? (
-            <div className="p-6 text-center text-sm" style={{ color: C.muted }}>Chưa có buổi học nào trong tháng này.</div>
-          ) : (
-            <div className="divide-y" style={{ borderColor: C.line }}>
-              {byTeacher.map((r) => {
-                const isOpen = openTeacher === r.name
-                return (
-                  <div key={r.name}>
-                    <button
-                      onClick={() => setOpenTeacher(isOpen ? null : r.name)}
-                      className="flex w-full items-center justify-between px-4 py-2 text-sm text-left"
-                    >
-                      <span>{isOpen ? '▾' : '▸'} {r.name}</span>
-                      <span className="font-bold tabular-nums" style={{ color: C.board2 }}>{r.details.length} buổi</span>
-                    </button>
-                    {isOpen && (
-                      <div className="px-4 pb-2 space-y-1" style={{ background: C.paper }}>
-                        {r.details.map((d, i) => (
-                          <div key={i} className="flex items-center justify-between py-1 text-xs" style={{ color: C.muted }}>
-                            <span>{i + 1}. {d.studentName} · {viDate(d.date)}</span>
-                            <span>{d.recordedAt ? viDateTime(d.recordedAt) : ''}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
         </Card>
       </div>
+
+      <Card className="overflow-hidden">
+        <div className="px-4 py-3" style={{ background: C.board, color: '#fff' }}>
+          <div className="text-xs opacity-80">{month}</div>
+          <div className="text-lg font-bold">Chi tiết từng buổi</div>
+        </div>
+        {rows.length === 0 ? (
+          <div className="p-6 text-center text-sm" style={{ color: C.muted }}>Chưa có buổi học nào trong tháng này.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr style={{ background: C.paper }}>
+                  <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Ngày</th>
+                  <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Giờ ghi nhận</th>
+                  <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Học sinh</th>
+                  <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Giáo viên</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i} style={{ borderTop: `1px solid ${C.line}` }}>
+                    <td className="py-2 px-3 font-semibold">{viDate(r.date)}</td>
+                    <td className="py-2 px-3" style={{ color: r.recordedAt ? C.ink : C.muted }}>
+                      {r.recordedAt ? viDateTime(r.recordedAt).split(' ')[1] : 'chưa rõ (buổi cũ)'}
+                    </td>
+                    <td className="py-2 px-3">{r.studentName}</td>
+                    <td className="py-2 px-3">{r.teacherName}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
     </div>
   )
 }
