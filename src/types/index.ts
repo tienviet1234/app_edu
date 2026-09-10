@@ -97,6 +97,7 @@ export interface Session {
   homework?: string   // bài tập về nhà riêng cho học sinh này, buổi này
   entry: SessionEntry
   maxes?: Record<string, number> // overrides comp.max per session (e.g. mini=30, listen=15, hw__correct=20)
+  createdByName?: string // giáo viên đã ghi buổi này — dùng tính lương/học phí theo buổi
 }
 
 // ─── Extra scoring component (admin-added) ────────────────────────────────────
@@ -128,6 +129,8 @@ export interface ClassData {
   comments: Record<string, string>
   extraComps?: ExtraComp[]   // admin-defined extra scoring components
   hiddenComps?: string[]     // keys of standard comps hidden for this class
+  studentRate?: number       // học phí phụ huynh trả / buổi (VNĐ) — dùng tính thanh toán
+  teacherRate?: number       // lương giáo viên nhận / buổi (VNĐ) — dùng tính thanh toán
 }
 
 // ─── App Data ─────────────────────────────────────────────────────────────────

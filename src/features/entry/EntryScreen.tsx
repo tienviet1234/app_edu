@@ -20,6 +20,7 @@ import { logActivity } from '@/services/activity'
 interface EntryScreenProps {
   cls: ClassData
   update: (fn: (c: ClassData) => void) => void
+  teacherName?: string
 }
 
 const FIELDS = ['scores', 'tags', 'ticks', 'choice', 'parts', 'skip', 'ev'] as const
@@ -29,18 +30,18 @@ const cloneEntry = (e: SessionEntry): SessionEntry =>
 
 /** Tìm buổi của đúng học sinh này vào đúng ngày này; nếu chưa có thì tạo mới
  *  (chỉ ở local — đẩy lên server xảy ra khi lưu điểm, xem syncScore). */
-function findOrCreateSession(c: ClassData, studentId: string, date: string): Session {
+function findOrCreateSession(c: ClassData, studentId: string, date: string, teacherName?: string): Session {
   const student = c.students.find((s) => s.id === studentId)!
   let session = student.sessions.find((s) => s.date === date)
   if (!session) {
-    session = { id: uid(), no: student.sessions.length + 1, date, homework: '', entry: emptyEntry() }
+    session = { id: uid(), no: student.sessions.length + 1, date, homework: '', entry: emptyEntry(), createdByName: teacherName }
     student.sessions.push(session)
     student.sessions.sort((a, b) => a.date.localeCompare(b.date) || a.no - b.no)
   }
   return session
 }
 
-export function EntryScreen({ cls, update }: EntryScreenProps) {
+export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
   const r = getClassRubric(cls)
   const [date, setDate] = useState(todayISO())
   const [cur, setCur] = useState(0)
@@ -156,7 +157,7 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
   const mut = (fn: (en: SessionEntry) => void) =>
     update((c) => {
       if (!st) return
-      const ss = findOrCreateSession(c, st.id, date)
+      const ss = findOrCreateSession(c, st.id, date, teacherName)
       FIELDS.forEach((k) => {
         if (!ss.entry[k]) (ss.entry as unknown as Record<string, unknown>)[k] = {}
       })
@@ -166,7 +167,7 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
   function setHomework(v: string) {
     update((c) => {
       if (!st) return
-      findOrCreateSession(c, st.id, date).homework = v
+      findOrCreateSession(c, st.id, date, teacherName).homework = v
     })
   }
 
@@ -175,7 +176,7 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
     // Áp dụng cho cả lớp trong ngày này — giáo viên chỉ cần đặt 1 lần mỗi buổi.
     update((c) => {
       c.students.forEach((s) => {
-        const ss = findOrCreateSession(c, s.id, date)
+        const ss = findOrCreateSession(c, s.id, date, teacherName)
         ss.maxes = ss.maxes ?? {}
         ss.maxes[key] = val
       })
@@ -206,7 +207,7 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
   function presetClass() {
     update((c) => {
       c.students.forEach((s) => {
-        const ss = findOrCreateSession(c, s.id, date)
+        const ss = findOrCreateSession(c, s.id, date, teacherName)
         FIELDS.forEach((k) => {
           if (!ss.entry[k]) (ss.entry as unknown as Record<string, unknown>)[k] = {}
         })
@@ -259,7 +260,7 @@ export function EntryScreen({ cls, update }: EntryScreenProps) {
     const count = groupSelected.size
     update((c) => {
       groupSelected.forEach((sid) => {
-        findOrCreateSession(c, sid, date).entry = cloneEntry(srcEntry)
+        findOrCreateSession(c, sid, date, teacherName).entry = cloneEntry(srcEntry)
       })
     })
     setGroupSelected(new Set())

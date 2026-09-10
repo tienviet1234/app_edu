@@ -45,6 +45,7 @@ function normalizeSession(s: unknown, i: number): Session {
     homework: raw.homework ?? '',
     entry: normalizeEntry(raw.entry),
     maxes: raw.maxes,
+    createdByName: raw.createdByName,
   }
 }
 
@@ -103,6 +104,8 @@ export function normalize(d: unknown): AppData {
         comments: c.comments ?? {},
         extraComps: c.extraComps ?? [],
         hiddenComps: c.hiddenComps ?? [],
+        studentRate: typeof c.studentRate === 'number' ? c.studentRate : undefined,
+        teacherRate: typeof c.teacherRate === 'number' ? c.teacherRate : undefined,
       }
     }),
   }

@@ -4,6 +4,7 @@ import { produce } from 'immer'
 import { Btn } from '@/components/atoms/Btn'
 import { C } from '@/constants/colors'
 import { ROLE_LABELS } from '@/types/auth'
+import { BillingScreen } from '@/features/billing/BillingScreen'
 import { ClassesScreen } from '@/features/classes/ClassesScreen'
 import { DashboardScreen } from '@/features/dashboard/DashboardScreen'
 import { EntryScreen } from '@/features/entry/EntryScreen'
@@ -35,6 +36,7 @@ const ALL_TABS = [
   { key: 'my-scores', label: 'Điểm của tôi', icon: '📊', roles: ['student'] },
   { key: 'board', label: 'Xếp hạng', icon: '🏆', roles: ['teacher', 'admin', 'student'] },
   { key: 'report', label: 'Báo cáo', icon: '📊', roles: ['teacher', 'admin'] },
+  { key: 'billing', label: 'Thanh toán', icon: '💰', roles: ['teacher', 'admin'] },
   { key: 'parent', label: 'Phụ huynh', icon: '👨‍👩‍👧', roles: ['teacher', 'admin'] },
   { key: 'student', label: 'Học sinh', icon: '🎓', roles: ['teacher', 'admin'] },
   { key: 'classes', label: 'Lớp học', icon: '🏫', roles: ['teacher', 'admin'] },
@@ -180,11 +182,13 @@ export default function App() {
         const student = localCls.students.find((st) => st.id === as.studentId)
         if (!student) return
         const score = scoresBySession.get(as._id)
+        const teacherName = as.createdBy && typeof as.createdBy === 'object' ? as.createdBy.name : undefined
         student.sessions.push({
           id: as._id,
           no: as.lessonNo ?? student.sessions.length + 1,
           date: as.scheduledAt.slice(0, 10),
           homework: '',
+          createdByName: teacherName,
           entry: score
             ? {
                 attendance: score.attendance,
@@ -369,11 +373,12 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <DashboardScreen data={data} setTab={setTab} setCurrent={setCurrentClass} />
         )}
-        {cls && activeTab === 'entry' && <EntryScreen cls={cls} update={updateClass} />}
+        {cls && activeTab === 'entry' && <EntryScreen cls={cls} update={updateClass} teacherName={user?.name} />}
         {cls && activeTab === 'homework' && <HomeworkScreen cls={cls} />}
         {activeTab === 'my-scores' && <StudentPortalScreen />}
         {cls && activeTab === 'board' && <LeaderboardScreen cls={cls} update={updateClass} userId={user?.role === 'student' ? user.id : undefined} />}
         {cls && activeTab === 'report' && <ReportScreen cls={cls} update={updateClass} />}
+        {cls && activeTab === 'billing' && <BillingScreen cls={cls} />}
         {cls && activeTab === 'parent' && <ParentScreen cls={cls} />}
         {cls && activeTab === 'student' && <StudentScreen cls={cls} />}
         {activeTab === 'classes' && (

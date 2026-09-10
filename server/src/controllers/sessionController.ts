@@ -2,7 +2,7 @@ import type { Request, Response } from 'express'
 import { Types } from 'mongoose'
 import { ClassSession } from '../models/ClassSession.js'
 import { created, notFound, ok } from '../utils/response.js'
-import { paginate } from '../utils/pagination.js'
+import { parsePagination } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit } from '../services/auditService.js'
 
@@ -17,7 +17,14 @@ export async function listSessions(req: Request, res: Response): Promise<void> {
     // ?includeMigrated=true để công cụ admin/debug xem lại bản gốc nếu cần.
     ...(req.query.includeMigrated === 'true' ? {} : { migratedAt: { $exists: false } }),
   }
-  ok(res, await paginate(ClassSession, filter, req.query))
+  // paginate() không hỗ trợ .populate() — populate createdBy thủ công để client
+  // biết giáo viên nào đã ghi buổi này (dùng tính lương/học phí theo buổi).
+  const { page, limit, skip, sort } = parsePagination(req.query)
+  const [items, total] = await Promise.all([
+    ClassSession.find(filter).sort(sort).skip(skip).limit(limit).populate('createdBy', 'name'),
+    ClassSession.countDocuments(filter),
+  ])
+  ok(res, { items, total, page, totalPages: Math.max(1, Math.ceil(total / limit)) })
 }
 
 export async function createSession(req: Request, res: Response): Promise<void> {
@@ -27,6 +34,7 @@ export async function createSession(req: Request, res: Response): Promise<void> 
     scheduledAt: req.body.scheduledAt ? new Date(req.body.scheduledAt) : new Date(),
     createdBy: new Types.ObjectId(authReq.userId),
   })
+  await session.populate('createdBy', 'name')
   await writeAudit(req, { action: 'session.create', resource: 'ClassSession', resourceId: String(session._id) })
   created(res, session)
 }

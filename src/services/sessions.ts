@@ -4,6 +4,7 @@ export interface ApiSession {
   _id: string
   classId: string
   studentId?: string
+  createdBy?: string | { _id: string; name: string }
   centerId?: string
   courseId?: string
   title?: string
