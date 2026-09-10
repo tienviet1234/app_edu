@@ -115,6 +115,24 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiClassesKey, !!data])
 
+  // Prune classes that no longer exist on the server (e.g. deleted by admin).
+  // Must check against the FULL class list (any status, not just 'active') —
+  // a class that's merely paused/completed still exists and must not be
+  // wiped from local storage just because the active-only query above
+  // doesn't return it.
+  const { data: apiAllClasses } = useClasses({ limit: '100' }, canSyncClassList)
+  const apiAllClassesKey = apiAllClasses?.items.map((c) => c._id).join(',') ?? ''
+  useEffect(() => {
+    if (!data || !apiAllClasses) return
+    const validIds = new Set(apiAllClasses.items.map((c) => c._id))
+    const hasStale = data.classes.some((c) => isMongoid(c.id) && !validIds.has(c.id))
+    if (!hasStale) return
+    const kept = data.classes.filter((c) => !isMongoid(c.id) || validIds.has(c.id))
+    setData(produce((d: AppData) => { d.classes = kept }))
+    if (currentClassIndex >= kept.length) setCurrentClass(Math.max(0, kept.length - 1))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiAllClassesKey, !!data])
+
   // Sync API-enrolled students into local store
   const { data: apiStudents } = useClassStudents(
     cls && isMongoid(cls.id) ? cls.id : '',
