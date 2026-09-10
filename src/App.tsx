@@ -319,7 +319,7 @@ export default function App() {
                 style={{ color: 'rgb(255 255 255 / 0.65)' }}
                 title="Đăng xuất"
               >
-                <span className="text-base sm:hidden">🚪</span>
+                <span className="text-base sm:hidden">→</span>
                 <span className="hidden sm:inline">Thoát</span>
               </button>
             </div>
