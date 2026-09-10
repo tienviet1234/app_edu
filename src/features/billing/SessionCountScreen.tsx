@@ -9,6 +9,7 @@ interface SessionCountScreenProps {
 }
 
 interface DetailRow {
+  no: number
   date: string
   recordedAt?: string
   studentName: string
@@ -25,6 +26,7 @@ export function SessionCountScreen({ cls }: SessionCountScreenProps) {
         .filter((s) => s.date.startsWith(month))
         .forEach((s) => {
           all.push({
+            no: s.no,
             date: s.date,
             recordedAt: s.recordedAt,
             studentName: st.name,
@@ -100,6 +102,7 @@ export function SessionCountScreen({ cls }: SessionCountScreenProps) {
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ background: C.paper }}>
+                  <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Buổi</th>
                   <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Ngày</th>
                   <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Giờ ghi nhận</th>
                   <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Học sinh</th>
@@ -109,6 +112,7 @@ export function SessionCountScreen({ cls }: SessionCountScreenProps) {
               <tbody>
                 {rows.map((r, i) => (
                   <tr key={i} style={{ borderTop: `1px solid ${C.line}` }}>
+                    <td className="py-2 px-3 font-bold">B{r.no}</td>
                     <td className="py-2 px-3 font-semibold">{viDate(r.date)}</td>
                     <td className="py-2 px-3" style={{ color: r.recordedAt ? C.ink : C.muted }}>
                       {r.recordedAt ? viDateTime(r.recordedAt).split(' ')[1] : 'chưa rõ (buổi cũ)'}
