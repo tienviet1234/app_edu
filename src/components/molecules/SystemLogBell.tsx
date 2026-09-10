@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { C } from '@/constants/colors'
 import { useToastStore } from '@/store/toastStore'
 import type { ToastType } from '@/store/toastStore'
+import { PopoverPortal } from '@/components/atoms/PopoverPortal'
 
 const ICON: Record<ToastType, string> = { success: '✓', error: '⚠', info: 'ℹ' }
 const COLOR: Record<ToastType, string> = { success: C.emerald, error: C.rose, info: C.board2 }
@@ -22,12 +23,14 @@ function timeAgo(at: number): string {
  *  làm việc hiện tại, không đồng bộ server. */
 export function SystemLogBell() {
   const [open, setOpen] = useState(false)
+  const btnRef = useRef<HTMLButtonElement>(null)
   const history = useToastStore((s) => s.history)
   const clearHistory = useToastStore((s) => s.clearHistory)
 
   return (
     <div className="relative">
       <button
+        ref={btnRef}
         onClick={() => setOpen((o) => !o)}
         className="relative rounded-xl px-2 py-1.5 text-base"
         style={{ background: '#ffffff14', color: '#fff' }}
@@ -46,44 +49,46 @@ export function SystemLogBell() {
 
       {open && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div
-            className="absolute right-0 top-10 z-20 w-80 overflow-hidden rounded-2xl shadow-2xl"
-            style={{ background: '#fff', border: `1px solid ${C.line}` }}
-          >
-            <div className="flex items-center justify-between px-4 py-3" style={{ background: C.board, color: '#fff' }}>
-              <span className="text-sm font-bold">Nhật ký hệ thống</span>
-              {history.length > 0 && (
-                <button
-                  onClick={clearHistory}
-                  className="rounded-lg px-2 py-1 text-xs font-semibold"
-                  style={{ background: '#ffffff20', color: '#fff' }}
-                >
-                  Xóa hết
-                </button>
-              )}
-            </div>
-
-            {history.length === 0 ? (
-              <div className="px-4 py-6 text-center text-sm" style={{ color: C.muted }}>
-                Chưa có việc gì hệ thống tự ghi lại.
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <PopoverPortal open={open} anchorRef={btnRef}>
+            <div
+              className="w-80 overflow-hidden rounded-2xl shadow-2xl"
+              style={{ background: '#fff', border: `1px solid ${C.line}` }}
+            >
+              <div className="flex items-center justify-between px-4 py-3" style={{ background: C.board, color: '#fff' }}>
+                <span className="text-sm font-bold">Nhật ký hệ thống</span>
+                {history.length > 0 && (
+                  <button
+                    onClick={clearHistory}
+                    className="rounded-lg px-2 py-1 text-xs font-semibold"
+                    style={{ background: '#ffffff20', color: '#fff' }}
+                  >
+                    Xóa hết
+                  </button>
+                )}
               </div>
-            ) : (
-              <div className="max-h-80 divide-y overflow-y-auto" style={{ borderColor: C.line }}>
-                {history.map((h) => (
-                  <div key={h.id} className="px-4 py-2.5">
-                    <div className="flex items-start gap-2">
-                      <span className="mt-0.5 shrink-0 font-bold" style={{ color: COLOR[h.type] }}>{ICON[h.type]}</span>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm" style={{ color: C.ink }}>{h.message}</div>
-                        <div className="mt-0.5 text-xs" style={{ color: C.muted }}>{timeAgo(h.at)}</div>
+
+              {history.length === 0 ? (
+                <div className="px-4 py-6 text-center text-sm" style={{ color: C.muted }}>
+                  Chưa có việc gì hệ thống tự ghi lại.
+                </div>
+              ) : (
+                <div className="max-h-80 divide-y overflow-y-auto" style={{ borderColor: C.line }}>
+                  {history.map((h) => (
+                    <div key={h.id} className="px-4 py-2.5">
+                      <div className="flex items-start gap-2">
+                        <span className="mt-0.5 shrink-0 font-bold" style={{ color: COLOR[h.type] }}>{ICON[h.type]}</span>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm" style={{ color: C.ink }}>{h.message}</div>
+                          <div className="mt-0.5 text-xs" style={{ color: C.muted }}>{timeAgo(h.at)}</div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </PopoverPortal>
         </>
       )}
     </div>
