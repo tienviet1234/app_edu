@@ -16,6 +16,7 @@ import { sessionService } from '@/services/sessions'
 import { scoreService } from '@/services/scores'
 import { isMongoid } from '@/utils/mongoid'
 import { logActivity } from '@/services/activity'
+import { toast } from '@/store/toastStore'
 
 interface EntryScreenProps {
   cls: ClassData
@@ -65,7 +66,6 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
   // Group selection state
   const [groupMode, setGroupMode] = useState(false)
   const [groupSelected, setGroupSelected] = useState<Set<string>>(new Set())
-  const [groupMsg, setGroupMsg] = useState('')
 
   // "Số câu" — bản nháp đang gõ, tách khỏi giá trị đã lưu để không bị nhảy
   // số cũ trở lại mỗi khi xóa hết ô để gõ số mới (input là controlled).
@@ -130,12 +130,14 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
           if (ss) ss.id = sessionId
         })
         logActivity('session.create', { className: cls.name, sessionNo: target.no, studentName: student.name }, 'ClassSession')
+        toast.info(`Đã tự tạo Buổi ${target.no} cho ${student.name} (${viDate(target.date)})`)
       }
       await scoreService.upsert({ classId: cls.id, sessionId, studentId, ...target.entry, total })
       setSyncStatus('saved')
       setTimeout(() => setSyncStatus('idle'), 2000)
     } catch {
       setSyncStatus('error')
+      toast.error(`Lỗi lưu điểm Buổi ${target.no} của ${student.name}`, { persist: true })
     }
   }
 
@@ -156,7 +158,7 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
       })
     })
     if (!jobs.length) {
-      alert('Không có điểm nào cần đồng bộ — mọi thứ đã lên server rồi.')
+      toast.info('Không có điểm nào cần đồng bộ — mọi thứ đã lên server rồi.')
       return
     }
     if (!confirm(`Đồng bộ ${jobs.length} điểm đã nhập trước đây lên server?`)) return
@@ -177,7 +179,11 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
       setBackfillProgress((p) => ({ ...p, done: p.done + 1 }))
     }
     setBackfilling(false)
-    alert(`Đồng bộ xong: ${okCount} điểm thành công${failCount ? `, ${failCount} lỗi (thử lại sau)` : ''}.`)
+    if (failCount) {
+      toast.error(`Đồng bộ xong: ${okCount} điểm thành công, ${failCount} lỗi (thử lại sau)`, { persist: true })
+    } else {
+      toast.success(`Đồng bộ xong: ${okCount} điểm thành công`)
+    }
   }
 
   if (!cls.students.length)
@@ -212,6 +218,7 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
     // mặc định "Có mặt") cho học sinh chưa được chấm chỉ vì sửa "Số câu".
     // Học sinh nào được tạo buổi sau sẽ tự kế thừa số này (xem
     // findOrCreateSession — lấy maxes từ 1 học sinh khác cùng buổi).
+    let affected = 0
     update((c) => {
       c.students.forEach((s) => {
         if (s.id === st?.id) return // học sinh đang xem xử lý riêng bên dưới (được phép tạo buổi)
@@ -219,6 +226,7 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
         if (!ss) return
         ss.maxes = ss.maxes ?? {}
         ss.maxes[key] = val
+        affected++
       })
       // Học sinh đang xem là người đang được chấm — tạo buổi cho em này nếu
       // chưa có, vì giáo viên rõ ràng đang thao tác trên buổi của em đó.
@@ -228,6 +236,9 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
         ss.maxes[key] = val
       }
     })
+    if (affected > 0) {
+      toast.success(`Đã áp dụng "Số câu" cho ${affected} học sinh khác đã có Buổi ${selectedNo}`)
+    }
   }
 
   function commitSessionMax(key: string, raw: string) {
@@ -276,13 +287,13 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
         })
       })
     })
+    toast.success(`Đã đặt mặc định cho cả lớp — Buổi ${selectedNo}`)
   }
 
   // ── Group selection logic ──────────────────────────────────────────────────
   function toggleGroupMode() {
     setGroupMode((g) => !g)
     setGroupSelected(new Set())
-    setGroupMsg('')
   }
 
   function toggleStudentSelection(sid: string) {
@@ -313,8 +324,7 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
     })
     setGroupSelected(new Set())
     setGroupMode(false)
-    setGroupMsg(`✓ Đã áp dụng điểm của "${st.name}" cho ${count} học sinh`)
-    setTimeout(() => setGroupMsg(''), 3500)
+    toast.success(`Đã áp dụng điểm của "${st.name}" cho ${count} học sinh`)
   }
   // ──────────────────────────────────────────────────────────────────────────
 
@@ -602,15 +612,6 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
           </div>
         )}
 
-        {/* Group success message */}
-        {groupMsg && (
-          <div
-            className="mt-1 rounded-xl px-3 py-2 text-xs font-semibold"
-            style={{ background: '#ECFDF5', color: '#065F46' }}
-          >
-            {groupMsg}
-          </div>
-        )}
       </Card>
 
       {st && (

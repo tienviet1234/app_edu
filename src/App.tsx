@@ -19,6 +19,8 @@ import { ReportScreen } from '@/features/report/ReportScreen'
 import { StudentScreen } from '@/features/student/StudentScreen'
 import { StudentPortalScreen } from '@/features/student/StudentPortalScreen'
 import { NotificationBell } from '@/components/molecules/NotificationBell'
+import { SystemLogBell } from '@/components/molecules/SystemLogBell'
+import { ToastContainer } from '@/components/molecules/ToastContainer'
 import { Sidebar } from '@/components/molecules/Sidebar'
 import { BottomNav } from '@/components/molecules/BottomNav'
 import { useAppStore } from '@/store/appStore'
@@ -295,6 +297,7 @@ export default function App() {
           {saving && <span className="hidden text-xs sm:inline" style={{ color: 'rgb(255 255 255 / 0.55)' }}>{saving}</span>}
 
           {user && <NotificationBell />}
+          {user && (user.role === 'teacher' || user.role === 'admin') && <SystemLogBell />}
 
           {user?.role === 'admin' && (
             <button
@@ -431,6 +434,7 @@ export default function App() {
       />
 
       {profileOpen && <ProfileModal onClose={() => setProfileOpen(false)} />}
+      <ToastContainer />
     </div>
   )
 }

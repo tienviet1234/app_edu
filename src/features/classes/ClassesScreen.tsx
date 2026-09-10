@@ -16,6 +16,7 @@ import { importStudentNames, exportAttendance } from '@/utils/excel'
 import { useClassStudents } from '@/hooks'
 import { useAuthStore } from '@/store/authStore'
 import { isMongoid } from '@/utils/mongoid'
+import { toast } from '@/store/toastStore'
 
 function parseBulk(text: string): ClassData[] {
   return text
@@ -130,12 +131,12 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
           if (student) student.id = newSt._id
         })
       }))
-      alert(`Đã đồng bộ ${created.length} học sinh lên server thành công.`)
+      toast.success(`Đã đồng bộ ${created.length} học sinh lên server thành công.`)
     } catch (err: unknown) {
       const detail = (err as { response?: { status?: number; data?: { message?: string } } })?.response
       const msg = detail?.data?.message
       console.error('syncLocalOnlyStudents error:', err)
-      alert(`Lỗi khi đồng bộ${detail?.status ? ` (${detail.status})` : ''}${msg ? `: ${msg}` : ''}. Xem console để biết chi tiết.`)
+      toast.error(`Lỗi khi đồng bộ${detail?.status ? ` (${detail.status})` : ''}${msg ? `: ${msg}` : ''}`, { persist: true })
     } finally {
       setSyncing(false)
     }
@@ -389,7 +390,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                               })
                             }))
                           } catch {
-                            alert('Lỗi khi thêm học sinh. Thử lại.')
+                            toast.error('Lỗi khi thêm học sinh. Thử lại.', { persist: true })
                           } finally {
                             setSyncing(false)
                           }
@@ -593,7 +594,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                                           if (isMongoid(ss.id)) {
                                             sessionService
                                               .update(ss.id, { scheduledAt: `${newDate}T00:00:00.000Z` })
-                                              .catch(() => alert('Lỗi khi lưu ngày mới lên server. Thử lại.'))
+                                              .catch(() => toast.error(`Lỗi khi lưu ngày mới của Buổi ${ss.no} lên server. Thử lại.`, { persist: true }))
                                           }
                                         }}
                                         className="rounded-lg px-2 py-1 text-sm"
@@ -616,10 +617,11 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                                             try {
                                               await sessionService.remove(ss.id)
                                             } catch {
-                                              alert('Lỗi khi xóa buổi trên server. Thử lại.')
+                                              toast.error(`Lỗi khi xóa Buổi ${ss.no} trên server. Thử lại.`, { persist: true })
                                               return
                                             }
                                           }
+                                          toast.success(`Đã xóa Buổi ${ss.no} của ${stu.name}`)
                                           edit((c) => {
                                             const s = c.students.find((y) => y.id === stu.id)
                                             if (!s) return
