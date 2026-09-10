@@ -4,7 +4,7 @@ import { C, scoreColor } from '@/constants/colors'
 import { ATTEND } from '@/constants/tags'
 import { getClassRubric } from '@/constants/rubrics'
 import { uid } from '@/utils/uid'
-import { todayISO } from '@/utils/format'
+import { todayISO, viDate } from '@/utils/format'
 import { sessionScore } from '@/business/scoring'
 import { emptyEntry } from '@/business/seed'
 import { Card } from '@/components/atoms/Card'
@@ -295,13 +295,23 @@ export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
             style={{ border: `1px solid ${C.line}` }}
           />
           {st && (
-            <span
+            <select
+              value={session?.id ?? ''}
+              onChange={(x) => {
+                const picked = st.sessions.find((s) => s.id === x.target.value)
+                if (picked) setDate(picked.date)
+              }}
+              title={`Chọn nhanh 1 buổi đã có của ${st.name}`}
               className="rounded-xl px-3 py-2 text-sm font-semibold"
               style={{ background: C.paper, color: C.board, border: `1px solid ${C.line}` }}
-              title={`Buổi thứ ${session?.no ?? st.sessions.length + 1} của ${st.name}`}
             >
-              Buổi {session?.no ?? st.sessions.length + 1}
-            </span>
+              {!session && (
+                <option value="">Buổi {st.sessions.length + 1} — {viDate(date)} (chưa lưu)</option>
+              )}
+              {st.sessions.map((s) => (
+                <option key={s.id} value={s.id}>Buổi {s.no} — {viDate(s.date)}</option>
+              ))}
+            </select>
           )}
           <Btn onClick={presetClass} title="Đặt sẵn mức đạt cho cả lớp">
             ⚡ Mặc định
