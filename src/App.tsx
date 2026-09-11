@@ -78,6 +78,9 @@ export default function App() {
   const fileRef = useRef<HTMLInputElement>(null)
   const { canInstall, install } = usePwaInstall()
   const [profileOpen, setProfileOpen] = useState(false)
+  // Nhảy từ "Thống kê buổi" sang "Nhập điểm" đúng học sinh + đúng buổi để sửa
+  // điểm — giáo viên và admin đều thao tác được, không giới hạn riêng ai.
+  const [entryJumpTarget, setEntryJumpTarget] = useState<{ studentId: string; no: number } | null>(null)
 
   const TABS = ALL_TABS.filter((t) => !user || t.roles.includes(user.role))
   const { primary: mobilePrimary, overflow: mobileOverflow } = splitMobileTabs(TABS, user?.role)
@@ -377,12 +380,26 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <DashboardScreen data={data} setTab={setTab} setCurrent={setCurrentClass} />
         )}
-        {cls && activeTab === 'entry' && <EntryScreen cls={cls} update={updateClass} teacherName={user?.name} />}
+        {cls && activeTab === 'entry' && (
+          <EntryScreen
+            cls={cls}
+            update={updateClass}
+            teacherName={user?.name}
+            initialTarget={entryJumpTarget}
+            onConsumeInitialTarget={() => setEntryJumpTarget(null)}
+          />
+        )}
         {cls && activeTab === 'homework' && <HomeworkScreen cls={cls} />}
         {activeTab === 'my-scores' && <StudentPortalScreen />}
         {cls && activeTab === 'board' && <LeaderboardScreen cls={cls} update={updateClass} userId={user?.role === 'student' ? user.id : undefined} />}
         {cls && activeTab === 'report' && <ReportScreen cls={cls} update={updateClass} />}
-        {cls && activeTab === 'billing' && <SessionCountScreen cls={cls} />}
+        {cls && activeTab === 'billing' && (
+          <SessionCountScreen
+            cls={cls}
+            update={updateClass}
+            onEditInEntry={(studentId, no) => { setEntryJumpTarget({ studentId, no }); setTab('entry') }}
+          />
+        )}
         {cls && activeTab === 'parent' && <ParentScreen cls={cls} />}
         {cls && activeTab === 'student' && <StudentScreen cls={cls} />}
         {activeTab === 'classes' && (

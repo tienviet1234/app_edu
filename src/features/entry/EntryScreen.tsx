@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ClassData, Session, SessionEntry } from '@/types'
 import { C, scoreColor } from '@/constants/colors'
 import { ATTEND } from '@/constants/tags'
@@ -22,6 +22,10 @@ interface EntryScreenProps {
   cls: ClassData
   update: (fn: (c: ClassData) => void) => void
   teacherName?: string
+  /** Nhảy tới đúng học sinh + buổi này khi mở từ màn khác (VD "Thống kê
+   *  buổi" bấm "Sửa điểm") — chỉ áp dụng 1 lần lúc mở màn. */
+  initialTarget?: { studentId: string; no: number } | null
+  onConsumeInitialTarget?: () => void
 }
 
 const FIELDS = ['scores', 'tags', 'ticks', 'choice', 'parts', 'skip', 'ev'] as const
@@ -53,11 +57,22 @@ function findOrCreateSession(c: ClassData, studentId: string, no: number, dateFo
   return session
 }
 
-export function EntryScreen({ cls, update, teacherName }: EntryScreenProps) {
+export function EntryScreen({ cls, update, teacherName, initialTarget, onConsumeInitialTarget }: EntryScreenProps) {
   const r = getClassRubric(cls)
-  const [selectedNo, setSelectedNo] = useState(1)
+  const [selectedNo, setSelectedNo] = useState(initialTarget?.no ?? 1)
   const [draftDate, setDraftDate] = useState(todayISO())
-  const [cur, setCur] = useState(0)
+  const [cur, setCur] = useState(() => {
+    if (!initialTarget) return 0
+    const idx = cls.students.findIndex((s) => s.id === initialTarget.studentId)
+    return idx >= 0 ? idx : 0
+  })
+
+  // Chỉ áp dụng initialTarget MỘT LẦN lúc mở màn — sau đó xóa đi để lần mở
+  // tiếp theo (không qua "Sửa điểm") không bị nhảy tới chỗ cũ.
+  useEffect(() => {
+    if (initialTarget) onConsumeInitialTarget?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [backfilling, setBackfilling] = useState(false)
   const [backfillProgress, setBackfillProgress] = useState({ done: 0, total: 0 })
