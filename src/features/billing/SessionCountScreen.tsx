@@ -69,14 +69,24 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
     const studentCount = new Map<string, number>()
     // Buổi của giáo viên = số NGÀY khác nhau giáo viên đó có điểm danh học
     // sinh — không đếm theo từng học sinh (1 ngày dạy 8 em vẫn tính 1 buổi).
+    // Kèm số học sinh KHÁC NHAU giáo viên đó từng dạy trong tháng.
     const teacherDates = new Map<string, Set<string>>()
+    const teacherStudents = new Map<string, Set<string>>()
     all.forEach((r) => {
       studentCount.set(r.studentName, (studentCount.get(r.studentName) ?? 0) + 1)
       const dates = teacherDates.get(r.teacherName) ?? new Set<string>()
       dates.add(r.date)
       teacherDates.set(r.teacherName, dates)
+      const students = teacherStudents.get(r.teacherName) ?? new Set<string>()
+      students.add(r.studentId)
+      teacherStudents.set(r.teacherName, students)
     })
-    const teacherCount = new Map([...teacherDates.entries()].map(([name, dates]) => [name, dates.size]))
+    const teacherCount = new Map(
+      [...teacherDates.entries()].map(([name, dates]) => [
+        name,
+        { days: dates.size, students: teacherStudents.get(name)?.size ?? 0 },
+      ]),
+    )
 
     const q = search.trim().toLowerCase()
     const filtered = all.filter(
@@ -98,7 +108,7 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
     return {
       byDate: dateGroups,
       byStudent: [...studentCount.entries()].sort((a, b) => b[1] - a[1]),
-      byTeacher: [...teacherCount.entries()].sort((a, b) => b[1] - a[1]),
+      byTeacher: [...teacherCount.entries()].sort((a, b) => b[1].days - a[1].days),
       teacherNames: [...teacherDates.keys()].sort((a, b) => a.localeCompare(b, 'vi')),
       totalRows: filtered.length,
     }
@@ -282,7 +292,7 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
             {byTeacher.length === 0 && <span className="text-sm" style={{ color: C.muted }}>Chưa có buổi nào.</span>}
             {byTeacher.map(([name, n]) => (
               <span key={name} className="rounded-lg px-2 py-1 text-xs font-semibold" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
-                {name}: <b style={{ color: C.board2 }}>{n}</b>
+                {name}: <b style={{ color: C.board2 }}>{n.days} buổi</b> · <b style={{ color: C.board2 }}>{n.students} học sinh</b>
               </span>
             ))}
           </div>
