@@ -52,7 +52,7 @@ export function SystemLogBell() {
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <PopoverPortal open={open} anchorRef={btnRef}>
             <div
-              className="w-80 overflow-hidden rounded-2xl shadow-2xl"
+              className="w-80 max-w-full overflow-hidden rounded-2xl shadow-2xl"
               style={{ background: '#fff', border: `1px solid ${C.line}` }}
             >
               <div className="flex items-center justify-between px-4 py-3" style={{ background: C.board, color: '#fff' }}>

@@ -34,6 +34,15 @@ export function rescaleComp(comp: RubricComponent, newMax: number): RubricCompon
     const parts = comp.parts.map((p, i) => ({ ...p, max: maxes[i] }))
     return { ...comp, parts, max: parts.reduce((a, p) => a + p.max, 0) }
   }
+  if (comp.type === 'choice' && comp.options?.length) {
+    // max của choice = mức cao nhất trong các lựa chọn (không phải tổng) —
+    // chia tỷ lệ từng mức theo max cũ, không dùng distribute() (chỉ hợp khi
+    // cộng lại phải khớp tổng, ở đây không phải vậy).
+    const oldMax = comp.options.reduce((a, o) => Math.max(a, o.pts), 0)
+    if (oldMax <= 0) return { ...comp, max: newMax }
+    const options = comp.options.map((o) => ({ ...o, pts: Math.round((o.pts * newMax) / oldMax) }))
+    return { ...comp, options, max: options.reduce((a, o) => Math.max(a, o.pts), 0) }
+  }
   return { ...comp, max: newMax }
 }
 
