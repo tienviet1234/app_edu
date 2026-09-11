@@ -78,6 +78,19 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   const [backfillProgress, setBackfillProgress] = useState({ done: 0, total: 0 })
   const [showSummary, setShowSummary] = useState(false)
 
+  // Buổi/Ngày khóa mặc định — tránh đổi nhầm do chạm/cuộn màn hình, phải
+  // chủ động bấm ✎ Sửa mới mở ra chỉnh được.
+  const [editingWhen, setEditingWhen] = useState(false)
+
+  // Hộp xác nhận trước khi lưu & chuyển học sinh khác (Trước/Tiếp theo/bấm
+  // chọn học sinh) — cho giáo viên xem lại Buổi/Ngày/Điểm danh/Tổng điểm 1
+  // lần cuối trước khi thao tác thật sự xảy ra, tránh bấm nhầm rồi "nhảy"
+  // sang học sinh khác mà không để ý.
+  const [pendingNav, setPendingNav] = useState<(() => void) | null>(null)
+  const requestNav = (action: () => void) => setPendingNav(() => action)
+  const confirmNav = () => { pendingNav?.(); setPendingNav(null) }
+  const cancelNav = () => setPendingNav(null)
+
   // Group selection state
   const [groupMode, setGroupMode] = useState(false)
   const [groupSelected, setGroupSelected] = useState<Set<string>>(new Set())
@@ -379,30 +392,51 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
       <Card className="p-3">
         {/* Toolbar */}
         <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={selectedNo}
-            onChange={(x) => { setSelectedNo(Number(x.target.value)); setDraftDate(todayISO()) }}
-            title="Chọn số buổi — mỗi học sinh có buổi riêng, có thể khác ngày nhau"
-            className="rounded-xl px-3 py-2 text-sm font-semibold"
-            style={{ background: C.paper, color: C.board, border: `1px solid ${C.line}` }}
-          >
-            {Array.from({ length: maxNo }, (_, i) => i + 1).map((no) => {
-              const existing = st?.sessions.find((s) => s.no === no)
-              return (
-                <option key={no} value={no}>
-                  Buổi {no} — {existing ? viDate(existing.date) : 'chưa có'}
-                </option>
-              )
-            })}
-          </select>
-          <input
-            type="date"
-            value={effectiveDate}
-            onChange={(x) => handleDateChange(x.target.value)}
-            title="Ngày của buổi đang chọn"
-            className="rounded-xl px-3 py-2 text-sm font-semibold"
-            style={{ border: `1px solid ${C.line}` }}
-          />
+          {editingWhen ? (
+            <>
+              <select
+                value={selectedNo}
+                onChange={(x) => { setSelectedNo(Number(x.target.value)); setDraftDate(todayISO()) }}
+                title="Chọn số buổi — mỗi học sinh có buổi riêng, có thể khác ngày nhau"
+                className="rounded-xl px-3 py-2 text-sm font-semibold"
+                style={{ background: C.paper, color: C.board, border: `1px solid ${C.line}` }}
+              >
+                {Array.from({ length: maxNo }, (_, i) => i + 1).map((no) => {
+                  const existing = st?.sessions.find((s) => s.no === no)
+                  return (
+                    <option key={no} value={no}>
+                      Buổi {no} — {existing ? viDate(existing.date) : 'chưa có'}
+                    </option>
+                  )
+                })}
+              </select>
+              <input
+                type="date"
+                value={effectiveDate}
+                onChange={(x) => handleDateChange(x.target.value)}
+                title="Ngày của buổi đang chọn"
+                className="rounded-xl px-3 py-2 text-sm font-semibold"
+                style={{ border: `1px solid ${C.line}` }}
+              />
+              <button
+                onClick={() => setEditingWhen(false)}
+                className="rounded-xl px-3 py-1.5 text-sm font-bold"
+                style={{ background: C.emerald, color: '#fff' }}
+              >
+                ✓ Xong
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setEditingWhen(true)}
+              title="Bấm để đổi Buổi/Ngày — đang khóa để tránh chạm nhầm"
+              className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold"
+              style={{ background: C.paper, color: C.board, border: `1px solid ${C.line}` }}
+            >
+              <span>🔒 Buổi {selectedNo} — {viDate(effectiveDate)}</span>
+              <span style={{ color: C.board2 }}>✎ Sửa</span>
+            </button>
+          )}
           {!session && (
             <span className="text-xs" style={{ color: C.muted }}>(chưa lưu)</span>
           )}
@@ -569,9 +603,13 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                 onClick={() => {
                   if (groupMode) {
                     toggleStudentSelection(s.id)
+                  } else if (i === cur) {
+                    // đang xem sẵn rồi — không cần xác nhận gì
                   } else {
-                    if (st) { announceSave(st.id); void syncScore(st.id) }
-                    setCur(i)
+                    requestNav(() => {
+                      if (st) { announceSave(st.id); void syncScore(st.id) }
+                      setCur(i)
+                    })
                   }
                 }}
                 className="relative rounded-lg px-2 py-1 text-xs font-semibold transition-all"
@@ -787,12 +825,12 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
 
             <div className="flex gap-2">
               <Btn
-                onClick={() => {
+                onClick={() => requestNav(() => {
                   announceSave(st.id)
                   void syncScore(st.id)
                   logActivity('score.entry', { className: cls.name, sessionNo: session?.no ?? 0, studentName: st.name }, 'Score')
                   setCur(Math.max(0, cur - 1))
-                }}
+                })}
               >
                 ← Trước
               </Btn>
@@ -809,12 +847,12 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                   kind="gold"
                   size="lg"
                   className="flex-1"
-                  onClick={() => {
+                  onClick={() => requestNav(() => {
                     announceSave(st.id)
                     void syncScore(st.id)
                     logActivity('score.entry', { className: cls.name, sessionNo: session?.no ?? 0, studentName: st.name }, 'Score')
                     setCur(Math.min(cls.students.length - 1, cur + 1))
-                  }}
+                  })}
                 >
                   Học sinh tiếp theo →
                 </Btn>
@@ -822,6 +860,49 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
             </div>
           </div>
         </Card>
+      )}
+
+      {/* Xác nhận trước khi lưu & chuyển sang học sinh khác — xem lại 1 lần
+       *  cuối Buổi/Ngày/Điểm danh/Tổng điểm để tránh bấm nhầm rồi "nhảy" đi
+       *  mất mà không để ý. */}
+      {pendingNav && st && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: '#00000066' }}
+          onClick={cancelNav}
+        >
+          <Card className="w-full max-w-sm p-5" onClick={(x) => x.stopPropagation()}>
+            <div className="mb-3 text-sm font-bold uppercase tracking-wide" style={{ color: C.muted }}>
+              Xác nhận trước khi lưu
+            </div>
+            <div className="space-y-1.5 text-sm">
+              <div className="flex justify-between">
+                <span style={{ color: C.muted }}>Học sinh</span>
+                <b style={{ color: C.ink }}>{st.name}</b>
+              </div>
+              <div className="flex justify-between">
+                <span style={{ color: C.muted }}>Buổi</span>
+                <b style={{ color: C.ink }}>{selectedNo}</b>
+              </div>
+              <div className="flex justify-between">
+                <span style={{ color: C.muted }}>Ngày</span>
+                <b style={{ color: C.ink }}>{viDate(effectiveDate)}</b>
+              </div>
+              <div className="flex justify-between">
+                <span style={{ color: C.muted }}>Điểm danh</span>
+                <b style={{ color: C.ink }}>{ATTEND.find((a) => a.key === e.attendance)?.label ?? '—'}</b>
+              </div>
+              <div className="flex justify-between">
+                <span style={{ color: C.muted }}>Tổng điểm</span>
+                <b style={{ color: total !== null ? scoreColor(total) : C.ink }}>{total === null ? '—' : total}</b>
+              </div>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <Btn className="flex-1" onClick={cancelNav}>← Sửa lại</Btn>
+              <Btn kind="gold" className="flex-1" onClick={confirmNav}>✓ Xác nhận</Btn>
+            </div>
+          </Card>
+        </div>
       )}
     </div>
   )
