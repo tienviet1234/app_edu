@@ -39,6 +39,7 @@ const ATTEND_STYLE: Record<AttendanceKey, { label: string; bg: string; fg: strin
 export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountScreenProps) {
   const [month, setMonth] = useState(todayISO().slice(0, 7)) // "YYYY-MM"
   const [studentFilter, setStudentFilter] = useState('all')
+  const [teacherFilter, setTeacherFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [showAdd, setShowAdd] = useState(false)
@@ -46,7 +47,7 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
   const [addNo, setAddNo] = useState(1)
   const [addDate, setAddDate] = useState(todayISO())
 
-  const { byDate, byStudent, byTeacher, totalRows } = useMemo(() => {
+  const { byDate, byStudent, byTeacher, teacherNames, totalRows } = useMemo(() => {
     const all: DetailRow[] = []
     cls.students.forEach((st) => {
       st.sessions
@@ -81,7 +82,8 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
     const filtered = all.filter(
       (r) =>
         (studentFilter === 'all' || r.studentId === studentFilter) &&
-        (!q || r.studentName.toLowerCase().includes(q)),
+        (teacherFilter === 'all' || r.teacherName === teacherFilter) &&
+        (!q || r.studentName.toLowerCase().includes(q) || r.teacherName.toLowerCase().includes(q)),
     )
 
     const groups = new Map<string, DetailRow[]>()
@@ -97,9 +99,10 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
       byDate: dateGroups,
       byStudent: [...studentCount.entries()].sort((a, b) => b[1] - a[1]),
       byTeacher: [...teacherCount.entries()].sort((a, b) => b[1] - a[1]),
+      teacherNames: [...teacherDates.keys()].sort((a, b) => a.localeCompare(b, 'vi')),
       totalRows: filtered.length,
     }
-  }, [cls, month, studentFilter, search])
+  }, [cls, month, studentFilter, teacherFilter, search])
 
   function toggleDate(d: string) {
     setCollapsed((prev) => {
@@ -199,10 +202,21 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
+          <select
+            value={teacherFilter}
+            onChange={(x) => setTeacherFilter(x.target.value)}
+            className="rounded-xl px-3 py-2 text-sm font-semibold"
+            style={{ border: `1px solid ${C.line}` }}
+          >
+            <option value="all">Tất cả giáo viên</option>
+            {teacherNames.map((name) => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
           <input
             value={search}
             onChange={(x) => setSearch(x.target.value)}
-            placeholder="🔍 Tìm theo tên học sinh"
+            placeholder="🔍 Tìm theo tên học sinh hoặc giáo viên"
             className="min-w-0 flex-1 rounded-xl px-3 py-2 text-sm"
             style={{ border: `1px solid ${C.line}` }}
           />
