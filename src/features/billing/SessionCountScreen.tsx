@@ -29,6 +29,11 @@ interface DetailRow {
   attendance: AttendanceKey
 }
 
+interface TeacherDay {
+  date: string
+  students: string[]
+}
+
 const ATTEND_STYLE: Record<AttendanceKey, { label: string; bg: string; fg: string }> = {
   present: { label: 'Có mặt', bg: C.emerald + '18', fg: C.emerald },
   late: { label: 'Muộn', bg: C.gold + '28', fg: '#7A5A05' },
@@ -42,6 +47,7 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
   const [teacherFilter, setTeacherFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [expandedTeacher, setExpandedTeacher] = useState<string | null>(null)
   const [showAdd, setShowAdd] = useState(false)
   const [addStudentId, setAddStudentId] = useState(cls.students[0]?.id ?? '')
   const [addNo, setAddNo] = useState(1)
@@ -69,23 +75,25 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
     const studentCount = new Map<string, number>()
     // Buổi của giáo viên = số NGÀY khác nhau giáo viên đó có điểm danh học
     // sinh — không đếm theo từng học sinh (1 ngày dạy 8 em vẫn tính 1 buổi).
-    // Kèm số học sinh KHÁC NHAU giáo viên đó từng dạy trong tháng.
-    const teacherDates = new Map<string, Set<string>>()
-    const teacherStudents = new Map<string, Set<string>>()
+    // Kèm chi tiết từng buổi: ngày đó có những học sinh nào (bấm vào xem).
+    const teacherDayStudents = new Map<string, Map<string, Set<string>>>()
     all.forEach((r) => {
       studentCount.set(r.studentName, (studentCount.get(r.studentName) ?? 0) + 1)
-      const dates = teacherDates.get(r.teacherName) ?? new Set<string>()
-      dates.add(r.date)
-      teacherDates.set(r.teacherName, dates)
-      const students = teacherStudents.get(r.teacherName) ?? new Set<string>()
-      students.add(r.studentId)
-      teacherStudents.set(r.teacherName, students)
+      const byDay = teacherDayStudents.get(r.teacherName) ?? new Map<string, Set<string>>()
+      const names = byDay.get(r.date) ?? new Set<string>()
+      names.add(r.studentName)
+      byDay.set(r.date, names)
+      teacherDayStudents.set(r.teacherName, byDay)
     })
     const teacherCount = new Map(
-      [...teacherDates.entries()].map(([name, dates]) => [
-        name,
-        { days: dates.size, students: teacherStudents.get(name)?.size ?? 0 },
-      ]),
+      [...teacherDayStudents.entries()].map(([name, byDay]) => {
+        const allStudents = new Set<string>()
+        byDay.forEach((names) => names.forEach((n) => allStudents.add(n)))
+        const days: TeacherDay[] = [...byDay.entries()]
+          .map(([date, names]) => ({ date, students: [...names].sort((a, b) => a.localeCompare(b, 'vi')) }))
+          .sort((a, b) => b.date.localeCompare(a.date))
+        return [name, { days: days.length, students: allStudents.size, breakdown: days }] as const
+      }),
     )
 
     const q = search.trim().toLowerCase()
@@ -109,7 +117,7 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
       byDate: dateGroups,
       byStudent: [...studentCount.entries()].sort((a, b) => b[1] - a[1]),
       byTeacher: [...teacherCount.entries()].sort((a, b) => b[1].days - a[1].days),
-      teacherNames: [...teacherDates.keys()].sort((a, b) => a.localeCompare(b, 'vi')),
+      teacherNames: [...teacherDayStudents.keys()].sort((a, b) => a.localeCompare(b, 'vi')),
       totalRows: filtered.length,
     }
   }, [cls, month, studentFilter, teacherFilter, search])
@@ -288,13 +296,31 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
         </Card>
         <Card className="p-3">
           <div className="mb-1.5 text-xs font-bold uppercase" style={{ color: C.muted }}>Tổng theo giáo viên</div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="space-y-1.5">
             {byTeacher.length === 0 && <span className="text-sm" style={{ color: C.muted }}>Chưa có buổi nào.</span>}
-            {byTeacher.map(([name, n]) => (
-              <span key={name} className="rounded-lg px-2 py-1 text-xs font-semibold" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
-                {name}: <b style={{ color: C.board2 }}>{n.days} buổi</b> · <b style={{ color: C.board2 }}>{n.students} học sinh</b>
-              </span>
-            ))}
+            {byTeacher.map(([name, n]) => {
+              const isOpen = expandedTeacher === name
+              return (
+                <div key={name}>
+                  <button
+                    onClick={() => setExpandedTeacher(isOpen ? null : name)}
+                    className="w-full rounded-lg px-2 py-1 text-left text-xs font-semibold"
+                    style={{ background: C.paper, border: `1px solid ${C.line}` }}
+                  >
+                    {isOpen ? '▾' : '▸'} {name}: <b style={{ color: C.board2 }}>{n.days} buổi</b> · <b style={{ color: C.board2 }}>{n.students} học sinh</b>
+                  </button>
+                  {isOpen && (
+                    <div className="mt-1 space-y-1 pl-4">
+                      {n.breakdown.map((d) => (
+                        <div key={d.date} className="text-xs" style={{ color: C.muted }}>
+                          <b style={{ color: C.ink }}>{viDate(d.date)}</b> — {d.students.length} học sinh: {d.students.join(', ')}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </Card>
       </div>
