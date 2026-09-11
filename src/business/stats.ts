@@ -7,18 +7,19 @@ const mean = (a: number[]): number => (a.length ? a.reduce((x, y) => x + y, 0) /
 
 export const rankOf = (avg: number) => RANKS.find((x) => avg >= x.min) ?? RANKS[RANKS.length - 1]
 
-/** Tổng số buổi đã dạy trong lớp — cộng dồn buổi riêng của tất cả học sinh
- *  (mỗi học sinh có chuỗi buổi độc lập, không còn 1 con số chung cho cả lớp). */
-export function totalSessionsOf(cls: ClassData): number {
-  return cls.students.reduce((a, st) => a + st.sessions.length, 0)
-}
-
 /** Tập hợp các ngày học đã diễn ra trong lớp — hợp (union) ngày của mọi học
  *  sinh, sắp xếp tăng dần. Dùng cho các bảng/biểu đồ tổng hợp cả lớp. */
 export function allDatesOf(cls: ClassData): string[] {
   const set = new Set<string>()
   cls.students.forEach((st) => st.sessions.forEach((s) => set.add(s.date)))
   return [...set].sort()
+}
+
+/** Số buổi lớp THỰC SỰ đã dạy — đếm theo số ngày khác nhau (không phải cộng
+ *  dồn buổi của từng học sinh, vì 5 học sinh cùng học "buổi 1" trong 1 ngày
+ *  là 1 buổi dạy, không phải 5). */
+export function teachingDaysOf(cls: ClassData): number {
+  return allDatesOf(cls).length
 }
 
 export function mergeEvidence(values: (string | undefined)[]): EvidenceItem[] {

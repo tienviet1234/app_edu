@@ -8,7 +8,7 @@ import { C, scoreColor } from '@/constants/colors'
 import { getRubric } from '@/constants/rubrics'
 import { round1, daysAgoISO } from '@/utils/format'
 import { rankingOf, badgesOf } from '@/business/ranking'
-import { totalSessionsOf } from '@/business/stats'
+import { teachingDaysOf } from '@/business/stats'
 import { missionsOf, AVATARS, defaultAvatar } from '@/business/missions'
 import { sessionScore } from '@/business/scoring'
 import { Card } from '@/components/atoms/Card'
@@ -235,7 +235,7 @@ export function LeaderboardScreen({ cls, update, userId }: LeaderboardScreenProp
           {/* Ranking list */}
           <Card className="overflow-hidden">
             <div className="px-4 py-3" style={{ background: C.board, color: '#fff' }}>
-              <div className="text-sm opacity-80">{r.label} · tổng {totalSessionsOf(cls)} buổi</div>
+              <div className="text-sm opacity-80">{r.label} · tổng {teachingDaysOf(cls)} buổi</div>
               <div className="text-lg font-bold">{cls.name}</div>
             </div>
 

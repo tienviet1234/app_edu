@@ -7,7 +7,7 @@ import { sessionScore } from '@/business/scoring'
 import { uid } from '@/utils/uid'
 import { round1, viDate } from '@/utils/format'
 import { rankingOf } from '@/business/ranking'
-import { totalSessionsOf } from '@/business/stats'
+import { teachingDaysOf } from '@/business/stats'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { classService } from '@/services/classes'
@@ -201,7 +201,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
         {data.classes.map((c, i) => {
           const rk = rankingOf(c)
           const avg = rk.length ? rk.reduce((a, b) => a + b.s.monthTotal, 0) / rk.length : 0
-          const totalSessions = totalSessionsOf(c)
+          const totalSessions = teachingDaysOf(c)
           const due = c.students.some(
             (st) => st.sessions.length > 0 && st.sessions.length % c.perMonth === 0,
           )
@@ -350,7 +350,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                     color: sessionTab === t ? '#fff' : C.muted,
                   }}
                 >
-                  {t === 'students' ? `Học sinh (${cls.students.length})` : `Buổi học (${totalSessionsOf(cls)})`}
+                  {t === 'students' ? `Học sinh (${cls.students.length})` : `Buổi học (${teachingDaysOf(cls)})`}
                 </button>
               ))}
             </div>

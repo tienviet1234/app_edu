@@ -6,7 +6,7 @@ import { RUBRICS, getClassRubric } from '@/constants/rubrics'
 import { round1, daysAgoISO } from '@/utils/format'
 import { rankingOf } from '@/business/ranking'
 import { sessionScore } from '@/business/scoring'
-import { totalSessionsOf } from '@/business/stats'
+import { teachingDaysOf } from '@/business/stats'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { ProgressRing } from '@/components/atoms/ProgressRing'
@@ -48,7 +48,7 @@ function classTrend(cls: ClassData): Array<{ date: string; avg: number }> {
 export function DashboardScreen({ data, setTab, setCurrent }: DashboardScreenProps) {
   const summary = useMemo(() => {
     const totalStudents = data.classes.reduce((a, c) => a + c.students.length, 0)
-    const totalSessions = data.classes.reduce((a, c) => a + totalSessionsOf(c), 0)
+    const totalSessions = data.classes.reduce((a, c) => a + teachingDaysOf(c), 0)
     const synced = data.classes.filter((c) => isMongoid(c.id)).length
     const last30 = daysAgoISO(30)
     const last60 = daysAgoISO(60)
@@ -84,7 +84,7 @@ export function DashboardScreen({ data, setTab, setCurrent }: DashboardScreenPro
 
       return {
         cls, i, avg, recentAvg, priorAvg, attendRate, dueReport, lowCount,
-        totalSessions: totalEntries, trend: classTrend(cls),
+        totalSessions: teachingDaysOf(cls), trend: classTrend(cls),
       }
     })
 
