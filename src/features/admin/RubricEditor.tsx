@@ -162,6 +162,51 @@ export function RubricEditor() {
     refresh()
   }
 
+  function updateExtraScoreMax(key: string, max: number) {
+    if (!max || max < 1) return
+    const next = extraComps.map((ec) => ec.key === key ? { ...ec, max } : ec)
+    patchClass(current.storageKey, current.classIdx, { extraComps: next })
+    refresh()
+  }
+
+  function updateExtraOption(key: string, optId: string, patch: { label?: string; pts?: number }) {
+    const next = extraComps.map((ec) => {
+      if (ec.key !== key || !ec.options) return ec
+      const options = ec.options.map((o) => (o.id === optId ? { ...o, ...patch } : o))
+      return { ...ec, options, max: Math.max(...options.map((o) => o.pts)) }
+    })
+    patchClass(current.storageKey, current.classIdx, { extraComps: next })
+    refresh()
+  }
+
+  function removeExtraOption(key: string, optId: string) {
+    const ec = extraComps.find((x) => x.key === key)
+    if (!ec?.options || ec.options.length <= 2) return // luôn cần ít nhất 2 mức để chọn
+    const options = ec.options.filter((o) => o.id !== optId)
+    const next = extraComps.map((x) => (x.key === key ? { ...x, options, max: Math.max(...options.map((o) => o.pts)) } : x))
+    patchClass(current.storageKey, current.classIdx, { extraComps: next })
+    refresh()
+  }
+
+  function updateExtraPart(key: string, partId: string, patch: { label?: string; max?: number }) {
+    const next = extraComps.map((ec) => {
+      if (ec.key !== key || !ec.parts) return ec
+      const parts = ec.parts.map((p) => (p.id === partId ? { ...p, ...patch } : p))
+      return { ...ec, parts, max: parts.reduce((a, p) => a + p.max, 0) }
+    })
+    patchClass(current.storageKey, current.classIdx, { extraComps: next })
+    refresh()
+  }
+
+  function removeExtraPart(key: string, partId: string) {
+    const ec = extraComps.find((x) => x.key === key)
+    if (!ec?.parts || ec.parts.length <= 1) return // luôn cần ít nhất 1 phần
+    const parts = ec.parts.filter((p) => p.id !== partId)
+    const next = extraComps.map((x) => (x.key === key ? { ...x, parts, max: parts.reduce((a, p) => a + p.max, 0) } : x))
+    patchClass(current.storageKey, current.classIdx, { extraComps: next })
+    refresh()
+  }
+
   function addOption() {
     if (!optLabel.trim()) return
     setNewOptions([...newOptions, { label: optLabel.trim(), pts: optPts }])
@@ -474,54 +519,142 @@ export function RubricEditor() {
             Tiêu chí tùy chỉnh ({extraComps.length})
           </div>
           <div className="space-y-2">
-            {extraComps.map((ec) => (
-              <div
-                key={ec.key}
-                className="rounded-xl p-3"
-                style={{ background: C.paper, border: `1px solid ${C.line}` }}
-              >
-                <div className="flex items-center gap-2">
-                  <input
-                    value={ec.label}
-                    onChange={(e: ChangeEvent<HTMLInputElement>) => updateCompLabel(ec.key, e.target.value)}
-                    className="flex-1 min-w-0 text-sm font-semibold rounded-lg px-2 py-1"
-                    style={{ border: `1px solid ${C.line}`, color: C.ink }}
-                  />
-                  <span
-                    className="text-xs px-1.5 py-0.5 rounded-md shrink-0"
-                    style={{ background: C.board + '15', color: C.board }}
-                  >
-                    {TYPE_LABELS[(ec.type ?? 'score') as CompType]}
-                  </span>
-                  <span className="text-xs shrink-0" style={{ color: C.muted }}>{ec.max}đ</span>
-                  <button
-                    onClick={() => removeComp(ec.key)}
-                    className="shrink-0 rounded-lg px-2 py-1 text-xs font-bold"
-                    style={{ color: C.red }}
-                  >
-                    Xóa
-                  </button>
+            {extraComps.map((ec) => {
+              const isEditing = editingComp === ec.key
+              return (
+                <div
+                  key={ec.key}
+                  className="rounded-xl p-3"
+                  style={{ background: C.paper, border: `1px solid ${C.line}` }}
+                >
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={ec.label}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => updateCompLabel(ec.key, e.target.value)}
+                      className="flex-1 min-w-0 text-sm font-semibold rounded-lg px-2 py-1"
+                      style={{ border: `1px solid ${C.line}`, color: C.ink }}
+                    />
+                    <span
+                      className="text-xs px-1.5 py-0.5 rounded-md shrink-0"
+                      style={{ background: C.board + '15', color: C.board }}
+                    >
+                      {TYPE_LABELS[(ec.type ?? 'score') as CompType]}
+                    </span>
+                    <span className="text-xs shrink-0" style={{ color: C.muted }}>{ec.max}đ</span>
+                    {(ec.type === 'choice' || ec.type === 'parts' || !ec.type) && (
+                      <button
+                        onClick={() => setEditingComp(isEditing ? null : ec.key)}
+                        className="shrink-0 rounded-lg px-2.5 py-1 text-xs font-bold"
+                        style={{
+                          color: isEditing ? '#fff' : C.board,
+                          border: `1px solid ${C.board}`,
+                          background: isEditing ? C.board : C.board + '10',
+                        }}
+                      >
+                        {isEditing ? 'Xong' : 'Sửa'}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => removeComp(ec.key)}
+                      className="shrink-0 rounded-lg px-2 py-1 text-xs font-bold"
+                      style={{ color: C.red }}
+                    >
+                      Xóa
+                    </button>
+                  </div>
+
+                  {!isEditing && ec.type === 'choice' && ec.options && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {ec.options.map((o) => (
+                        <span key={o.id} className="text-xs px-2 py-0.5 rounded-lg" style={{ background: C.board + '12', color: C.board }}>
+                          {o.label} · {o.pts}đ
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {!isEditing && ec.type === 'parts' && ec.parts && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {ec.parts.map((p) => (
+                        <span key={p.id} className="text-xs px-2 py-0.5 rounded-lg" style={{ background: C.gold + '22', color: '#96720E' }}>
+                          {p.label} · {p.max}đ
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {isEditing && (!ec.type || ec.type === 'score') && (
+                    <div className="mt-2.5 flex items-center justify-between gap-2 rounded-lg p-2.5" style={{ background: '#fff', border: `1px solid ${C.line}` }}>
+                      <span className="text-sm" style={{ color: C.ink }}>Điểm tối đa</span>
+                      <input
+                        type="number" min="1"
+                        value={ec.max}
+                        onChange={(e) => updateExtraScoreMax(ec.key, Number(e.target.value))}
+                        className="w-20 rounded-lg px-2 py-1 text-center text-sm font-bold"
+                        style={{ border: `1px solid ${C.line}` }}
+                      />
+                    </div>
+                  )}
+
+                  {isEditing && ec.type === 'choice' && ec.options && (
+                    <div className="mt-2.5 space-y-1.5 rounded-lg p-2.5" style={{ background: '#fff', border: `1px solid ${C.line}` }}>
+                      {ec.options.map((o) => (
+                        <div key={o.id} className="flex items-center justify-between gap-2">
+                          <input
+                            value={o.label}
+                            onChange={(e) => updateExtraOption(ec.key, o.id, { label: e.target.value })}
+                            className="min-w-0 flex-1 rounded-lg px-2 py-1 text-sm"
+                            style={{ border: `1px solid ${C.line}` }}
+                          />
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            <input
+                              type="number" min="0"
+                              value={o.pts}
+                              onChange={(e) => updateExtraOption(ec.key, o.id, { pts: Number(e.target.value) })}
+                              className="w-16 rounded-lg px-2 py-1 text-center text-sm font-bold"
+                              style={{ border: `1px solid ${C.line}` }}
+                            />
+                            {ec.options!.length > 2 && (
+                              <button onClick={() => removeExtraOption(ec.key, o.id)} className="text-xs font-bold" style={{ color: C.red }}>✕</button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      <div className="pt-1 text-xs" style={{ color: C.muted }}>Cần giữ lại ít nhất 2 mức lựa chọn.</div>
+                    </div>
+                  )}
+
+                  {isEditing && ec.type === 'parts' && ec.parts && (
+                    <div className="mt-2.5 space-y-1.5 rounded-lg p-2.5" style={{ background: '#fff', border: `1px solid ${C.line}` }}>
+                      {ec.parts.map((p) => (
+                        <div key={p.id} className="flex items-center justify-between gap-2">
+                          <input
+                            value={p.label}
+                            onChange={(e) => updateExtraPart(ec.key, p.id, { label: e.target.value })}
+                            className="min-w-0 flex-1 rounded-lg px-2 py-1 text-sm"
+                            style={{ border: `1px solid ${C.line}` }}
+                          />
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            <input
+                              type="number" min="0"
+                              value={p.max}
+                              onChange={(e) => updateExtraPart(ec.key, p.id, { max: Number(e.target.value) })}
+                              className="w-16 rounded-lg px-2 py-1 text-center text-sm font-bold"
+                              style={{ border: `1px solid ${C.line}` }}
+                            />
+                            {ec.parts!.length > 1 && (
+                              <button onClick={() => removeExtraPart(ec.key, p.id)} className="text-xs font-bold" style={{ color: C.red }}>✕</button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      <div className="pt-1 text-xs" style={{ color: C.muted }}>
+                        Tổng điểm ({ec.parts.reduce((a, p) => a + p.max, 0)}đ) tự cộng lại từ các phần trên. Cần giữ lại ít nhất 1 phần.
+                      </div>
+                    </div>
+                  )}
                 </div>
-                {ec.type === 'choice' && ec.options && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {ec.options.map((o) => (
-                      <span key={o.id} className="text-xs px-2 py-0.5 rounded-lg" style={{ background: C.board + '12', color: C.board }}>
-                        {o.label} · {o.pts}đ
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {ec.type === 'parts' && ec.parts && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {ec.parts.map((p) => (
-                      <span key={p.id} className="text-xs px-2 py-0.5 rounded-lg" style={{ background: C.gold + '22', color: '#96720E' }}>
-                        {p.label} · {p.max}đ
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
+              )
+            })}
           </div>
         </Card>
       )}
