@@ -21,6 +21,9 @@ const schema = z.object({
 }).refine((d) => d.password === d.confirmPassword, {
   message: 'Mật khẩu xác nhận không khớp',
   path: ['confirmPassword'],
+}).refine((d) => d.role !== 'teacher' || !!d.inviteCode?.trim(), {
+  message: 'Giáo viên cần nhập mã mời',
+  path: ['inviteCode'],
 })
 
 type FormData = z.infer<typeof schema>
@@ -36,7 +39,6 @@ export function RegisterPage() {
   const navigate = useNavigate()
   const [showPwd, setShowPwd] = useState(false)
   const [showInvite, setShowInvite] = useState(false)
-  const [pendingMsg, setPendingMsg] = useState('')
 
   const { register, handleSubmit, watch, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -47,38 +49,14 @@ export function RegisterPage() {
 
   async function onSubmit(data: FormData) {
     clearError()
-    setPendingMsg('')
     try {
       const { confirmPassword, inviteCode, ...rest } = data
       void confirmPassword
       await registerUser({ ...rest, inviteCode: inviteCode?.trim() || undefined })
       navigate('/app', { replace: true })
-    } catch (err: unknown) {
-      if (err instanceof Error && (err as Error & { isPending?: boolean }).isPending) {
-        setPendingMsg(err.message)
-      }
-      // Store owns the visible error state for non-pending errors.
+    } catch {
+      // Store owns the visible error state.
     }
-  }
-
-  // Pending approval screen
-  if (pendingMsg) {
-    return (
-      <AuthLayout title="Đăng ký thành công" subtitle="">
-        <div className="space-y-4 text-center">
-          <div className="text-5xl">⏳</div>
-          <div className="font-bold text-base" style={{ color: C.board }}>Tài khoản đang chờ duyệt</div>
-          <p className="text-sm leading-relaxed" style={{ color: C.muted }}>{pendingMsg}</p>
-          <Link
-            to="/auth/login"
-            className="block text-sm font-bold"
-            style={{ color: C.board }}
-          >
-            Quay lại đăng nhập
-          </Link>
-        </div>
-      </AuthLayout>
-    )
   }
 
   return (

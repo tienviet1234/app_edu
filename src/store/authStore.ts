@@ -64,18 +64,11 @@ export const useAuthStore = create<AuthStore>((set) => ({
   async register(payload) {
     set({ isLoading: true, error: null })
     try {
-      const res = await api.post<ApiResponse<LoginResponse & { pending?: boolean }>>('/auth/register', payload)
-      // Teacher accounts are created as pending — no token issued
-      if (res.data.data?.pending) {
-        set({ isLoading: false })
-        const pendingErr = Object.assign(new Error(res.data.message ?? 'Tài khoản đang chờ duyệt.'), { isPending: true })
-        throw pendingErr
-      }
+      const res = await api.post<ApiResponse<LoginResponse>>('/auth/register', payload)
       const payloadData = requireData(res.data)
       setAccessToken(payloadData.accessToken)
       set({ user: payloadData.user, isLoading: false })
     } catch (err: unknown) {
-      if (err instanceof Error && (err as Error & { isPending?: boolean }).isPending) throw err
       const msg = extractErrorMessage(err)
       set({ error: msg, isLoading: false })
       throw new Error(msg)
