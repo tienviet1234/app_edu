@@ -1,49 +1,18 @@
-import { useState, useEffect, type ChangeEvent } from 'react'
-import type { ClassData, ExtraComp } from '@/types'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import type { ExtraComp } from '@/types'
 import { C } from '@/constants/colors'
-import { getRubric, applyCompOverride, applyCompLabelOverride } from '@/constants/rubrics'
+import { getRubric, autoLevel, applyCompOverride, applyCompLabelOverride } from '@/constants/rubrics'
 import { uid } from '@/utils/uid'
+import { classService, type ApiClass } from '@/services/classes'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 
-// ── Read/write ALL teachers' localStorage stores ──────────────────────────────
-
-interface StoredClass {
-  storageKey: string
-  classIdx: number
-  cls: ClassData
-  teacherLabel: string
-}
-
-function loadAllClasses(): StoredClass[] {
-  const result: StoredClass[] = []
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i)
-      if (!key?.startsWith('lms:data:v5')) continue
-      const raw = localStorage.getItem(key)
-      if (!raw) continue
-      const data = JSON.parse(raw) as { classes?: ClassData[] }
-      const userId = key === 'lms:data:v5' ? '(mặc định)' : key.replace('lms:data:v5:', '').slice(0, 8)
-      ;(data.classes ?? []).forEach((cls, idx) => {
-        result.push({ storageKey: key, classIdx: idx, cls, teacherLabel: `GV ${userId}` })
-      })
-    }
-  } catch {}
-  return result
-}
-
-function patchClass(storageKey: string, classIdx: number, patch: Partial<ClassData>) {
-  try {
-    const raw = localStorage.getItem(storageKey)
-    if (!raw) return
-    const data = JSON.parse(raw) as { classes: ClassData[] }
-    data.classes[classIdx] = { ...data.classes[classIdx], ...patch }
-    localStorage.setItem(storageKey, JSON.stringify(data))
-  } catch {}
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
+// Danh sách lớp lấy TRỰC TIẾP từ server (không còn quét localStorage của
+// riêng trình duyệt admin) — vì đây là dữ liệu tiêu chí chấm điểm áp dụng
+// chung cho MỌI giáo viên/thiết bị đăng nhập vào lớp đó, phải lưu server-side
+// mới đồng bộ được (xem server/src/models/Class.ts).
+const RUBRIC_QUERY_KEY = ['admin', 'classes', 'rubric-editor'] as const
 
 type CompType = 'score' | 'choice' | 'parts'
 
@@ -59,10 +28,21 @@ const TYPE_DESC: Record<CompType, string> = {
   parts: 'Gồm nhiều tiêu chí con (vd: Video bài nói)',
 }
 
+type RubricPatch = Partial<
+  Pick<ApiClass, 'hiddenComps' | 'extraComps' | 'compOverrides' | 'compLabelOverrides'>
+>
+
 export function RubricEditor() {
-  const [allClasses, setAllClasses] = useState<StoredClass[]>([])
-  const [selectedIdx, setSelectedIdx] = useState(0)
+  const qc = useQueryClient()
+  const { data, isLoading } = useQuery({
+    queryKey: RUBRIC_QUERY_KEY,
+    queryFn: () => classService.list({ limit: '100' }),
+  })
+  const classes = data?.items ?? []
+
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editingComp, setEditingComp] = useState<string | null>(null)
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
 
   // Add form state
   const [showAdd, setShowAdd] = useState(false)
@@ -77,96 +57,131 @@ export function RubricEditor() {
   const [partMax, setPartMax] = useState(10)
 
   useEffect(() => {
-    const list = loadAllClasses()
-    setAllClasses(list)
-    setSelectedIdx(0)
-  }, [])
+    if (!selectedId && classes.length) setSelectedId(classes[0]._id)
+  }, [selectedId, classes])
 
-  if (allClasses.length === 0) {
+  // Gộp các lần sửa liên tiếp (gõ label/điểm) thành 1 lần lưu, tránh gửi 1
+  // request mỗi phím gõ — cache react-query cập nhật NGAY (mượt khi gõ), còn
+  // request thật lên server chỉ bắn sau 600ms ngừng gõ.
+  const pendingRef = useRef<{ classId: string; fields: RubricPatch } | null>(null)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  function flushPending() {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
+    const pending = pendingRef.current
+    pendingRef.current = null
+    if (!pending) return
+    setSaveStatus('saving')
+    classService
+      .update(pending.classId, pending.fields)
+      .then(() => setSaveStatus('saved'))
+      .catch(() => {
+        setSaveStatus('error')
+        qc.invalidateQueries({ queryKey: RUBRIC_QUERY_KEY }) // rollback về đúng dữ liệu server
+      })
+  }
+
+  function patchClass(classId: string, fields: RubricPatch) {
+    qc.setQueryData<typeof data>(RUBRIC_QUERY_KEY, (old) => {
+      if (!old) return old
+      return { ...old, items: old.items.map((c) => (c._id === classId ? { ...c, ...fields } : c)) }
+    })
+    pendingRef.current = {
+      classId,
+      fields: { ...(pendingRef.current?.classId === classId ? pendingRef.current.fields : {}), ...fields },
+    }
+    setSaveStatus('idle')
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(flushPending, 600)
+  }
+
+  function selectClass(id: string) {
+    if (id === selectedId) return
+    flushPending()
+    setSelectedId(id)
+    setEditingComp(null)
+    resetForm()
+  }
+
+  useEffect(() => () => flushPending(), []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (isLoading) {
+    return (
+      <Card className="p-6 text-center">
+        <div className="text-sm" style={{ color: C.muted }}>Đang tải danh sách lớp...</div>
+      </Card>
+    )
+  }
+
+  if (classes.length === 0) {
     return (
       <Card className="p-6 text-center space-y-2">
         <div className="text-2xl">📭</div>
         <div className="font-bold" style={{ color: C.ink }}>Chưa có lớp học nào</div>
         <div className="text-sm" style={{ color: C.muted }}>
-          Giáo viên cần tạo lớp trong App trước. Sau đó quay lại đây để tùy chỉnh tiêu chí.
+          Giáo viên cần tạo lớp và đồng bộ lên Cloud trước. Sau đó quay lại đây để tùy chỉnh tiêu chí.
         </div>
       </Card>
     )
   }
 
-  const current = allClasses[selectedIdx]
-  const cls = current.cls
-  const baseRubric = getRubric(cls.level)
-  const extraComps = cls.extraComps ?? []
-  const hiddenSet = new Set(cls.hiddenComps ?? [])
+  const current = classes.find((c) => c._id === selectedId) ?? classes[0]
+  const level = autoLevel(current.name)
+  const baseRubric = getRubric(level)
+  const extraComps = current.extraComps ?? []
+  const hiddenSet = new Set(current.hiddenComps ?? [])
 
   // ── helpers ──────────────────────────────────────────────────────────────────
 
-  function refresh() {
-    const list = loadAllClasses()
-    setAllClasses(list)
-  }
-
   function toggleHidden(key: string) {
-    const hidden = [...(cls.hiddenComps ?? [])]
+    const hidden = [...(current.hiddenComps ?? [])]
     const idx = hidden.indexOf(key)
     if (idx >= 0) hidden.splice(idx, 1)
     else hidden.push(key)
-    patchClass(current.storageKey, current.classIdx, { hiddenComps: hidden })
-    refresh()
+    patchClass(current._id, { hiddenComps: hidden })
   }
 
   function setCompOverride(compKey: string, itemId: string, value: number) {
-    const overrides = { ...(cls.compOverrides ?? {}) }
+    const overrides = { ...(current.compOverrides ?? {}) }
     overrides[compKey] = { ...(overrides[compKey] ?? {}), [itemId]: value }
-    patchClass(current.storageKey, current.classIdx, { compOverrides: overrides })
-    refresh()
+    patchClass(current._id, { compOverrides: overrides })
   }
 
   function resetCompOverride(compKey: string, itemId: string) {
-    const overrides = { ...(cls.compOverrides ?? {}) }
+    const overrides = { ...(current.compOverrides ?? {}) }
     if (!overrides[compKey]) return
     const inner = { ...overrides[compKey] }
     delete inner[itemId]
     overrides[compKey] = inner
-    patchClass(current.storageKey, current.classIdx, { compOverrides: overrides })
-    refresh()
+    patchClass(current._id, { compOverrides: overrides })
   }
 
   function setBaseLabelOverride(compKey: string, itemId: string, value: string) {
-    const labels = { ...(cls.compLabelOverrides ?? {}) }
+    const labels = { ...(current.compLabelOverrides ?? {}) }
     labels[compKey] = { ...(labels[compKey] ?? {}), [itemId]: value }
-    patchClass(current.storageKey, current.classIdx, { compLabelOverrides: labels })
-    refresh()
+    patchClass(current._id, { compLabelOverrides: labels })
   }
 
   function resetBaseLabelOverride(compKey: string, itemId: string) {
-    const labels = { ...(cls.compLabelOverrides ?? {}) }
+    const labels = { ...(current.compLabelOverrides ?? {}) }
     if (!labels[compKey]) return
     const inner = { ...labels[compKey] }
     delete inner[itemId]
     labels[compKey] = inner
-    patchClass(current.storageKey, current.classIdx, { compLabelOverrides: labels })
-    refresh()
+    patchClass(current._id, { compLabelOverrides: labels })
   }
 
   function removeComp(key: string) {
-    const next = extraComps.filter((ec) => ec.key !== key)
-    patchClass(current.storageKey, current.classIdx, { extraComps: next })
-    refresh()
+    patchClass(current._id, { extraComps: extraComps.filter((ec) => ec.key !== key) })
   }
 
   function updateCompLabel(key: string, label: string) {
-    const next = extraComps.map((ec) => ec.key === key ? { ...ec, label } : ec)
-    patchClass(current.storageKey, current.classIdx, { extraComps: next })
-    refresh()
+    patchClass(current._id, { extraComps: extraComps.map((ec) => (ec.key === key ? { ...ec, label } : ec)) })
   }
 
   function updateExtraScoreMax(key: string, max: number) {
     if (!max || max < 1) return
-    const next = extraComps.map((ec) => ec.key === key ? { ...ec, max } : ec)
-    patchClass(current.storageKey, current.classIdx, { extraComps: next })
-    refresh()
+    patchClass(current._id, { extraComps: extraComps.map((ec) => (ec.key === key ? { ...ec, max } : ec)) })
   }
 
   function updateExtraOption(key: string, optId: string, patch: { label?: string; pts?: number }) {
@@ -175,8 +190,7 @@ export function RubricEditor() {
       const options = ec.options.map((o) => (o.id === optId ? { ...o, ...patch } : o))
       return { ...ec, options, max: Math.max(...options.map((o) => o.pts)) }
     })
-    patchClass(current.storageKey, current.classIdx, { extraComps: next })
-    refresh()
+    patchClass(current._id, { extraComps: next })
   }
 
   function removeExtraOption(key: string, optId: string) {
@@ -184,8 +198,7 @@ export function RubricEditor() {
     if (!ec?.options || ec.options.length <= 2) return // luôn cần ít nhất 2 mức để chọn
     const options = ec.options.filter((o) => o.id !== optId)
     const next = extraComps.map((x) => (x.key === key ? { ...x, options, max: Math.max(...options.map((o) => o.pts)) } : x))
-    patchClass(current.storageKey, current.classIdx, { extraComps: next })
-    refresh()
+    patchClass(current._id, { extraComps: next })
   }
 
   function updateExtraPart(key: string, partId: string, patch: { label?: string; max?: number }) {
@@ -194,8 +207,7 @@ export function RubricEditor() {
       const parts = ec.parts.map((p) => (p.id === partId ? { ...p, ...patch } : p))
       return { ...ec, parts, max: parts.reduce((a, p) => a + p.max, 0) }
     })
-    patchClass(current.storageKey, current.classIdx, { extraComps: next })
-    refresh()
+    patchClass(current._id, { extraComps: next })
   }
 
   function removeExtraPart(key: string, partId: string) {
@@ -203,8 +215,7 @@ export function RubricEditor() {
     if (!ec?.parts || ec.parts.length <= 1) return // luôn cần ít nhất 1 phần
     const parts = ec.parts.filter((p) => p.id !== partId)
     const next = extraComps.map((x) => (x.key === key ? { ...x, parts, max: parts.reduce((a, p) => a + p.max, 0) } : x))
-    patchClass(current.storageKey, current.classIdx, { extraComps: next })
-    refresh()
+    patchClass(current._id, { extraComps: next })
   }
 
   function addOption() {
@@ -262,10 +273,7 @@ export function RubricEditor() {
       comp = { key, label: newLabel.trim(), max: newMax }
     }
 
-    patchClass(current.storageKey, current.classIdx, {
-      extraComps: [...extraComps, comp],
-    })
-    refresh()
+    patchClass(current._id, { extraComps: [...extraComps, comp] })
     resetForm()
   }
 
@@ -281,35 +289,41 @@ export function RubricEditor() {
 
   return (
     <div className="space-y-4 max-w-2xl">
-      <div>
-        <div className="text-lg font-black" style={{ color: C.ink }}>Tùy chỉnh tiêu chí chấm điểm</div>
-        <div className="text-sm mt-1" style={{ color: C.muted }}>
-          Ẩn/hiện tiêu chí gốc và thêm tiêu chí tùy chỉnh. Thay đổi có hiệu lực ngay khi giáo viên mở lại trang.
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-lg font-black" style={{ color: C.ink }}>Tùy chỉnh tiêu chí chấm điểm</div>
+          <div className="text-sm mt-1" style={{ color: C.muted }}>
+            Ẩn/hiện tiêu chí gốc và thêm tiêu chí tùy chỉnh. Lưu trên server — mọi giáo viên đăng nhập vào lớp này
+            (trên bất kỳ thiết bị nào) đều thấy thay đổi ngay khi mở lại trang.
+          </div>
+        </div>
+        <div className="shrink-0 text-xs font-semibold" style={{ color: C.muted }}>
+          {saveStatus === 'saving' && <span style={{ color: C.board2 }}>⟳ Đang lưu...</span>}
+          {saveStatus === 'saved' && <span style={{ color: C.emerald }}>✓ Đã lưu</span>}
+          {saveStatus === 'error' && <span style={{ color: C.red }}>⚠ Lỗi lưu, đã khôi phục dữ liệu cũ</span>}
         </div>
       </div>
 
       {/* Class selector */}
       <Card className="p-3">
         <div className="text-xs font-bold uppercase mb-2" style={{ color: C.muted }}>
-          Chọn lớp ({allClasses.length} lớp từ tất cả giáo viên)
+          Chọn lớp ({classes.length} lớp trong hệ thống)
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {allClasses.map((sc, i) => (
+          {classes.map((c) => (
             <button
-              key={`${sc.storageKey}-${sc.classIdx}`}
-              onClick={() => { setSelectedIdx(i); resetForm() }}
+              key={c._id}
+              onClick={() => selectClass(c._id)}
               className="rounded-xl px-3 py-1.5 text-sm font-semibold"
               style={{
-                background: i === selectedIdx ? C.board : C.paper,
-                color: i === selectedIdx ? '#fff' : C.ink,
-                border: `1px solid ${i === selectedIdx ? C.board : C.line}`,
+                background: c._id === current._id ? C.board : C.paper,
+                color: c._id === current._id ? '#fff' : C.ink,
+                border: `1px solid ${c._id === current._id ? C.board : C.line}`,
               }}
             >
-              {sc.cls.name}
-              <span
-                className="ml-1.5 text-xs opacity-60"
-              >
-                {sc.cls.level === 'primary' ? 'Cấp 1' : 'Cấp 2-3'}
+              {c.name}
+              <span className="ml-1.5 text-xs opacity-60">
+                {autoLevel(c.name) === 'primary' ? 'Cấp 1' : 'Cấp 2-3'}
               </span>
             </button>
           ))}
@@ -319,18 +333,18 @@ export function RubricEditor() {
       {/* Standard comps — toggle hide/show */}
       <Card className="p-4">
         <div className="text-xs font-bold uppercase mb-3" style={{ color: C.muted }}>
-          Tiêu chí gốc — {cls.name} ({baseRubric.label})
+          Tiêu chí gốc — {current.name} ({baseRubric.label})
         </div>
         <div className="space-y-2">
           {baseRubric.comps.map((comp) => {
             const hidden = hiddenSet.has(comp.key)
             const effComp = applyCompLabelOverride(
-              applyCompOverride(comp, cls.compOverrides?.[comp.key]),
-              cls.compLabelOverrides?.[comp.key],
+              applyCompOverride(comp, current.compOverrides?.[comp.key]),
+              current.compLabelOverrides?.[comp.key],
             )
             const isEditing = editingComp === comp.key
-            const overrides = cls.compOverrides?.[comp.key] ?? {}
-            const labels = cls.compLabelOverrides?.[comp.key] ?? {}
+            const overrides = current.compOverrides?.[comp.key] ?? {}
+            const labels = current.compLabelOverrides?.[comp.key] ?? {}
             return (
               <div
                 key={comp.key}

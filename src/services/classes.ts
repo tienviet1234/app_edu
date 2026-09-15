@@ -1,4 +1,5 @@
 import { api } from '@/utils/api'
+import type { ExtraComp } from '@/types'
 
 export interface ApiClass {
   _id: string
@@ -17,6 +18,12 @@ export interface ApiClass {
   maxStudents: number
   createdAt: string
   updatedAt: string
+  // Admin tùy chỉnh tiêu chí chấm điểm (RubricEditor) — lưu server-side, xem
+  // ghi chú ở server/src/models/Class.ts
+  hiddenComps?: string[]
+  extraComps?: ExtraComp[]
+  compOverrides?: Record<string, Record<string, number>>
+  compLabelOverrides?: Record<string, Record<string, string>>
 }
 
 interface PagedData<T> {

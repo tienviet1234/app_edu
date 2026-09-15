@@ -39,6 +39,11 @@ export const classBodySchema = z.object({
   endDate: optionalDateSchema,
   maxStudents: z.number().int().min(1).max(200).default(30),
   status: z.enum(['upcoming', 'active', 'completed', 'cancelled']).default('active'),
+  // Admin tùy chỉnh tiêu chí chấm điểm (RubricEditor) — xem ghi chú ở Class model
+  hiddenComps: z.array(z.string()).optional(),
+  extraComps: z.array(z.record(z.string(), z.any())).optional(),
+  compOverrides: z.record(z.string(), z.record(z.string(), z.number())).optional(),
+  compLabelOverrides: z.record(z.string(), z.record(z.string(), z.string())).optional(),
 })
 
 export const classUpdateSchema = classBodySchema.partial().omit({ centerId: true })

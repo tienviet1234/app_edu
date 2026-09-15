@@ -115,6 +115,10 @@ export default function App() {
           perMonth: level === 'primary' ? 8 : 12,
           students: [],
           comments: {},
+          hiddenComps: ac.hiddenComps,
+          extraComps: ac.extraComps,
+          compOverrides: ac.compOverrides,
+          compLabelOverrides: ac.compLabelOverrides,
         })
       })
     }))
@@ -138,6 +142,39 @@ export default function App() {
     if (currentClassIndex >= kept.length) setCurrentClass(Math.max(0, kept.length - 1))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiAllClassesKey, !!data])
+
+  // Đồng bộ tiêu chí chấm điểm do admin tùy chỉnh (ẩn/hiện tiêu chí gốc, thêm
+  // tiêu chí tùy chỉnh, đổi điểm/tên từng phần nhỏ — xem RubricEditor.tsx)
+  // xuống local cho các lớp ĐÃ có sẵn — admin là nguồn duy nhất chỉnh 4 field
+  // này (giáo viên không tự sửa) nên ghi đè thẳng từ server, không cần merge
+  // như sessions/scores. Dùng updatedAt trong key để effect chạy lại đúng lúc
+  // admin vừa lưu thay đổi, dù danh sách classId không đổi.
+  const apiAllClassesRubricKey = apiAllClasses?.items.map((c) => `${c._id}:${c.updatedAt}`).join(',') ?? ''
+  useEffect(() => {
+    if (!data || !apiAllClasses?.items.length) return
+    const RUBRIC_FIELDS = ['hiddenComps', 'extraComps', 'compOverrides', 'compLabelOverrides'] as const
+    const changedIds = new Set(
+      apiAllClasses.items
+        .filter((ac) => {
+          const localCls = data.classes.find((c) => c.id === ac._id)
+          if (!localCls) return false
+          return RUBRIC_FIELDS.some((f) => JSON.stringify(localCls[f] ?? null) !== JSON.stringify(ac[f] ?? null))
+        })
+        .map((ac) => ac._id),
+    )
+    if (!changedIds.size) return
+    setData(produce((d: AppData) => {
+      d.classes.forEach((localCls) => {
+        if (!changedIds.has(localCls.id)) return
+        const ac = apiAllClasses.items.find((x) => x._id === localCls.id)!
+        localCls.hiddenComps = ac.hiddenComps
+        localCls.extraComps = ac.extraComps
+        localCls.compOverrides = ac.compOverrides
+        localCls.compLabelOverrides = ac.compLabelOverrides
+      })
+    }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiAllClassesRubricKey, !!data])
 
   // Sync API-enrolled students into local store
   const { data: apiStudents } = useClassStudents(

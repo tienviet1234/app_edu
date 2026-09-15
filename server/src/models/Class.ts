@@ -30,6 +30,13 @@ export interface IClass extends Document {
   createdBy: Types.ObjectId
   createdAt: Date
   updatedAt: Date
+  // Admin tùy chỉnh tiêu chí chấm điểm (RubricEditor) — lưu server-side để mọi
+  // giáo viên/thiết bị đăng nhập vào lớp này đều nhận cùng 1 bộ tiêu chí, thay
+  // vì chỉ tồn tại trong localStorage của trình duyệt admin đang thao tác.
+  hiddenComps?: string[]
+  extraComps?: unknown[]
+  compOverrides?: Record<string, Record<string, number>>
+  compLabelOverrides?: Record<string, Record<string, string>>
 }
 
 const scheduleSlotSchema = new Schema<IScheduleSlot>(
@@ -71,6 +78,10 @@ const classSchema = new Schema<IClass>(
       default: () => randomBytes(3).toString('hex').toUpperCase(),
     },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    hiddenComps: [{ type: String }],
+    extraComps: [{ type: Schema.Types.Mixed }],
+    compOverrides: { type: Schema.Types.Mixed },
+    compLabelOverrides: { type: Schema.Types.Mixed },
   },
   { timestamps: true },
 )
