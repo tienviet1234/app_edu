@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ProtectedRoute, PublicOnlyRoute } from './ProtectedRoute'
 
@@ -14,8 +15,9 @@ import App from '@/App'
 // Student join page
 import { JoinClassPage } from '@/features/student/JoinClassPage'
 
-// Admin portal
-import { AdminPage } from '@/features/admin/AdminPage'
+// Admin portal — riêng biệt với App shell, chỉ role admin dùng tới, tách
+// chunk để phần lớn người dùng (teacher/student/parent) không phải tải nó.
+const AdminPage = lazy(() => import('@/features/admin/AdminPage').then((m) => ({ default: m.AdminPage })))
 
 // Unauthorized
 import { UnauthorizedPage } from './UnauthorizedPage'
@@ -55,7 +57,9 @@ export function AppRouter() {
           path="/admin/*"
           element={
             <ProtectedRoute requiredRole="admin">
-              <AdminPage />
+              <Suspense fallback={null}>
+                <AdminPage />
+              </Suspense>
             </ProtectedRoute>
           }
         />

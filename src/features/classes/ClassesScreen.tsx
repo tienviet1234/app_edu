@@ -13,7 +13,6 @@ import { Btn } from '@/components/atoms/Btn'
 import { classService } from '@/services/classes'
 import { studentService } from '@/services/students'
 import { sessionService } from '@/services/sessions'
-import { importStudentNames, exportAttendance } from '@/utils/excel'
 import { useClassStudents } from '@/hooks'
 import { useAuthStore } from '@/store/authStore'
 import { isMongoid } from '@/utils/mongoid'
@@ -455,6 +454,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                         e.target.value = ''
                         setImportError('')
                         try {
+                          const { importStudentNames } = await import('@/utils/excel')
                           const parsed = await importStudentNames(file)
                           if (!parsed.length) { setImportError('Không tìm thấy tên học sinh trong file.'); return }
                           const newNames = parsed.filter((n) => !cls.students.some((st2) => st2.name === n))
@@ -495,7 +495,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                     {importError && <div className="w-full text-xs" style={{ color: C.red }}>{importError}</div>}
                   </div>
                   {cls.students.some((s) => s.sessions.length > 0) && (
-                    <Btn kind="ghost" className="mt-2" onClick={() => exportAttendance(cls)}>
+                    <Btn kind="ghost" className="mt-2" onClick={() => void import('@/utils/excel').then((m) => m.exportAttendance(cls))}>
                       Xuất điểm danh Excel
                     </Btn>
                   )}

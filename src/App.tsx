@@ -1,23 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { produce } from 'immer'
 import { Btn } from '@/components/atoms/Btn'
 import { C } from '@/constants/colors'
 import { ROLE_LABELS } from '@/types/auth'
-import { SessionCountScreen } from '@/features/billing/SessionCountScreen'
-import { ClassesScreen } from '@/features/classes/ClassesScreen'
-import { DashboardScreen } from '@/features/dashboard/DashboardScreen'
-import { EntryScreen } from '@/features/entry/EntryScreen'
-import { HomeworkScreen } from '@/features/entry/HomeworkScreen'
-import { LeaderboardScreen } from '@/features/leaderboard/LeaderboardScreen'
-import { LearnScreen } from '@/features/learn/LearnScreen'
-import { NotificationsPage } from '@/features/notifications/NotificationsPage'
-import { ParentPortalScreen } from '@/features/parent/ParentPortalScreen'
 import { ProfileModal } from '@/features/profile/ProfileModal'
-import { ParentScreen } from '@/features/parent/ParentScreen'
-import { ReportScreen } from '@/features/report/ReportScreen'
-import { StudentScreen } from '@/features/student/StudentScreen'
-import { StudentPortalScreen } from '@/features/student/StudentPortalScreen'
 import { NotificationBell } from '@/components/molecules/NotificationBell'
 import { SystemLogBell } from '@/components/molecules/SystemLogBell'
 import { ToastContainer } from '@/components/molecules/ToastContainer'
@@ -30,6 +17,49 @@ import { isMongoid } from '@/utils/mongoid'
 import { emptyEntry } from '@/business/seed'
 import { autoLevel } from '@/constants/rubrics'
 import type { AppData, SessionEntry } from '@/types'
+
+// Các màn theo tab tách thành chunk riêng, chỉ tải khi thực sự mở tab đó —
+// trước đây tất cả (kể cả recharts ở Dashboard/Report/Leaderboard, xlsx ở
+// ClassesScreen...) bị gộp chung 1 file JS ~1.6MB dù chỉ dùng 1 tab/lần.
+const SessionCountScreen = lazy(() =>
+  import('@/features/billing/SessionCountScreen').then((m) => ({ default: m.SessionCountScreen })))
+const ClassesScreen = lazy(() =>
+  import('@/features/classes/ClassesScreen').then((m) => ({ default: m.ClassesScreen })))
+const DashboardScreen = lazy(() =>
+  import('@/features/dashboard/DashboardScreen').then((m) => ({ default: m.DashboardScreen })))
+const EntryScreen = lazy(() =>
+  import('@/features/entry/EntryScreen').then((m) => ({ default: m.EntryScreen })))
+const HomeworkScreen = lazy(() =>
+  import('@/features/entry/HomeworkScreen').then((m) => ({ default: m.HomeworkScreen })))
+const LeaderboardScreen = lazy(() =>
+  import('@/features/leaderboard/LeaderboardScreen').then((m) => ({ default: m.LeaderboardScreen })))
+const LearnScreen = lazy(() =>
+  import('@/features/learn/LearnScreen').then((m) => ({ default: m.LearnScreen })))
+const NotificationsPage = lazy(() =>
+  import('@/features/notifications/NotificationsPage').then((m) => ({ default: m.NotificationsPage })))
+const ParentPortalScreen = lazy(() =>
+  import('@/features/parent/ParentPortalScreen').then((m) => ({ default: m.ParentPortalScreen })))
+const ParentScreen = lazy(() =>
+  import('@/features/parent/ParentScreen').then((m) => ({ default: m.ParentScreen })))
+const ReportScreen = lazy(() =>
+  import('@/features/report/ReportScreen').then((m) => ({ default: m.ReportScreen })))
+const StudentScreen = lazy(() =>
+  import('@/features/student/StudentScreen').then((m) => ({ default: m.StudentScreen })))
+const StudentPortalScreen = lazy(() =>
+  import('@/features/student/StudentPortalScreen').then((m) => ({ default: m.StudentPortalScreen })))
+
+/** Hiện trong lúc chunk JS của tab đang mở được tải về — chỉ xảy ra 1 lần
+ *  cho mỗi tab (trình duyệt cache lại chunk sau lần đầu). */
+function TabLoading() {
+  return (
+    <div className="flex items-center justify-center py-20">
+      <span
+        className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-current/20"
+        style={{ borderTopColor: C.board, color: C.board }}
+      />
+    </div>
+  )
+}
 
 const ALL_TABS = [
   { key: 'dashboard', label: 'Tổng quan', icon: '📋', roles: ['teacher', 'admin'] },
@@ -415,6 +445,7 @@ export default function App() {
         <Sidebar tabs={TABS} activeTab={activeTab} onTabChange={setTab} />
 
         <main className="mx-auto min-w-0 max-w-5xl flex-1 p-4 pb-24 sm:pb-4">
+        <Suspense fallback={<TabLoading />}>
         {activeTab === 'dashboard' && (
           <DashboardScreen data={data} setTab={setTab} setCurrent={setCurrentClass} />
         )}
@@ -451,6 +482,7 @@ export default function App() {
         {activeTab === 'learn' && <LearnScreen />}
         {activeTab === 'notifications' && <NotificationsPage />}
         {activeTab === 'my-child' && <ParentPortalScreen />}
+        </Suspense>
 
         <div className="mt-6 flex flex-wrap items-center gap-2 text-xs" style={{ color: C.muted }}>
           <span className="mr-auto">
