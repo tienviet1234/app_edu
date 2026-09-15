@@ -189,8 +189,9 @@ export default function App() {
         const existing = localCls.students.find((s) => s.id === apiSt._id)
         if (existing) {
           existing.name = apiSt.name
+          if (apiSt.avatar) existing.avatar = apiSt.avatar
         } else {
-          localCls.students.push({ id: apiSt._id, name: apiSt.name, sessions: [] })
+          localCls.students.push({ id: apiSt._id, name: apiSt.name, avatar: apiSt.avatar, sessions: [] })
         }
       })
     }))

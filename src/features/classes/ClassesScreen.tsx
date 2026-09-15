@@ -11,6 +11,7 @@ import { teachingDaysOf } from '@/business/stats'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { classService } from '@/services/classes'
+import { studentService } from '@/services/students'
 import { sessionService } from '@/services/sessions'
 import { importStudentNames, exportAttendance } from '@/utils/excel'
 import { useClassStudents } from '@/hooks'
@@ -70,6 +71,15 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
   async function syncFieldToApi(field: string, value: unknown) {
     if (!cls || !isMongoid(cls.id)) return
     try { await classService.update(cls.id, { [field]: value }) } catch { /* best effort */ }
+  }
+
+  async function syncStudentName(studentId: string, name: string) {
+    if (!isMongoid(studentId) || !name.trim()) return
+    try {
+      await studentService.update(studentId, { name: name.trim() })
+    } catch {
+      toast.error('Lưu tên học sinh thất bại, thử lại.')
+    }
   }
 
   async function handleDeleteClass(idx: number) {
@@ -526,6 +536,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                               if (found) found.name = x.target.value
                             })
                           }
+                          onBlur={(x) => void syncStudentName(st.id, x.target.value)}
                           className="flex-1 rounded-lg px-2 py-1 text-sm"
                           style={{ border: `1px solid ${C.line}`, background: '#fff' }}
                         />

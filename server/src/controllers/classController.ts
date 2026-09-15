@@ -130,7 +130,7 @@ export async function joinClass(req: Request, res: Response): Promise<void> {
 
 /** GET /api/classes/:id/students — list enrolled students with name + email */
 export async function getClassStudents(req: Request, res: Response): Promise<void> {
-  const cls = await Class.findById(req.params.id, 'studentIds').populate('studentIds', 'name email role')
+  const cls = await Class.findById(req.params.id, 'studentIds').populate('studentIds', 'name email role avatar')
   if (!cls) {
     notFound(res, 'Class not found.')
     return

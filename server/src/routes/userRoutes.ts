@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { listUsersByRole, getUserByRole, updateUser, listAllUsers } from '../controllers/userController.js'
+import { listUsersByRole, getUserByRole, updateUser, updateManagedStudent, listAllUsers } from '../controllers/userController.js'
 import { linkChild, unlinkChild, getChildren } from '../controllers/parentController.js'
 import { authenticate, authorize } from '../middleware/auth.js'
 import { validate } from '../middleware/validate.js'
@@ -20,6 +20,12 @@ teacherRouter.get('/:id', authorize('teacher'), validate({ params: idParamsSchem
 studentRouter.use(authenticate)
 studentRouter.get('/', authorize('teacher'), validate({ query: listQuerySchema }), asyncHandler(listUsersByRole('student')))
 studentRouter.get('/:id', authorize('teacher'), validate({ params: idParamsSchema }), asyncHandler(getUserByRole('student')))
+studentRouter.patch(
+  '/:id',
+  authorize('teacher'),
+  validate({ params: idParamsSchema, body: z.object({ name: z.string().min(1).max(100).optional(), avatar: z.string().max(500).optional() }) }),
+  asyncHandler(updateManagedStudent),
+)
 
 parentRouter.use(authenticate)
 parentRouter.get('/', authorize('teacher'), validate({ query: listQuerySchema }), asyncHandler(listUsersByRole('parent')))

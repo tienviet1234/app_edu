@@ -67,7 +67,7 @@ export const classService = {
   /** Returns the list of enrolled students (name + email) for a class */
   getStudents: (classId: string) =>
     api
-      .get<{ data: Array<{ _id: string; name: string; email: string; role: string }> }>(
+      .get<{ data: Array<{ _id: string; name: string; email: string; role: string; avatar?: string }> }>(
         `/classes/${classId}/students`,
       )
       .then((r) => r.data.data),

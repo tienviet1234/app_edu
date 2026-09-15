@@ -15,6 +15,9 @@ import { Card } from '@/components/atoms/Card'
 import { RankBadge } from '@/components/atoms/RankBadge'
 import { ExpBar } from '@/components/atoms/ExpBar'
 import { Avatar } from '@/components/atoms/Avatar'
+import { studentService } from '@/services/students'
+import { isMongoid } from '@/utils/mongoid'
+import { toast } from '@/store/toastStore'
 
 interface LeaderboardScreenProps {
   cls: ClassData
@@ -201,6 +204,11 @@ export function LeaderboardScreen({ cls, update, userId }: LeaderboardScreenProp
       const st = c.students.find((s: { id: string }) => s.id === studentId)
       if (st) st.avatar = avatar
     }))
+    // Lưu lên server để avatar hiện đúng ở mọi thiết bị/vai trò xem chung lớp
+    // (giáo viên khác, admin, chính học sinh) — không chỉ trên máy đang sửa.
+    if (isMongoid(studentId)) {
+      studentService.update(studentId, { avatar }).catch(() => toast.error('Lưu avatar thất bại, thử lại.'))
+    }
   }
 
   return (
