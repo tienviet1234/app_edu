@@ -4,6 +4,7 @@ import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { assignmentService, type Assignment, type AssignmentStats } from '@/services/assignments'
 import { submissionService, type Submission } from '@/services/submissions'
+import { toast } from '@/store/toastStore'
 
 interface Props {
   classId: string
@@ -28,7 +29,7 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
   const [loadingVideo, setLoadingVideo] = useState<string | null>(null)
 
   useEffect(() => {
-    assignmentService.list(classId, sessionId).then(setAssignments)
+    assignmentService.list(classId, sessionId).then(setAssignments).catch(() => toast.error('Không tải được danh sách bài tập'))
   }, [classId, sessionId])
 
   async function selectAssignment(id: string) {
@@ -37,12 +38,16 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
     setStats(null)
     setVideoUrls({})
     setReviewing(null)
-    const [subs, st] = await Promise.all([
-      submissionService.list({ assignmentId: id }),
-      assignmentService.stats(id),
-    ])
-    setSubmissions(subs)
-    setStats(st)
+    try {
+      const [subs, st] = await Promise.all([
+        submissionService.list({ assignmentId: id }),
+        assignmentService.stats(id),
+      ])
+      setSubmissions(subs)
+      setStats(st)
+    } catch {
+      toast.error('Không tải được danh sách bài nộp, thử lại.')
+    }
   }
 
   async function loadVideo(subId: string) {
@@ -51,6 +56,8 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
     try {
       const url = await submissionService.getVideoUrl(subId)
       setVideoUrls((prev) => ({ ...prev, [subId]: url }))
+    } catch {
+      toast.error('Không tải được video, thử lại.')
     } finally {
       setLoadingVideo(null)
     }
@@ -71,6 +78,8 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
       setReviewing(null)
       setComment('')
       setScore('')
+    } catch {
+      toast.error('Lưu duyệt bài thất bại, thử lại.')
     } finally {
       setSaving(false)
     }
