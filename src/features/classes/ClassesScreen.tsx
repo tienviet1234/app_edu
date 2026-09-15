@@ -76,10 +76,29 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
     const c = data.classes[idx]
     if (!confirm(`Xóa lớp "${c.name}"? Toàn bộ dữ liệu lớp này sẽ bị xóa vĩnh viễn.`)) return
     if (isMongoid(c.id)) {
-      try { await classService.delete(c.id) } catch { /* keep local delete */ }
+      try {
+        await classService.delete(c.id)
+      } catch {
+        toast.error(`Xóa lớp "${c.name}" thất bại, thử lại.`)
+        return // không xóa local nếu server thất bại — tránh lớp "hồi sinh" sau khi đồng bộ lại
+      }
     }
     setData(produce((d) => { d.classes.splice(idx, 1) }))
     setCurrent(Math.max(0, idx > 0 ? idx - 1 : 0))
+  }
+
+  async function handleDeleteStudent(studentId: string, studentName: string) {
+    if (!cls) return
+    if (!confirm(`Xóa học sinh "${studentName}" khỏi lớp?`)) return
+    if (isMongoid(cls.id) && isMongoid(studentId)) {
+      try {
+        await classService.removeStudent(cls.id, studentId)
+      } catch {
+        toast.error(`Xóa học sinh "${studentName}" thất bại, thử lại.`)
+        return
+      }
+    }
+    edit((c) => { c.students = c.students.filter((y) => y.id !== studentId) })
   }
 
   async function loadJoinCode() {
@@ -513,11 +532,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                         <button
                           className="text-xs font-bold"
                           style={{ color: C.red }}
-                          onClick={() =>
-                            edit((c) => {
-                              c.students = c.students.filter((y) => y.id !== st.id)
-                            })
-                          }
+                          onClick={() => void handleDeleteStudent(st.id, st.name)}
                         >
                           Xóa
                         </button>

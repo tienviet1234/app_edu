@@ -32,6 +32,7 @@ export const classBodySchema = z.object({
   academicYear: z.string().min(4).max(20).optional(),
   semester: z.string().max(40).optional(),
   teacherId: objectIdSchema.nullable().optional(),
+  teacherName: z.string().max(160).optional(),
   assistantTeacherIds: z.array(objectIdSchema).default([]),
   studentIds: z.array(objectIdSchema).default([]),
   schedule: z.array(scheduleSlotSchema).default([]),

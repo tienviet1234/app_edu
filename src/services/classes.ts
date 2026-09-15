@@ -7,6 +7,7 @@ export interface ApiClass {
   branchId?: string
   courseId?: string
   teacherId?: string
+  teacherName?: string
   assistantTeacherIds: string[]
   studentIds: string[]
   name: string
@@ -50,6 +51,12 @@ export const classService = {
 
   enrollStudents: (id: string, studentIds: string[]) =>
     api.post<{ data: ApiClass }>(`/classes/${id}/enroll`, { studentIds }).then((r) => r.data.data),
+
+  /** Gỡ 1 học sinh khỏi lớp trên server — bắt buộc gọi khi xóa học sinh đã
+   *  đồng bộ (isMongoid), nếu không lần đồng bộ sau sẽ "hồi sinh" lại học
+   *  sinh đó vì server vẫn còn trong Class.studentIds. */
+  removeStudent: (classId: string, studentId: string) =>
+    api.delete<{ data: ApiClass }>(`/classes/${classId}/students/${studentId}`).then((r) => r.data.data),
 
   /** Student joins a class by entering the teacher's 6-char join code */
   join: (joinCode: string) =>

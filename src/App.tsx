@@ -105,7 +105,7 @@ export default function App() {
         const teacherName =
           ac.teacherId && typeof ac.teacherId === 'object' && 'name' in ac.teacherId
             ? (ac.teacherId as unknown as { name: string }).name
-            : user?.name ?? ''
+            : ac.teacherName ?? user?.name ?? ''
         const level = autoLevel(ac.name)
         d.classes.push({
           id: ac._id,

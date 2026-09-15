@@ -3,6 +3,7 @@ import multer from 'multer'
 import { Types } from 'mongoose'
 import { Submission } from '../models/Submission.js'
 import { Assignment } from '../models/Assignment.js'
+import { User } from '../models/User.js'
 import {
   uploadImageToCloudinary,
   uploadVideoToR2,
@@ -11,10 +12,25 @@ import {
   deleteVideoFromR2,
   makeVideoKey,
 } from '../services/storageService.js'
-import { ok, created } from '../utils/response.js'
+import { ok, created, forbidden, badRequest, notFound } from '../utils/response.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { gradeQuiz } from '../services/quizGrading.js'
+
+/** Phụ huynh/học sinh chỉ được đọc/ghi bài nộp của CHÍNH học sinh đó (con
+ *  mình, hoặc chính mình) — trước đây thiếu kiểm tra này, bất kỳ ai đăng
+ *  nhập cũng đọc/ghi/xóa được ảnh, video, điểm quiz của học sinh khác chỉ
+ *  bằng cách đổi studentId trong request. Teacher/admin không bị giới hạn. */
+async function assertCanAccessStudent(authReq: AuthRequest, studentId: string): Promise<boolean> {
+  const role = authReq.user?.role
+  if (role === 'admin' || role === 'teacher') return true
+  if (role === 'student') return String(authReq.userId) === String(studentId)
+  if (role === 'parent') {
+    const parent = await User.findById(authReq.userId, 'childIds').lean()
+    return (parent?.childIds ?? []).some((id) => String(id) === String(studentId))
+  }
+  return false
+}
 
 // Multer: lưu trong memory, giới hạn 80MB (video đã nén 360p/5 phút)
 export const upload = multer({
@@ -28,6 +44,20 @@ export const upload = multer({
 
 /** GET /api/submissions?assignmentId=&studentId= */
 export const listSubmissions = asyncHandler(async (req: Request, res: Response) => {
+  const authReq = req as AuthRequest
+  const role = authReq.user?.role
+
+  // Phụ huynh/học sinh bắt buộc phải chỉ rõ studentId và đó phải là chính
+  // mình/con mình — không cho phép filter rỗng (sẽ trả về TOÀN BỘ bài nộp
+  // của mọi học sinh trong hệ thống, gồm cả ảnh/video/điểm học sinh khác).
+  if (role === 'parent' || role === 'student') {
+    const studentId = req.query.studentId ? String(req.query.studentId) : ''
+    if (!studentId || !(await assertCanAccessStudent(authReq, studentId))) {
+      forbidden(res, 'Bạn chỉ có thể xem bài nộp của chính mình/con mình.')
+      return
+    }
+  }
+
   const filter: Record<string, unknown> = {}
   if (req.query.assignmentId) filter.assignmentId = req.query.assignmentId
   if (req.query.studentId) filter.studentId = req.query.studentId
@@ -50,6 +80,10 @@ export const createSubmission = asyncHandler(async (req: Request, res: Response)
 
   if (!assignmentId || !studentId || !classId) {
     res.status(400).json({ success: false, message: 'Thiếu assignmentId / studentId / classId' })
+    return
+  }
+  if (!(await assertCanAccessStudent(authReq, studentId))) {
+    forbidden(res, 'Bạn chỉ có thể nộp bài cho chính mình/con mình.')
     return
   }
 
@@ -117,6 +151,10 @@ export const submitQuiz = asyncHandler(async (req: Request, res: Response) => {
     res.status(400).json({ success: false, message: 'Thiếu assignmentId / studentId / classId / answers' })
     return
   }
+  if (!(await assertCanAccessStudent(authReq, studentId))) {
+    forbidden(res, 'Bạn chỉ có thể nộp bài cho chính mình/con mình.')
+    return
+  }
 
   const assignment = await Assignment.findById(assignmentId)
   if (!assignment || !assignment.isActive) {
@@ -151,9 +189,14 @@ export const submitQuiz = asyncHandler(async (req: Request, res: Response) => {
 
 /** GET /api/submissions/:id/video-url — presigned URL xem video (hết hạn 1 giờ) */
 export const getVideoUrl = asyncHandler(async (req: Request, res: Response) => {
+  const authReq = req as AuthRequest
   const submission = await Submission.findById(req.params.id).select('videoKey studentId classId').lean()
   if (!submission || !submission.videoKey) {
     res.status(404).json({ success: false, message: 'Không có video' })
+    return
+  }
+  if (!(await assertCanAccessStudent(authReq, String(submission.studentId)))) {
+    forbidden(res, 'Bạn không có quyền xem video này.')
     return
   }
   const url = await getVideoPresignedUrl(submission.videoKey)

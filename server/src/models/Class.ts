@@ -19,6 +19,10 @@ export interface IClass extends Document {
   academicYear?: string
   semester?: string
   teacherId?: Types.ObjectId
+  // Tên giáo viên hiển thị dạng chữ tự do (VD "Cô Trà") — độc lập với
+  // teacherId (liên kết tài khoản thật, do admin gán ở AdminClassesPage).
+  // Giáo viên tự sửa tên hiển thị ở màn "Lớp học" dùng field này.
+  teacherName?: string
   assistantTeacherIds: Types.ObjectId[]
   studentIds: Types.ObjectId[]
   schedule: IScheduleSlot[]
@@ -58,6 +62,7 @@ const classSchema = new Schema<IClass>(
     academicYear: { type: String, trim: true, maxlength: 20 },
     semester: { type: String, trim: true, maxlength: 40 },
     teacherId: { type: Schema.Types.ObjectId, ref: 'User', index: true },
+    teacherName: { type: String, trim: true, maxlength: 160 },
     assistantTeacherIds: [{ type: Schema.Types.ObjectId, ref: 'User' }],
     studentIds: [{ type: Schema.Types.ObjectId, ref: 'User', index: true }],
     schedule: [scheduleSlotSchema],
