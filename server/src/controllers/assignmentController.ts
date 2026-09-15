@@ -25,6 +25,15 @@ async function assertCanViewClass(authReq: AuthRequest, classId: string): Promis
   return false
 }
 
+/** Giáo viên chỉ được tạo/sửa/xóa/xem bài tập của lớp MÌNH dạy — trước đây
+ *  chỉ cần authorize('teacher') là thao tác được bài tập của bất kỳ lớp
+ *  nào. Admin qua hết. */
+async function assertTeacherOwnsClass(authReq: AuthRequest, classId: string): Promise<boolean> {
+  if (authReq.user?.role === 'admin') return true
+  const cls = await Class.findById(classId, 'teacherId').lean()
+  return !!cls?.teacherId && String(cls.teacherId) === String(authReq.userId)
+}
+
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr]
   for (let i = a.length - 1; i > 0; i--) {
@@ -56,7 +65,8 @@ function sanitizeAssignment<T extends { questions?: IQuestion[] }>(a: T, isTeach
 
 export const listAssignments = asyncHandler(async (req: Request, res: Response) => {
   const authReq = req as AuthRequest
-  const isTeacher = authReq.user?.role === 'teacher' || authReq.user?.role === 'admin'
+  const role = authReq.user?.role
+  const isTeacher = role === 'teacher' || role === 'admin'
   const { classId, sessionId } = req.query
 
   if (!isTeacher) {
@@ -72,17 +82,34 @@ export const listAssignments = asyncHandler(async (req: Request, res: Response) 
   if (classId) filter.classId = classId
   if (sessionId) filter.sessionId = sessionId
 
+  if (role === 'teacher') {
+    if (classId) {
+      if (!(await assertTeacherOwnsClass(authReq, String(classId)))) {
+        forbidden(res, 'Bạn chỉ có thể xem bài tập của lớp mình dạy.')
+        return
+      }
+    } else {
+      const ownClassIds = await Class.find({ teacherId: authReq.userId }, '_id').lean()
+      filter.classId = { $in: ownClassIds.map((c) => c._id) }
+    }
+  }
+
   const items = await Assignment.find(filter).sort({ dueDate: -1 }).lean()
   ok(res, items.map((a) => sanitizeAssignment(a, isTeacher)))
 })
 
 export const getAssignment = asyncHandler(async (req: Request, res: Response) => {
   const authReq = req as AuthRequest
-  const isTeacher = authReq.user?.role === 'teacher' || authReq.user?.role === 'admin'
+  const role = authReq.user?.role
+  const isTeacher = role === 'teacher' || role === 'admin'
   const assignment = await Assignment.findById(req.params.id).lean()
   if (!assignment) { res.status(404).json({ success: false, message: 'Không tìm thấy bài tập' }); return }
   if (!isTeacher && !(await assertCanViewClass(authReq, String(assignment.classId)))) {
     forbidden(res, 'Bạn chỉ có thể xem bài tập của lớp mình/con mình đang học.')
+    return
+  }
+  if (role === 'teacher' && !(await assertTeacherOwnsClass(authReq, String(assignment.classId)))) {
+    forbidden(res, 'Bạn chỉ có thể xem bài tập của lớp mình dạy.')
     return
   }
   ok(res, sanitizeAssignment(assignment, isTeacher))
@@ -90,17 +117,34 @@ export const getAssignment = asyncHandler(async (req: Request, res: Response) =>
 
 export const createAssignment = asyncHandler(async (req: Request, res: Response) => {
   const authReq = req as AuthRequest
+  if (!(await assertTeacherOwnsClass(authReq, String(req.body.classId)))) {
+    forbidden(res, 'Bạn chỉ có thể giao bài tập cho lớp mình dạy.')
+    return
+  }
   const assignment = await Assignment.create({ ...req.body, createdBy: authReq.userId })
   created(res, assignment)
 })
 
 export const updateAssignment = asyncHandler(async (req: Request, res: Response) => {
+  const authReq = req as AuthRequest
+  const existing = await Assignment.findById(req.params.id, 'classId')
+  if (!existing) { res.status(404).json({ success: false, message: 'Không tìm thấy bài tập' }); return }
+  if (!(await assertTeacherOwnsClass(authReq, String(existing.classId)))) {
+    forbidden(res, 'Bạn chỉ có thể sửa bài tập của lớp mình dạy.')
+    return
+  }
   const assignment = await Assignment.findByIdAndUpdate(req.params.id, req.body, { new: true }).lean()
-  if (!assignment) { res.status(404).json({ success: false, message: 'Không tìm thấy bài tập' }); return }
   ok(res, assignment)
 })
 
 export const deleteAssignment = asyncHandler(async (req: Request, res: Response) => {
+  const authReq = req as AuthRequest
+  const existing = await Assignment.findById(req.params.id, 'classId')
+  if (!existing) { res.status(404).json({ success: false, message: 'Không tìm thấy bài tập' }); return }
+  if (!(await assertTeacherOwnsClass(authReq, String(existing.classId)))) {
+    forbidden(res, 'Bạn chỉ có thể xóa bài tập của lớp mình dạy.')
+    return
+  }
   await Assignment.findByIdAndUpdate(req.params.id, { isActive: false })
   res.status(204).send()
 })

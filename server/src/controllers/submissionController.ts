@@ -4,6 +4,7 @@ import { Types } from 'mongoose'
 import { Submission } from '../models/Submission.js'
 import { Assignment } from '../models/Assignment.js'
 import { User } from '../models/User.js'
+import { Class } from '../models/Class.js'
 import {
   uploadImageToCloudinary,
   uploadVideoToR2,
@@ -30,6 +31,15 @@ async function assertCanAccessStudent(authReq: AuthRequest, studentId: string): 
     return (parent?.childIds ?? []).some((id) => String(id) === String(studentId))
   }
   return false
+}
+
+/** Giáo viên chỉ được xem/duyệt/xóa bài nộp của lớp MÌNH dạy — trước đây
+ *  chỉ cần authorize('teacher') là qua được bài nộp của bất kỳ lớp nào
+ *  (đoán/biết classId hoặc submissionId). Admin qua hết. */
+async function assertTeacherOwnsClass(authReq: AuthRequest, classId: Types.ObjectId | string): Promise<boolean> {
+  if (authReq.user?.role === 'admin') return true
+  const cls = await Class.findById(classId, 'teacherId').lean()
+  return !!cls?.teacherId && String(cls.teacherId) === String(authReq.userId)
 }
 
 // Multer: lưu trong memory, giới hạn 80MB (video đã nén 360p/5 phút)
@@ -62,6 +72,27 @@ export const listSubmissions = asyncHandler(async (req: Request, res: Response) 
   if (req.query.assignmentId) filter.assignmentId = req.query.assignmentId
   if (req.query.studentId) filter.studentId = req.query.studentId
   if (req.query.classId) filter.classId = req.query.classId
+
+  // Giáo viên: xác định đúng lớp đang xin xem để kiểm tra quyền sở hữu —
+  // classId có thể truyền trực tiếp, hoặc suy ra từ assignmentId.
+  if (role === 'teacher') {
+    let classId = req.query.classId ? String(req.query.classId) : ''
+    if (!classId && req.query.assignmentId) {
+      const a = await Assignment.findById(String(req.query.assignmentId), 'classId').lean()
+      classId = a ? String(a.classId) : ''
+    }
+    if (classId) {
+      if (!(await assertTeacherOwnsClass(authReq, classId))) {
+        forbidden(res, 'Bạn chỉ có thể xem bài nộp của lớp mình dạy.')
+        return
+      }
+    } else {
+      // Không truyền classId/assignmentId nào xác định được — chỉ trả về
+      // bài nộp thuộc các lớp giáo viên này thực sự dạy, không cho xem hết.
+      const ownClassIds = await Class.find({ teacherId: authReq.userId }, '_id').lean()
+      filter.classId = { $in: ownClassIds.map((c) => c._id) }
+    }
+  }
 
   const items = await Submission.find(filter)
     .sort({ createdAt: -1 })
@@ -208,6 +239,16 @@ export const reviewSubmission = asyncHandler(async (req: Request, res: Response)
   const authReq = req as AuthRequest
   const { teacherComment, teacherScore } = req.body
 
+  const existing = await Submission.findById(req.params.id, 'classId')
+  if (!existing) {
+    res.status(404).json({ success: false, message: 'Không tìm thấy bài nộp' })
+    return
+  }
+  if (!(await assertTeacherOwnsClass(authReq, existing.classId))) {
+    forbidden(res, 'Bạn chỉ có thể duyệt bài nộp của lớp mình dạy.')
+    return
+  }
+
   const submission = await Submission.findByIdAndUpdate(
     req.params.id,
     {
@@ -220,19 +261,19 @@ export const reviewSubmission = asyncHandler(async (req: Request, res: Response)
     { new: true },
   ).lean()
 
-  if (!submission) {
-    res.status(404).json({ success: false, message: 'Không tìm thấy bài nộp' })
-    return
-  }
-
-  const { videoKey: _vk, ...safe } = submission
+  const { videoKey: _vk, ...safe } = submission!
   ok(res, safe)
 })
 
 /** DELETE /api/submissions/:id — xóa bài nộp + file trên storage */
 export const deleteSubmission = asyncHandler(async (req: Request, res: Response) => {
+  const authReq = req as AuthRequest
   const submission = await Submission.findById(req.params.id)
   if (!submission) { res.status(404).json({ success: false, message: 'Không tìm thấy' }); return }
+  if (!(await assertTeacherOwnsClass(authReq, submission.classId))) {
+    forbidden(res, 'Bạn chỉ có thể xóa bài nộp của lớp mình dạy.')
+    return
+  }
 
   // Xóa ảnh trên Cloudinary
   await Promise.allSettled(submission.photos.map((p) => deleteImageFromCloudinary(p.publicId)))
