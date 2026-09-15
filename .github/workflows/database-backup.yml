@@ -1,0 +1,16 @@
+name: Database Backup
+
+on:
+  schedule:
+    - cron: '0 19 * * *' # 19:00 UTC = 02:00 sáng giờ Việt Nam, mỗi ngày
+  workflow_dispatch: {} # cho phép bấm chạy tay từ tab Actions để test
+
+jobs:
+  backup-database:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gọi /api/cron/backup-database
+        run: |
+          curl --fail --show-error --silent \
+            -X POST "${{ secrets.BACKEND_URL }}/api/cron/backup-database" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}"

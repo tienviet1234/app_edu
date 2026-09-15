@@ -1,5 +1,7 @@
 import { v2 as cloudinary } from 'cloudinary'
-import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3'
+import {
+  S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand, ListObjectsV2Command,
+} from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { env } from '../config/env.js'
 
@@ -73,4 +75,19 @@ export async function getVideoPresignedUrl(key: string): Promise<string> {
 export function makeVideoKey(submissionId: string, originalName: string): string {
   const ext = originalName.split('.').pop() ?? 'mp4'
   return `videos/${submissionId}.${ext}`
+}
+
+// ── R2 — sao lưu dữ liệu (dùng chung bucket với video, tiền tố "backups/") ──
+export async function uploadBufferToR2(buffer: Buffer, key: string, contentType: string): Promise<void> {
+  await r2.send(
+    new PutObjectCommand({ Bucket: env.R2_BUCKET_NAME, Key: key, Body: buffer, ContentType: contentType }),
+  )
+}
+
+/** Liệt kê các file theo tiền tố (dùng để dọn backup cũ theo retention). */
+export async function listR2Keys(prefix: string): Promise<Array<{ key: string; lastModified?: Date }>> {
+  const res = await r2.send(new ListObjectsV2Command({ Bucket: env.R2_BUCKET_NAME, Prefix: prefix }))
+  return (res.Contents ?? [])
+    .filter((o): o is typeof o & { Key: string } => !!o.Key)
+    .map((o) => ({ key: o.Key, lastModified: o.LastModified }))
 }
