@@ -1,17 +1,19 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 
 export type SubmitType = 'photo' | 'video' | 'both' | 'quiz'
-export type QuestionType = 'mcq' | 'fill' | 'truefalse' | 'match'
+export type QuestionType = 'mcq' | 'fill' | 'truefalse' | 'match' | 'order' | 'cloze'
 
 export interface IQuestion {
   id: string
   type: QuestionType
-  text?: string                    // đề bài (mcq, fill, truefalse)
+  text?: string                    // đề bài (mcq, fill, truefalse, order, cloze)
   options?: string[]               // mcq: các lựa chọn
   correctIndexes?: number[]        // mcq: chỉ số đáp án đúng (hỗ trợ nhiều đáp án đúng)
   acceptedAnswers?: string[]       // fill: các đáp án được chấp nhận
   correctAnswer?: boolean          // truefalse
   pairs?: { left: string; right: string }[] // match
+  items?: string[]                 // order: đúng thứ tự gốc
+  blanks?: string[][]              // cloze: đáp án chấp nhận cho từng ô trống (theo thứ tự ___ xuất hiện trong text)
 }
 
 export interface IAssignment extends Document {
@@ -35,7 +37,7 @@ export interface IAssignment extends Document {
 const QuestionSchema = new Schema<IQuestion>(
   {
     id:             { type: String, required: true },
-    type:           { type: String, enum: ['mcq', 'fill', 'truefalse', 'match'], required: true },
+    type:           { type: String, enum: ['mcq', 'fill', 'truefalse', 'match', 'order', 'cloze'], required: true },
     text:           { type: String, maxlength: 1000 },
     options:        { type: [String], default: undefined },
     correctIndexes: { type: [Number], default: undefined },
@@ -45,6 +47,8 @@ const QuestionSchema = new Schema<IQuestion>(
       type: [{ left: String, right: String, _id: false }],
       default: undefined,
     },
+    items:          { type: [String], default: undefined },
+    blanks:         { type: [[String]], default: undefined },
   },
   { _id: false },
 )

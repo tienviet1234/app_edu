@@ -38,6 +38,24 @@ function gradeOne(q: IQuestion, raw: unknown): IQuizAnswer {
       const correctText = pairs.map((p) => `${p.left} → ${p.right}`).join('; ')
       return { questionId: q.id, value: chosen, correct: ok, correctText }
     }
+    case 'order': {
+      // raw: mảng các phần tử theo thứ tự học sinh đã sắp xếp
+      const chosen = Array.isArray(raw) ? (raw as string[]) : []
+      const correct = q.items ?? []
+      const ok = chosen.length === correct.length && chosen.every((v, i) => v === correct[i])
+      return { questionId: q.id, value: chosen, correct: ok, correctText: correct.join(' → ') }
+    }
+    case 'cloze': {
+      // raw: mảng câu trả lời theo thứ tự các ô trống ___ xuất hiện trong text
+      const chosen = Array.isArray(raw) ? (raw as string[]) : []
+      const blanks = q.blanks ?? []
+      const ok =
+        blanks.length > 0 &&
+        chosen.length === blanks.length &&
+        blanks.every((accepted, i) => accepted.some((a) => normalize(a) === normalize(chosen[i] ?? '')))
+      const correctText = blanks.map((b) => b[0]).join(' / ')
+      return { questionId: q.id, value: chosen, correct: ok, correctText }
+    }
     default:
       return { questionId: q.id, value: '', correct: false }
   }

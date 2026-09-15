@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { C } from '@/constants/colors'
 import { uid } from '@/utils/uid'
 import { parseQuestions } from '@/utils/quizParser'
-import type { Question, QuestionType, McqQuestion, FillQuestion, TrueFalseQuestion, MatchQuestion } from '@/types/quiz'
+import type { Question, QuestionType, McqQuestion, FillQuestion, TrueFalseQuestion, MatchQuestion, OrderQuestion, ClozeQuestion } from '@/types/quiz'
 
 interface Props {
   questions: Question[]
@@ -14,6 +14,8 @@ const TYPE_LABELS: Record<QuestionType, string> = {
   fill: 'Điền từ',
   truefalse: 'Đúng / Sai',
   match: 'Ghép cặp',
+  order: 'Sắp xếp thứ tự',
+  cloze: 'Điền đoạn văn',
 }
 
 const TYPE_HINT: Record<QuestionType, string> = {
@@ -21,12 +23,16 @@ const TYPE_HINT: Record<QuestionType, string> = {
   fill: '1. She {{goes}} to school every day.\n2. Where does he live? {{Da Nang.;He lives in Da Nang.}}',
   truefalse: 'Mai is nine years old.\nT\n\nHer father is a doctor.\nF',
   match: 'What is your name?==My name is Nam.\nHow old are you?==I am ten years old.',
+  order: 'She\nis\nreading\na book\n\nI\nlike\napples',
+  cloze: "My name {{is}} Nam. I {{am;'m}} 10 years old.",
 }
 
 function EmptyMcq(): McqQuestion { return { id: uid(), type: 'mcq', text: '', options: ['', ''], correctIndexes: [] } }
 function EmptyFill(): FillQuestion { return { id: uid(), type: 'fill', text: '', acceptedAnswers: [''] } }
 function EmptyTF(): TrueFalseQuestion { return { id: uid(), type: 'truefalse', text: '', correctAnswer: true } }
 function EmptyMatch(): MatchQuestion { return { id: uid(), type: 'match', pairs: [{ left: '', right: '' }, { left: '', right: '' }] } }
+function EmptyOrder(): OrderQuestion { return { id: uid(), type: 'order', text: '', items: ['', ''] } }
+function EmptyCloze(): ClozeQuestion { return { id: uid(), type: 'cloze', text: '', blanks: [] } }
 
 const GUIDE_ITEMS: { type: QuestionType; rules: string[] }[] = [
   {
@@ -61,6 +67,22 @@ const GUIDE_ITEMS: { type: QuestionType; rules: string[] }[] = [
       'Dán cú pháp: mỗi dòng 1 cặp, viết "vế trái==vế phải". Cần ít nhất 2 cặp. Học sinh sẽ thấy vế phải bị xáo trộn ngẫu nhiên khi làm bài.',
     ],
   },
+  {
+    type: 'order',
+    rules: [
+      'Dùng khi học sinh cần sắp xếp các từ/câu theo đúng thứ tự (VD xếp câu tiếng Anh đúng ngữ pháp).',
+      'Form trực quan: nhập từng phần theo ĐÚNG thứ tự — hệ thống tự xáo trộn khi hiện cho học sinh làm bài.',
+      'Dán cú pháp: mỗi dòng 1 phần theo đúng thứ tự, mỗi câu cách nhau 1 dòng trống. Cần ít nhất 2 phần.',
+    ],
+  },
+  {
+    type: 'cloze',
+    rules: [
+      'Dùng khi cần điền NHIỀU chỗ trống trong CÙNG 1 đoạn văn (khác "Điền từ" — mỗi câu chỉ 1 chỗ trống).',
+      'Form trực quan: viết đoạn văn có nhiều chữ "___", rồi nhập đáp án cho từng ô trống hiện ra bên dưới theo đúng thứ tự.',
+      'Dán cú pháp: đặt mỗi đáp án trong {{ }} ngay tại vị trí chỗ trống, ví dụ "My name {{is}} Nam". Nhiều đáp án chấp nhận cách nhau bởi ";".',
+    ],
+  },
 ]
 
 export function QuestionBuilder({ questions, onChange }: Props) {
@@ -77,7 +99,13 @@ export function QuestionBuilder({ questions, onChange }: Props) {
     onChange(questions.filter((q) => q.id !== id))
   }
   function add(type: QuestionType) {
-    const q = type === 'mcq' ? EmptyMcq() : type === 'fill' ? EmptyFill() : type === 'truefalse' ? EmptyTF() : EmptyMatch()
+    const q =
+      type === 'mcq' ? EmptyMcq()
+      : type === 'fill' ? EmptyFill()
+      : type === 'truefalse' ? EmptyTF()
+      : type === 'match' ? EmptyMatch()
+      : type === 'order' ? EmptyOrder()
+      : EmptyCloze()
     onChange([...questions, q])
   }
 
@@ -270,6 +298,91 @@ export function QuestionBuilder({ questions, onChange }: Props) {
                 onClick={() => update(q.id, (cur) => ({ ...(cur as MatchQuestion), pairs: [...(cur as MatchQuestion).pairs, { left: '', right: '' }] }))}
                 className="text-xs font-semibold" style={{ color: C.board2 }}
               >+ Thêm cặp</button>
+            </div>
+          )}
+
+          {q.type === 'order' && (
+            <div className="space-y-1.5">
+              <input
+                value={q.text ?? ''}
+                onChange={(e) => update(q.id, (cur) => ({ ...(cur as OrderQuestion), text: e.target.value }))}
+                placeholder="Hướng dẫn (không bắt buộc, VD: Sắp xếp thành câu đúng)"
+                className="w-full rounded-lg px-2 py-1.5 text-sm"
+                style={{ border: `1px solid ${C.line}` }}
+              />
+              <div className="text-xs" style={{ color: C.muted }}>
+                Nhập các phần theo ĐÚNG thứ tự — hệ thống sẽ xáo trộn khi hiện cho học sinh.
+              </div>
+              {q.items.map((item, ii) => (
+                <div key={ii} className="flex items-center gap-2">
+                  <span className="w-5 shrink-0 text-xs font-bold" style={{ color: C.muted }}>{ii + 1}.</span>
+                  <input
+                    value={item}
+                    onChange={(e) => update(q.id, (cur) => {
+                      const c = cur as OrderQuestion
+                      const items = [...c.items]; items[ii] = e.target.value
+                      return { ...c, items }
+                    })}
+                    placeholder={`Phần ${ii + 1}`}
+                    className="flex-1 rounded-lg px-2 py-1 text-sm"
+                    style={{ border: `1px solid ${C.line}` }}
+                  />
+                  {q.items.length > 2 && (
+                    <button
+                      type="button"
+                      onClick={() => update(q.id, (cur) => ({ ...(cur as OrderQuestion), items: (cur as OrderQuestion).items.filter((_, x) => x !== ii) }))}
+                      className="text-xs" style={{ color: C.muted }}
+                    >✕</button>
+                  )}
+                </div>
+              ))}
+              {q.items.length < 8 && (
+                <button
+                  type="button"
+                  onClick={() => update(q.id, (cur) => ({ ...(cur as OrderQuestion), items: [...(cur as OrderQuestion).items, ''] }))}
+                  className="text-xs font-semibold" style={{ color: C.board2 }}
+                >+ Thêm phần</button>
+              )}
+            </div>
+          )}
+
+          {q.type === 'cloze' && (
+            <div className="space-y-1.5">
+              <textarea
+                value={q.text}
+                onChange={(e) => update(q.id, (cur) => ({ ...(cur as ClozeQuestion), text: e.target.value }))}
+                placeholder={'Đoạn văn, đánh dấu chỗ trống bằng ___ (VD: My name ___ Nam. I ___ 10 years old.)'}
+                rows={3}
+                className="w-full rounded-lg px-2 py-1.5 text-sm resize-none"
+                style={{ border: `1px solid ${C.line}` }}
+              />
+              {(() => {
+                const blankCount = (q.text.match(/___/g) ?? []).length
+                if (blankCount === 0) {
+                  return (
+                    <div className="text-xs" style={{ color: C.muted }}>
+                      Chưa có ô trống nào — gõ "___" (3 gạch dưới) vào chỗ cần điền trong đoạn văn trên.
+                    </div>
+                  )
+                }
+                return Array.from({ length: blankCount }, (_, bi) => (
+                  <div key={bi} className="flex items-center gap-2">
+                    <span className="shrink-0 text-xs font-bold" style={{ color: C.muted }}>Ô {bi + 1}:</span>
+                    <input
+                      value={(q.blanks[bi] ?? []).join('; ')}
+                      onChange={(e) => update(q.id, (cur) => {
+                        const c = cur as ClozeQuestion
+                        const blanks = [...c.blanks]
+                        blanks[bi] = e.target.value.split(';').map((s) => s.trim())
+                        return { ...c, blanks }
+                      })}
+                      placeholder="Đáp án đúng (nhiều đáp án cách nhau bởi ;)"
+                      className="flex-1 rounded-lg px-2 py-1 text-sm"
+                      style={{ border: `1px solid ${C.line}` }}
+                    />
+                  </div>
+                ))
+              })()}
             </div>
           )}
         </div>

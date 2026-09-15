@@ -7,9 +7,15 @@ import { toLocalDatetimeInput } from '@/utils/format'
 import type { Question } from '@/types/quiz'
 
 /** Chặn lưu quiz "câm" — câu chưa có đề bài, mcq chưa tick đáp án đúng,
- *  fill chưa nhập đáp án, match còn ô trống — học sinh không thể làm đúng. */
+ *  fill chưa nhập đáp án, match/order còn ô trống, cloze thiếu đáp án ô
+ *  trống — học sinh không thể làm đúng. */
 function isQuestionComplete(q: Question): boolean {
   if (q.type === 'match') return q.pairs.every((p) => p.left.trim() && p.right.trim())
+  if (q.type === 'order') return q.items.length >= 2 && q.items.every((it) => it.trim())
+  if (q.type === 'cloze') {
+    const blankCount = (q.text.match(/___/g) ?? []).length
+    return blankCount > 0 && q.blanks.length === blankCount && q.blanks.every((b) => b.some((a) => a.trim()))
+  }
   if (!q.text.trim()) return false
   if (q.type === 'mcq') return q.options.every((o) => o.trim()) && q.correctIndexes.length > 0
   if (q.type === 'fill') return q.acceptedAnswers.some((a) => a.trim())

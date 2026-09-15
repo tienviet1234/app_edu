@@ -16,6 +16,7 @@ export function QuizPlayer({ assignment, studentId, onClose, onSubmitted }: Prop
   const questions = (assignment.questions ?? []) as QuestionSafe[]
   const [answers, setAnswers] = useState<Record<string, unknown>>({})
   const [matchPicks, setMatchPicks] = useState<Record<string, string[]>>({})
+  const [orderPicks, setOrderPicks] = useState<Record<string, number[]>>({})
   const [submitting, setSubmitting] = useState(false)
   const [err, setErr] = useState('')
   const [result, setResult] = useState<Submission | null>(null)
@@ -42,9 +43,26 @@ export function QuizPlayer({ assignment, studentId, onClose, onSubmitted }: Prop
     })
   }
 
+  // Sắp xếp thứ tự — bấm lần lượt các mảnh theo đúng thứ tự nghĩ là đúng, bấm
+  // lại để bỏ chọn. Theo dõi bằng INDEX (không phải giá trị) để xử lý đúng cả
+  // khi có 2 mảnh trùng chữ nhau.
+  function pickOrderItem(qid: string, items: string[], idx: number) {
+    setOrderPicks((prev) => {
+      const cur = prev[qid] ?? []
+      const next = cur.includes(idx) ? cur.filter((i) => i !== idx) : [...cur, idx]
+      setAnswer(qid, next.map((i) => items[i]))
+      return { ...prev, [qid]: next }
+    })
+  }
+
   const answeredCount = questions.filter((q) => {
     const v = answers[q.id]
     if (q.type === 'match') return (v as string[] | undefined)?.every((x) => x)
+    if (q.type === 'order') return Array.isArray(v) && (v as string[]).length === q.items.length
+    if (q.type === 'cloze') {
+      const blankCount = (q.text.match(/___/g) ?? []).length
+      return Array.isArray(v) && (v as string[]).length === blankCount && (v as string[]).every((x) => x?.trim())
+    }
     return v !== undefined && v !== '' && (!Array.isArray(v) || v.length > 0)
   }).length
 
@@ -92,7 +110,13 @@ export function QuizPlayer({ assignment, studentId, onClose, onSubmitted }: Prop
                 >
                   <div className="mb-1 flex items-center gap-1.5 font-semibold" style={{ color: C.ink }}>
                     <span>{a.correct ? '✅' : '❌'}</span>
-                    <span>Câu {i + 1}{q.type !== 'match' ? `: ${q.text}` : ': Ghép cặp'}</span>
+                    <span>
+                      Câu {i + 1}
+                      {q.type === 'match' ? ': Ghép cặp'
+                        : q.type === 'order' ? ': Sắp xếp thứ tự'
+                        : q.type === 'cloze' ? ': Điền đoạn văn'
+                        : `: ${q.text}`}
+                    </span>
                   </div>
                   {!a.correct && a.correctText && (
                     <div className="text-xs" style={{ color: C.muted }}>Đáp án đúng: <b style={{ color: C.ink }}>{a.correctText}</b></div>
@@ -133,7 +157,11 @@ export function QuizPlayer({ assignment, studentId, onClose, onSubmitted }: Prop
           {questions.map((q, i) => (
             <div key={q.id} className="rounded-xl p-3" style={{ background: C.paper }}>
               <div className="mb-2 text-sm font-semibold" style={{ color: C.ink }}>
-                Câu {i + 1}. {q.type !== 'match' ? q.text : 'Ghép các cặp sau'}
+                Câu {i + 1}.{' '}
+                {q.type === 'match' ? 'Ghép các cặp sau'
+                  : q.type === 'order' ? (q.text || 'Sắp xếp các phần theo đúng thứ tự')
+                  : q.type === 'cloze' ? 'Điền vào chỗ trống'
+                  : q.text}
               </div>
 
               {q.type === 'mcq' && (
@@ -207,6 +235,67 @@ export function QuizPlayer({ assignment, studentId, onClose, onSubmitted }: Prop
                   ))}
                 </div>
               )}
+
+              {q.type === 'order' && (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap gap-1.5">
+                    {q.items.map((item, idx) => {
+                      const picks = orderPicks[q.id] ?? []
+                      const pos = picks.indexOf(idx)
+                      const chosen = pos !== -1
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => pickOrderItem(q.id, q.items, idx)}
+                          className="rounded-lg px-3 py-1.5 text-sm font-semibold transition-all"
+                          style={{
+                            background: chosen ? C.board : '#fff',
+                            color: chosen ? '#fff' : C.ink,
+                            border: `1.5px solid ${chosen ? C.board : C.line}`,
+                            opacity: chosen ? 0.55 : 1,
+                          }}
+                        >
+                          {chosen && <span className="mr-1">{pos + 1}.</span>}{item}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div className="text-xs" style={{ color: C.muted }}>
+                    Bấm theo đúng thứ tự — bấm lại vào 1 mảnh để bỏ chọn.
+                  </div>
+                  {(orderPicks[q.id]?.length ?? 0) > 0 && (
+                    <div className="rounded-lg px-3 py-2 text-sm" style={{ background: '#fff', border: `1.5px solid ${C.line}` }}>
+                      {(orderPicks[q.id] ?? []).map((idx) => q.items[idx]).join(' → ')}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {q.type === 'cloze' && (() => {
+                const parts = q.text.split('___')
+                const blankCount = parts.length - 1
+                const vals = (answers[q.id] as string[] | undefined) ?? Array(blankCount).fill('')
+                return (
+                  <div className="flex flex-wrap items-center gap-1 text-sm leading-loose" style={{ color: C.ink }}>
+                    {parts.map((part, pi) => (
+                      <span key={pi} className="contents">
+                        <span>{part}</span>
+                        {pi < blankCount && (
+                          <input
+                            value={vals[pi] ?? ''}
+                            onChange={(e) => {
+                              const next = [...vals]; next[pi] = e.target.value
+                              setAnswer(q.id, next)
+                            }}
+                            className="inline-block w-24 rounded-md px-2 py-1 text-center text-sm"
+                            style={{ border: `1.5px solid ${C.line}`, background: '#fff' }}
+                          />
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                )
+              })()}
             </div>
           ))}
         </div>

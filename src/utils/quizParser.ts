@@ -1,8 +1,8 @@
 import { uid } from './uid'
-import type { Question, McqQuestion, FillQuestion, TrueFalseQuestion, MatchQuestion } from '@/types/quiz'
+import type { Question, McqQuestion, FillQuestion, TrueFalseQuestion, MatchQuestion, OrderQuestion, ClozeQuestion } from '@/types/quiz'
 
 /**
- * Cú pháp rút gọn kiểu YourHomework cho 4 dạng: mcq, fill, truefalse, match.
+ * Cú pháp rút gọn kiểu YourHomework cho 6 dạng: mcq, fill, truefalse, match, order, cloze.
  * Mỗi hàm parse trả về danh sách câu hỏi + lỗi (nếu có) để hiện cho giáo viên sửa.
  */
 
@@ -137,10 +137,64 @@ export function serializeMatch(qs: MatchQuestion[]): string {
   return pairs.map((p) => `${p.left}==${p.right}`).join('\n')
 }
 
+// ── Sắp xếp thứ tự ───────────────────────────────────────────────────────────
+// Mỗi khối (cách nhau 1 dòng trống) = 1 câu, mỗi dòng trong khối = 1 phần
+// theo ĐÚNG thứ tự gốc — hệ thống tự xáo trộn khi hiện cho học sinh.
+// She
+// is
+// reading
+// a book
+export function parseOrder(raw: string): ParseResult<OrderQuestion> {
+  const blocks = raw.split(/\n\s*\n/).map((b) => b.trim()).filter(Boolean)
+  const questions: OrderQuestion[] = []
+  const errors: string[] = []
+
+  blocks.forEach((block, bi) => {
+    const items = block.split('\n').map((l) => l.trim()).filter(Boolean)
+    if (items.length < 2) { errors.push(`Câu ${bi + 1}: cần ít nhất 2 phần để sắp xếp`); return }
+    questions.push({ id: uid(), type: 'order', items })
+  })
+
+  return { questions, errors }
+}
+
+export function serializeOrder(qs: OrderQuestion[]): string {
+  return qs.map((q) => q.items.join('\n')).join('\n\n')
+}
+
+// ── Điền nhiều ô trống trong đoạn văn ────────────────────────────────────────
+// Mỗi khối (cách nhau 1 dòng trống) = 1 đoạn văn, có thể chứa nhiều {{đáp án}}.
+// My name {{is}} Nam. I {{am;'m}} 10 years old.
+export function parseCloze(raw: string): ParseResult<ClozeQuestion> {
+  const blocks = raw.split(/\n\s*\n/).map((b) => b.trim()).filter(Boolean)
+  const questions: ClozeQuestion[] = []
+  const errors: string[] = []
+
+  blocks.forEach((block, bi) => {
+    const matches = [...block.matchAll(/\{\{(.+?)\}\}/g)]
+    if (matches.length === 0) { errors.push(`Đoạn ${bi + 1}: thiếu {{đáp án}}`); return }
+    const blanks = matches.map((m) => m[1].split(';').map((s) => s.trim()).filter(Boolean))
+    if (blanks.some((b) => b.length === 0)) { errors.push(`Đoạn ${bi + 1}: có {{}} trống`); return }
+    const text = block.replace(/\{\{.+?\}\}/g, '___')
+    questions.push({ id: uid(), type: 'cloze', text, blanks })
+  })
+
+  return { questions, errors }
+}
+
+export function serializeCloze(qs: ClozeQuestion[]): string {
+  return qs.map((q) => {
+    let bi = 0
+    return q.text.replace(/___/g, () => `{{${(q.blanks[bi++] ?? []).join(';')}}}`)
+  }).join('\n\n')
+}
+
 // ── Dispatcher chung ─────────────────────────────────────────────────────────
 export function parseQuestions(type: Question['type'], raw: string): ParseResult<Question> {
   if (type === 'mcq') return parseMcq(raw)
   if (type === 'fill') return parseFill(raw)
   if (type === 'truefalse') return parseTrueFalse(raw)
+  if (type === 'order') return parseOrder(raw)
+  if (type === 'cloze') return parseCloze(raw)
   return parseMatch(raw)
 }

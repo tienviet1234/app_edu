@@ -55,7 +55,8 @@ function sanitizeQuestion(q: IQuestion) {
       rightOptions: shuffle(pairs.map((p) => p.right)),
     }
   }
-  return base // fill, truefalse: không có gì cần ẩn ngoài đáp án đúng, đã loại bỏ ở base
+  if (q.type === 'order') return { ...base, items: shuffle(q.items ?? []) }
+  return base // fill, truefalse, cloze: không có gì cần ẩn ngoài đáp án đúng, đã loại bỏ ở base
 }
 
 function sanitizeAssignment<T extends { questions?: IQuestion[] }>(a: T, isTeacher: boolean): T {
