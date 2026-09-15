@@ -5,6 +5,7 @@ import { Btn } from '@/components/atoms/Btn'
 import { assignmentService, type Assignment, type AssignmentStats } from '@/services/assignments'
 import { submissionService, type Submission } from '@/services/submissions'
 import { toast } from '@/store/toastStore'
+import { AssignHomeworkModal } from './AssignHomeworkModal'
 
 interface Props {
   classId: string
@@ -27,10 +28,28 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
   const [score, setScore] = useState('')
   const [saving, setSaving] = useState(false)
   const [loadingVideo, setLoadingVideo] = useState<string | null>(null)
+  const [editingAssignment, setEditingAssignment] = useState<Assignment | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  useEffect(() => {
+  function refreshAssignments() {
     assignmentService.list(classId, sessionId).then(setAssignments).catch(() => toast.error('Không tải được danh sách bài tập'))
-  }, [classId, sessionId])
+  }
+
+  useEffect(refreshAssignments, [classId, sessionId])
+
+  async function handleDeleteAssignment(a: Assignment) {
+    if (!confirm(`Xóa bài tập "${a.title}"? Các bài nộp của học sinh cho bài này vẫn còn nhưng bài tập sẽ không hiện nữa.`)) return
+    setDeletingId(a._id)
+    try {
+      await assignmentService.remove(a._id)
+      if (selectedId === a._id) setSelectedId(null)
+      refreshAssignments()
+    } catch {
+      toast.error('Xóa bài tập thất bại, thử lại.')
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   async function selectAssignment(id: string) {
     setSelectedId(id)
@@ -97,21 +116,52 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
         )}
         <div className="flex flex-wrap gap-2">
           {assignments.map((a) => (
-            <button
+            <div
               key={a._id}
-              onClick={() => selectAssignment(a._id)}
-              className="rounded-xl px-3 py-1.5 text-sm font-semibold transition-all"
-              style={{
-                background: selectedId === a._id ? C.board : C.paper,
-                color: selectedId === a._id ? '#fff' : C.ink,
-                border: `1px solid ${selectedId === a._id ? C.board : C.line}`,
-              }}
+              className="flex items-center overflow-hidden rounded-xl"
+              style={{ border: `1px solid ${selectedId === a._id ? C.board : C.line}` }}
             >
-              {a.title}
-            </button>
+              <button
+                onClick={() => selectAssignment(a._id)}
+                className="px-3 py-1.5 text-sm font-semibold transition-all"
+                style={{
+                  background: selectedId === a._id ? C.board : C.paper,
+                  color: selectedId === a._id ? '#fff' : C.ink,
+                }}
+              >
+                {a.title}
+              </button>
+              <button
+                title="Sửa bài tập"
+                onClick={() => setEditingAssignment(a)}
+                className="px-2 py-1.5 text-xs"
+                style={{ background: '#fff', color: C.board2, borderLeft: `1px solid ${C.line}` }}
+              >
+                ✎
+              </button>
+              <button
+                title="Xóa bài tập"
+                disabled={deletingId === a._id}
+                onClick={() => void handleDeleteAssignment(a)}
+                className="px-2 py-1.5 text-xs disabled:opacity-50"
+                style={{ background: '#fff', color: C.red, borderLeft: `1px solid ${C.line}` }}
+              >
+                🗑
+              </button>
+            </div>
           ))}
         </div>
       </Card>
+
+      {editingAssignment && (
+        <AssignHomeworkModal
+          classId={classId}
+          sessionId={sessionId}
+          editAssignment={editingAssignment}
+          onClose={() => setEditingAssignment(null)}
+          onCreated={() => { setEditingAssignment(null); refreshAssignments() }}
+        />
+      )}
 
       {/* Stats */}
       {selected && stats && (

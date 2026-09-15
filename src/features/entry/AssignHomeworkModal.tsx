@@ -1,31 +1,45 @@
 import { useState } from 'react'
 import { C } from '@/constants/colors'
 import { Btn } from '@/components/atoms/Btn'
-import { assignmentService, type AssignmentSubmitType } from '@/services/assignments'
+import { assignmentService, type Assignment, type AssignmentSubmitType } from '@/services/assignments'
 import { QuestionBuilder } from './QuestionBuilder'
 import { toLocalDatetimeInput } from '@/utils/format'
 import type { Question } from '@/types/quiz'
+
+/** Chặn lưu quiz "câm" — câu chưa có đề bài, mcq chưa tick đáp án đúng,
+ *  fill chưa nhập đáp án, match còn ô trống — học sinh không thể làm đúng. */
+function isQuestionComplete(q: Question): boolean {
+  if (q.type === 'match') return q.pairs.every((p) => p.left.trim() && p.right.trim())
+  if (!q.text.trim()) return false
+  if (q.type === 'mcq') return q.options.every((o) => o.trim()) && q.correctIndexes.length > 0
+  if (q.type === 'fill') return q.acceptedAnswers.some((a) => a.trim())
+  return true // truefalse: luôn có correctAnswer mặc định
+}
 
 interface Props {
   classId: string
   className?: string
   teacherName?: string
   sessionId?: string
+  /** Có giá trị → màn này ở chế độ Sửa (điền sẵn dữ liệu, lưu bằng update) */
+  editAssignment?: Assignment
   onClose: () => void
   onCreated: () => void
 }
 
-export function AssignHomeworkModal({ classId, className, teacherName, sessionId, onClose, onCreated }: Props) {
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
+export function AssignHomeworkModal({ classId, className, teacherName, sessionId, editAssignment, onClose, onCreated }: Props) {
+  const isEdit = !!editAssignment
+  const [title, setTitle] = useState(editAssignment?.title ?? '')
+  const [description, setDescription] = useState(editAssignment?.description ?? '')
   const [dueDate, setDueDate] = useState(() => {
+    if (editAssignment) return toLocalDatetimeInput(new Date(editAssignment.dueDate))
     const d = new Date(); d.setDate(d.getDate() + 7); d.setHours(23, 59, 0, 0)
     return toLocalDatetimeInput(d)
   })
-  const [submitType, setSubmitType] = useState<AssignmentSubmitType>('both')
-  const [scriptText, setScriptText] = useState('')
-  const [maxPhotos, setMaxPhotos] = useState(3)
-  const [questions, setQuestions] = useState<Question[]>([])
+  const [submitType, setSubmitType] = useState<AssignmentSubmitType>(editAssignment?.submitType ?? 'both')
+  const [scriptText, setScriptText] = useState(editAssignment?.scriptText ?? '')
+  const [maxPhotos, setMaxPhotos] = useState(editAssignment?.maxPhotos ?? 3)
+  const [questions, setQuestions] = useState<Question[]>((editAssignment?.questions as Question[]) ?? [])
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
@@ -33,9 +47,13 @@ export function AssignHomeworkModal({ classId, className, teacherName, sessionId
     e.preventDefault()
     if (!title.trim()) { setErr('Vui lòng nhập tiêu đề bài tập'); return }
     if (submitType === 'quiz' && questions.length === 0) { setErr('Vui lòng thêm ít nhất 1 câu hỏi'); return }
+    if (submitType === 'quiz' && questions.some((q) => !isQuestionComplete(q))) {
+      setErr('Có câu hỏi chưa hoàn chỉnh — kiểm tra đề bài/đáp án đúng của từng câu.')
+      return
+    }
     setSaving(true); setErr('')
     try {
-      await assignmentService.create({
+      const payload = {
         classId, sessionId,
         title: title.trim(),
         description: description.trim() || undefined,
@@ -43,12 +61,17 @@ export function AssignHomeworkModal({ classId, className, teacherName, sessionId
         dueDate: new Date(dueDate).toISOString(),
         submitType,
         scriptText: scriptText.trim() || undefined,
-        maxPhotos,
+        maxPhotos: Number.isFinite(maxPhotos) && maxPhotos >= 1 ? maxPhotos : 3,
         questions: submitType === 'quiz' ? questions : undefined,
-      })
+      }
+      if (isEdit) {
+        await assignmentService.update(editAssignment._id, payload)
+      } else {
+        await assignmentService.create(payload)
+      }
       onCreated()
     } catch {
-      setErr('Giao bài thất bại, vui lòng thử lại')
+      setErr(isEdit ? 'Lưu thay đổi thất bại, vui lòng thử lại' : 'Giao bài thất bại, vui lòng thử lại')
     } finally {
       setSaving(false)
     }
@@ -61,7 +84,7 @@ export function AssignHomeworkModal({ classId, className, teacherName, sessionId
         style={{ background: '#fff', boxShadow: '0 20px 48px -8px rgb(0 0 0 / 0.28)', maxHeight: '90vh' }}
       >
         <div className="mb-1 flex items-center justify-between">
-          <h2 className="text-lg font-black" style={{ color: C.ink }}>Giao bài tập</h2>
+          <h2 className="text-lg font-black" style={{ color: C.ink }}>{isEdit ? 'Sửa bài tập' : 'Giao bài tập'}</h2>
           <button onClick={onClose} className="text-xl font-bold" style={{ color: C.muted }}>✕</button>
         </div>
         {(className || teacherName) && (
@@ -113,7 +136,10 @@ export function AssignHomeworkModal({ classId, className, teacherName, sessionId
                 <label className="mb-1 block text-sm font-semibold" style={{ color: C.ink }}>Số ảnh tối đa</label>
                 <input
                   type="number" min={1} max={10} value={maxPhotos}
-                  onChange={(e) => setMaxPhotos(Number(e.target.value))}
+                  onChange={(e) => {
+                    const n = Number(e.target.value)
+                    setMaxPhotos(Number.isFinite(n) ? n : 3)
+                  }}
                   className="w-full rounded-xl px-3 py-2.5 text-sm"
                   style={{ border: `1.5px solid ${C.line}` }}
                 />
@@ -173,7 +199,7 @@ export function AssignHomeworkModal({ classId, className, teacherName, sessionId
               className="flex-1 rounded-xl py-2.5 text-sm font-bold transition-all disabled:opacity-60 hover:brightness-[0.93]"
               style={{ background: C.board, color: '#fff' }}
             >
-              {saving ? 'Đang lưu...' : 'Giao bài'}
+              {saving ? 'Đang lưu...' : isEdit ? 'Lưu thay đổi' : 'Giao bài'}
             </button>
           </div>
         </form>
