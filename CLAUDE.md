@@ -16,9 +16,11 @@ npm run build              # frontend — tsc -b && vite build
 cd server && npm run build # backend — tsc -p tsconfig.json
 cd server && npm run dev   # backend dev — tsx watch
 npm run dev                # frontend dev — vite
+npm run test                # frontend — chạy test Vitest 1 lần (business logic, vd business/scoring.ts)
+npm run test:watch          # frontend — chạy test theo dõi khi sửa code
 ```
 
-Luôn build cả 2 phía sau khi sửa code trước khi báo cáo hoàn thành.
+Luôn build cả 2 phía sau khi sửa code trước khi báo cáo hoàn thành. Nếu sửa `src/business/` (tính điểm, xếp hạng...), chạy thêm `npm run test`.
 
 ## Skill có sẵn
 
