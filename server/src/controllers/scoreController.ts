@@ -3,10 +3,17 @@ import { Types } from 'mongoose'
 import { Score } from '../models/Score.js'
 import { Class } from '../models/Class.js'
 import { ClassSession } from '../models/ClassSession.js'
+import { User } from '../models/User.js'
 import { badRequest, created, forbidden, notFound, ok } from '../utils/response.js'
 import { paginate } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit } from '../services/auditService.js'
+
+/** Giáo viên chỉ được đọc/ghi điểm của lớp MÌNH dạy — admin qua hết. */
+async function assertTeacherOwnsClass(userId: string, classId: Types.ObjectId | string): Promise<boolean> {
+  const cls = await Class.findById(classId, 'teacherId').lean()
+  return !!cls?.teacherId && new Types.ObjectId(userId).equals(cls.teacherId as Types.ObjectId)
+}
 
 /**
  * GET /api/scores?sessionId=x         → all scores for a session (entry screen load)
@@ -59,11 +66,32 @@ export async function listScores(req: Request, res: Response): Promise<void> {
 }
 
 export async function getScore(req: Request, res: Response): Promise<void> {
+  const authReq = req as AuthRequest
+  const { role } = authReq.user!
+  const userId = authReq.userId!
+
   const score = await Score.findById(req.params.id)
   if (!score) {
     notFound(res, 'Score not found.')
     return
   }
+
+  if (role !== 'admin') {
+    let allowed = false
+    if (role === 'student') {
+      allowed = String(score.studentId) === String(userId)
+    } else if (role === 'parent') {
+      const parent = await User.findById(userId, 'childIds').lean()
+      allowed = (parent?.childIds ?? []).some((id) => String(id) === String(score.studentId))
+    } else if (role === 'teacher') {
+      allowed = await assertTeacherOwnsClass(userId, score.classId)
+    }
+    if (!allowed) {
+      forbidden(res, 'Bạn không có quyền xem điểm này.')
+      return
+    }
+  }
+
   ok(res, score)
 }
 
@@ -74,10 +102,18 @@ export async function getScore(req: Request, res: Response): Promise<void> {
  */
 export async function upsertScore(req: Request, res: Response): Promise<void> {
   const authReq = req as AuthRequest
-  const { sessionId, studentId, ...rest } = req.body as {
+  const { role } = authReq.user!
+  const userId = authReq.userId!
+  const { sessionId, studentId, classId, ...rest } = req.body as {
     sessionId: string
     studentId: string
+    classId: string
     [key: string]: unknown
+  }
+
+  if (role !== 'admin' && !(await assertTeacherOwnsClass(userId, classId))) {
+    forbidden(res, 'Bạn chỉ có thể chấm điểm cho lớp mình dạy.')
+    return
   }
 
   // Bảo vệ tính nhất quán: nếu session đã được gắn cho 1 học sinh cụ thể
@@ -98,6 +134,7 @@ export async function upsertScore(req: Request, res: Response): Promise<void> {
       ...rest,
       sessionId: new Types.ObjectId(sessionId),
       studentId: new Types.ObjectId(studentId),
+      classId: new Types.ObjectId(classId),
       recordedBy: new Types.ObjectId(authReq.userId),
     },
     { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true },

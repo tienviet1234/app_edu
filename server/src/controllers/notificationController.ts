@@ -2,10 +2,33 @@ import type { Request, Response } from 'express'
 import { Types } from 'mongoose'
 import { Notification } from '../models/Notification.js'
 import { Class } from '../models/Class.js'
-import { created, notFound, ok, badRequest } from '../utils/response.js'
+import { User } from '../models/User.js'
+import { created, notFound, ok, badRequest, forbidden } from '../utils/response.js'
 import { paginate } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { sendPushToUser } from '../services/pushService.js'
+
+/** Giáo viên chỉ được gửi thông báo cho học sinh trong lớp mình dạy, hoặc
+ *  phụ huynh của học sinh đó — không cho gửi tới người dùng bất kỳ. Admin
+ *  qua hết. */
+async function assertCanNotifyRecipient(authReq: AuthRequest, recipientId: string): Promise<boolean> {
+  if (authReq.user?.role === 'admin') return true
+  const ownClasses = await Class.find({ teacherId: authReq.userId }, 'studentIds').lean()
+  const studentIds = new Set(ownClasses.flatMap((c) => c.studentIds.map((id) => String(id))))
+  if (studentIds.has(recipientId)) return true
+  const recipient = await User.findById(recipientId, 'role childIds').lean()
+  if (recipient?.role === 'parent') {
+    return (recipient.childIds ?? []).some((id) => studentIds.has(String(id)))
+  }
+  return false
+}
+
+/** Giáo viên chỉ được thao tác trên lớp MÌNH dạy — admin qua hết. */
+async function assertTeacherOwnsClass(authReq: AuthRequest, classId: Types.ObjectId | string): Promise<boolean> {
+  if (authReq.user?.role === 'admin') return true
+  const cls = await Class.findById(classId, 'teacherId').lean()
+  return !!cls?.teacherId && String(cls.teacherId) === String(authReq.userId)
+}
 
 export async function listNotifications(req: Request, res: Response): Promise<void> {
   const authReq = req as AuthRequest
@@ -18,6 +41,10 @@ export async function listNotifications(req: Request, res: Response): Promise<vo
 
 export async function createNotification(req: Request, res: Response): Promise<void> {
   const authReq = req as AuthRequest
+  if (!(await assertCanNotifyRecipient(authReq, String(req.body.recipientId)))) {
+    forbidden(res, 'Bạn chỉ có thể gửi thông báo cho học sinh/phụ huynh trong lớp mình dạy.')
+    return
+  }
   const notification = await Notification.create({
     ...req.body,
     createdBy: new Types.ObjectId(authReq.userId),
@@ -68,6 +95,10 @@ export async function broadcastToClass(req: Request, res: Response): Promise<voi
   const authReq = req as AuthRequest
   const { classId, title, body, type } = req.body as {
     classId: string; title: string; body: string; type: string
+  }
+  if (!(await assertTeacherOwnsClass(authReq, classId))) {
+    forbidden(res, 'Bạn chỉ có thể gửi thông báo cho lớp mình dạy.')
+    return
   }
   const cls = await Class.findById(classId).select('studentIds centerId')
   if (!cls) { notFound(res, 'Lớp học không tồn tại.'); return }

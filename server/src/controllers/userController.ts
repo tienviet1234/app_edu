@@ -21,7 +21,23 @@ export function listUsersByRole(role: UserRole) {
 
 export function getUserByRole(role: UserRole) {
   return async (req: Request, res: Response): Promise<void> => {
-    const user = await User.findOne({ _id: new Types.ObjectId(String(req.params.id)), role })
+    const authReq = req as AuthRequest
+    const targetId = String(req.params.id)
+
+    // Hồ sơ học sinh chứa dữ liệu trẻ em — giáo viên chỉ tra cứu được học
+    // sinh trong lớp mình dạy (khớp nguyên tắc đã áp dụng cho PATCH
+    // /students/:id). Tra cứu giáo viên/phụ huynh khác (đồng nghiệp trong
+    // cùng trung tâm) giữ nguyên không giới hạn — không phải dữ liệu nhạy
+    // cảm tương đương.
+    if (role === 'student' && authReq.user?.role !== 'admin') {
+      const cls = await Class.findOne({ teacherId: authReq.userId, studentIds: targetId }, '_id').lean()
+      if (!cls) {
+        forbidden(res, 'Bạn chỉ có thể tra cứu học sinh trong lớp mình dạy.')
+        return
+      }
+    }
+
+    const user = await User.findOne({ _id: new Types.ObjectId(targetId), role })
     if (!user) {
       notFound(res, `${role} not found.`)
       return

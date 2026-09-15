@@ -4,8 +4,10 @@ import { z } from 'zod'
 import { User } from '../models/User.js'
 import { Class } from '../models/Class.js'
 import { Score } from '../models/Score.js'
+import { Notification } from '../models/Notification.js'
 import { badRequest, notFound, ok } from '../utils/response.js'
 import type { AuthRequest } from '../middleware/auth.js'
+import { sendPushToUser } from '../services/pushService.js'
 
 const linkSchema = z.object({
   email: z.string().email().toLowerCase().trim(),
@@ -26,7 +28,26 @@ export async function linkChild(req: Request, res: Response): Promise<void> {
     return
   }
 
-  await User.findByIdAndUpdate(authReq.userId, { $addToSet: { childIds: child._id } })
+  const parent = await User.findByIdAndUpdate(
+    authReq.userId,
+    { $addToSet: { childIds: child._id } },
+    { new: true },
+  ).select('name email')
+
+  // Chưa có luồng phê duyệt — bất kỳ ai biết đúng email học sinh đều liên
+  // kết được ngay. Trong lúc chờ làm luồng phê duyệt đầy đủ, báo cho học
+  // sinh biết ngay để họ tự phát hiện liên kết lạ/sai và báo giáo viên.
+  const title = 'Có phụ huynh mới liên kết với tài khoản của bạn'
+  const body = `${parent?.name ?? 'Một tài khoản'} (${parent?.email ?? ''}) vừa liên kết làm phụ huynh của bạn. Nếu đây không phải người thân của bạn, hãy báo ngay cho giáo viên.`
+  await Notification.create({
+    recipientId: child._id,
+    title,
+    body,
+    type: 'system',
+    createdBy: authReq.userId,
+  })
+  void sendPushToUser(String(child._id), { title, body, tag: `parent-link-${authReq.userId}`, url: '/app' })
+
   ok(res, { id: String(child._id), name: child.name, email: child.email, avatar: child.avatar })
 }
 
