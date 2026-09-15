@@ -27,6 +27,7 @@ export interface AnalyticsOverview {
     reports: number
   }
   attendance: Array<{ status: string; count: number }>
+  storage: { dataSizeBytes: number; indexSizeBytes: number; totalSizeBytes: number } | null
 }
 
 export interface InviteToken {

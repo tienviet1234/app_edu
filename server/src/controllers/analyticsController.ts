@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express'
-import { Types } from 'mongoose'
+import mongoose, { Types } from 'mongoose'
 import { Attendance } from '../models/Attendance.js'
 import { Class } from '../models/Class.js'
 import { ClassSession } from '../models/ClassSession.js'
@@ -31,9 +31,25 @@ export async function getAnalyticsOverview(_req: Request, res: Response): Promis
     ]),
   ])
 
+  // Dung lượng MongoDB đang dùng — để admin theo dõi trước khi chạm giới hạn
+  // gói (VD Atlas M0 free giới hạn 512MB). db.stats() không tính qua model
+  // nào, đọc thẳng thống kê thật của cả database.
+  let storage: { dataSizeBytes: number; indexSizeBytes: number; totalSizeBytes: number } | null = null
+  try {
+    const stats = await mongoose.connection.db?.stats()
+    if (stats) {
+      storage = {
+        dataSizeBytes: stats.dataSize ?? 0,
+        indexSizeBytes: stats.indexSize ?? 0,
+        totalSizeBytes: (stats.dataSize ?? 0) + (stats.indexSize ?? 0),
+      }
+    }
+  } catch { /* không chặn phần còn lại của overview nếu lệnh stats lỗi */ }
+
   ok(res, {
     totals: { courses, teachers, students, parents, sessions, reports },
     attendance: attendanceStats,
+    storage,
   })
 }
 

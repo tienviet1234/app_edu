@@ -20,8 +20,12 @@ export function AdminDashboard() {
   if (isLoading) return <Skeleton />
   if (isError || !data) return <Err />
 
-  const { totals, attendance } = data
+  const { totals, attendance, storage } = data
   const totalAttend = attendance.reduce((a, b) => a + b.count, 0)
+  const storageMB = storage ? storage.totalSizeBytes / 1024 / 1024 : null
+  // Atlas M0 (free) giới hạn 512MB — mốc tham khảo phổ biến nhất, không giả
+  // định đây chắc chắn là gói đang dùng.
+  const storagePct = storageMB !== null ? Math.min(100, (storageMB / 512) * 100) : null
 
   const TILES = [
     { label: 'Giáo viên', value: totals.teachers, icon: '👩‍🏫' },
@@ -55,6 +59,32 @@ export function AdminDashboard() {
           </Card>
         ))}
       </div>
+
+      {/* Storage usage */}
+      {storageMB !== null && storagePct !== null && (
+        <Card className="p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-sm font-bold" style={{ color: C.muted }}>DUNG LƯỢNG MONGODB</div>
+            <div className="text-xs font-semibold tabular-nums" style={{ color: C.ink }}>
+              {storageMB.toFixed(1)} MB
+            </div>
+          </div>
+          <div className="h-2.5 rounded-full overflow-hidden" style={{ background: C.line }}>
+            <div
+              className="h-full rounded-full transition-all"
+              style={{
+                width: `${storagePct}%`,
+                background: storagePct >= 90 ? C.red : storagePct >= 70 ? C.gold : C.board2,
+              }}
+            />
+          </div>
+          <div className="mt-1.5 text-xs" style={{ color: C.muted }}>
+            {storagePct >= 90
+              ? '⚠ Sắp chạm giới hạn — cân nhắc nâng cấp gói MongoDB Atlas sớm.'
+              : `Tham khảo mốc gói miễn phí Atlas M0 (512MB) — kiểm tra lại gói thật đang dùng nếu cần chính xác.`}
+          </div>
+        </Card>
+      )}
 
       {/* Attendance breakdown */}
       {totalAttend > 0 && (
