@@ -95,6 +95,7 @@ export function QuestionBuilder({ questions, onChange }: Props) {
       {/* Hướng dẫn cách nhập câu hỏi */}
       <div className="rounded-xl" style={{ border: `1px solid ${C.board}30`, background: C.board + '08' }}>
         <button
+          type="button"
           onClick={() => setShowGuide((s) => !s)}
           className="flex w-full items-center gap-1.5 px-3 py-2 text-xs font-bold"
           style={{ color: C.board }}
@@ -123,7 +124,7 @@ export function QuestionBuilder({ questions, onChange }: Props) {
             <span className="text-xs font-bold uppercase" style={{ color: C.board }}>
               Câu {i + 1} · {TYPE_LABELS[q.type]}
             </span>
-            <button onClick={() => remove(q.id)} className="text-xs font-bold" style={{ color: C.red }}>Xóa</button>
+            <button type="button" onClick={() => remove(q.id)} className="text-xs font-bold" style={{ color: C.red }}>Xóa</button>
           </div>
 
           {q.type === 'mcq' && (
@@ -160,6 +161,7 @@ export function QuestionBuilder({ questions, onChange }: Props) {
                   />
                   {q.options.length > 2 && (
                     <button
+                      type="button"
                       onClick={() => update(q.id, (cur) => {
                         const c = cur as McqQuestion
                         return { ...c, options: c.options.filter((_, x) => x !== oi), correctIndexes: c.correctIndexes.filter((x) => x !== oi).map((x) => x > oi ? x - 1 : x) }
@@ -171,6 +173,7 @@ export function QuestionBuilder({ questions, onChange }: Props) {
               ))}
               {q.options.length < 6 && (
                 <button
+                  type="button"
                   onClick={() => update(q.id, (cur) => ({ ...(cur as McqQuestion), options: [...(cur as McqQuestion).options, ''] }))}
                   className="text-xs font-semibold" style={{ color: C.board2 }}
                 >+ Thêm lựa chọn</button>
@@ -210,6 +213,7 @@ export function QuestionBuilder({ questions, onChange }: Props) {
                 {[true, false].map((v) => (
                   <button
                     key={String(v)}
+                    type="button"
                     onClick={() => update(q.id, (cur) => ({ ...(cur as TrueFalseQuestion), correctAnswer: v }))}
                     className="rounded-lg px-3 py-1 text-xs font-bold"
                     style={{
@@ -254,6 +258,7 @@ export function QuestionBuilder({ questions, onChange }: Props) {
                   />
                   {q.pairs.length > 2 && (
                     <button
+                      type="button"
                       onClick={() => update(q.id, (cur) => ({ ...(cur as MatchQuestion), pairs: (cur as MatchQuestion).pairs.filter((_, x) => x !== pi) }))}
                       className="text-xs" style={{ color: C.muted }}
                     >✕</button>
@@ -261,6 +266,7 @@ export function QuestionBuilder({ questions, onChange }: Props) {
                 </div>
               ))}
               <button
+                type="button"
                 onClick={() => update(q.id, (cur) => ({ ...(cur as MatchQuestion), pairs: [...(cur as MatchQuestion).pairs, { left: '', right: '' }] }))}
                 className="text-xs font-semibold" style={{ color: C.board2 }}
               >+ Thêm cặp</button>
@@ -278,6 +284,7 @@ export function QuestionBuilder({ questions, onChange }: Props) {
           {(Object.keys(TYPE_LABELS) as QuestionType[]).map((t) => (
             <button
               key={t}
+              type="button"
               onClick={() => add(t)}
               className="rounded-lg px-3 py-1.5 text-xs font-bold transition-all hover:brightness-[0.93]"
               style={{ background: C.board, color: '#fff' }}
@@ -291,6 +298,7 @@ export function QuestionBuilder({ questions, onChange }: Props) {
       {/* Chế độ dán cú pháp */}
       <div>
         <button
+          type="button"
           onClick={() => setShowPaste((s) => !s)}
           className="text-xs font-semibold" style={{ color: C.muted }}
         >
@@ -302,6 +310,7 @@ export function QuestionBuilder({ questions, onChange }: Props) {
               {(Object.keys(TYPE_LABELS) as QuestionType[]).map((t) => (
                 <button
                   key={t}
+                  type="button"
                   onClick={() => { setPasteType(t); setPasteErrors([]) }}
                   className="rounded-lg px-2.5 py-1 text-xs font-semibold"
                   style={{
@@ -328,6 +337,7 @@ export function QuestionBuilder({ questions, onChange }: Props) {
               </div>
             )}
             <button
+              type="button"
               onClick={handleParsePaste}
               disabled={!pasteText.trim()}
               className="rounded-lg px-3 py-1.5 text-xs font-bold disabled:opacity-50"

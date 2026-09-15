@@ -12,6 +12,11 @@ interface BtnProps {
   className?: string
   title?: string
   disabled?: boolean
+  /** Mặc định 'button' — Btn không phải lúc nào cũng là nút submit thật của
+   *  form, nhưng nếu không khai báo, trình duyệt tự coi mọi <button> trong
+   *  <form> là type="submit" và kích hoạt gửi form khi bấm nhầm. Chỉ truyền
+   *  'submit' khi đây thực sự là nút submit của form. */
+  type?: 'button' | 'submit'
 }
 
 const STYLES: Record<BtnKind, React.CSSProperties> = {
@@ -61,10 +66,11 @@ const SIZE_CLASS: Record<BtnSize, string> = {
 
 export function Btn({
   children, onClick, kind = 'ghost', size = 'md', loading = false,
-  className = '', title, disabled,
+  className = '', title, disabled, type = 'button',
 }: BtnProps) {
   return (
     <button
+      type={type}
       onClick={onClick}
       title={title}
       disabled={disabled || loading}
