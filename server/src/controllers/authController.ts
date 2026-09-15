@@ -272,11 +272,11 @@ export async function forgotPassword(req: Request, res: Response): Promise<void>
       return
     }
     const { email } = parsed.data
-    console.log(`[FORGOT] Request for: ${email}`)
 
-    // Always return success to prevent user enumeration
+    // Always return success to prevent user enumeration — không log email/
+    // kết quả tồn tại tài khoản ra server log vì đó cũng là 1 kênh lộ thông
+    // tin enumeration khác (log aggregator, Render dashboard...).
     const user = await User.findOne({ email })
-    console.log(`[FORGOT] User found: ${!!user}`)
     if (user) {
       // Invalidate previous OTPs for this email
       await OtpToken.deleteMany({ email, purpose: 'reset_password' })
@@ -366,9 +366,20 @@ export async function resetPassword(req: Request, res: Response): Promise<void> 
       return
     }
 
+    // Chặn brute-force dò mã OTP — cùng giới hạn 5 lần như verifyOtp. Trước
+    // đây thiếu hẳn bước này, cho phép dò mã OTP 6 chữ số không giới hạn số
+    // lần thử ngay tại endpoint đặt mật khẩu mới (bỏ qua verify-otp).
+    if (record.attempts >= 5) {
+      await record.deleteOne()
+      badRequest(res, 'Quá nhiều lần thử. Vui lòng yêu cầu mã OTP mới.')
+      return
+    }
+
     const valid = await record.compareOtp(otp)
     if (!valid) {
-      badRequest(res, 'Mã OTP không đúng.')
+      record.attempts += 1
+      await record.save()
+      badRequest(res, `Mã OTP không đúng. Còn ${5 - record.attempts} lần thử.`)
       return
     }
 

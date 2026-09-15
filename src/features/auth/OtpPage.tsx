@@ -7,13 +7,31 @@ import { AuthLayout, ErrorBanner, SubmitBtn } from './AuthLayout'
 const OTP_LENGTH = 6
 
 export function OtpPage() {
-  const { verifyOtp, isLoading, error, clearError } = useAuthStore()
+  const { verifyOtp, forgotPassword, isLoading, error, clearError } = useAuthStore()
   const navigate = useNavigate()
   const location = useLocation()
   const email = (location.state as { email?: string })?.email ?? ''
   const [digits, setDigits] = useState<string[]>(Array(OTP_LENGTH).fill(''))
   const refs = useRef<Array<HTMLInputElement | null>>(Array(OTP_LENGTH).fill(null))
   const [resendCountdown, setResendCountdown] = useState(60)
+  const [resending, setResending] = useState(false)
+  const [resendMsg, setResendMsg] = useState('')
+
+  async function handleResend() {
+    if (resending) return
+    setResending(true)
+    setResendMsg('')
+    try {
+      await forgotPassword({ email })
+      setResendCountdown(60)
+      setDigits(Array(OTP_LENGTH).fill(''))
+      setResendMsg('Đã gửi mã OTP mới.')
+    } catch {
+      setResendMsg('Gửi lại thất bại, thử lại sau.')
+    } finally {
+      setResending(false)
+    }
+  }
 
   useEffect(() => {
     if (resendCountdown <= 0) return
@@ -96,16 +114,15 @@ export function OtpPage() {
           ) : (
             <button
               type="button"
-              className="font-bold"
+              className="font-bold disabled:opacity-50"
               style={{ color: C.board }}
-              onClick={() => {
-                setResendCountdown(60)
-                setDigits(Array(OTP_LENGTH).fill(''))
-              }}
+              disabled={resending}
+              onClick={() => void handleResend()}
             >
-              Gửi lại mã OTP
+              {resending ? 'Đang gửi...' : 'Gửi lại mã OTP'}
             </button>
           )}
+          {resendMsg && <div className="mt-1">{resendMsg}</div>}
         </div>
 
         <div className="text-center text-sm" style={{ color: C.muted }}>

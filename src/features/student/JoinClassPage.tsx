@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { classService } from '@/services/classes'
 import { useAuthStore } from '@/store/authStore'
 import { C } from '@/constants/colors'
@@ -13,6 +14,7 @@ export function JoinClassPage() {
   const [success, setSuccess] = useState('')
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
+  const qc = useQueryClient()
 
   async function handleJoin() {
     const trimmed = code.trim().toUpperCase()
@@ -30,6 +32,10 @@ export function JoinClassPage() {
         setSuccess(`Tham gia lớp "${result.className}" thành công! Giáo viên sẽ thấy bạn trong danh sách.`)
       }
       setCode('')
+      // Danh sách lớp ở trang chính (StudentPortalScreen) cache 30s và không
+      // tự refetch khi quay lại từ route riêng này — không làm mới cache thì
+      // lớp vừa tham gia sẽ không hiện ra cho tới khi cache hết hạn.
+      void qc.invalidateQueries({ queryKey: ['student-portal'] })
     } catch {
       setError('Mã lớp không đúng hoặc lớp không tồn tại. Hãy hỏi lại giáo viên.')
     } finally {
