@@ -132,6 +132,7 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
   }
 
   function handleDateChange(row: DetailRow, newDate: string) {
+    const oldDate = row.date
     update((c) => {
       const s = c.students.find((y) => y.id === row.studentId)
       const ss = s?.sessions.find((y) => y.id === row.sessionId)
@@ -140,7 +141,14 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
     if (isMongoid(row.sessionId)) {
       sessionService
         .update(row.sessionId, { scheduledAt: `${newDate}T00:00:00.000Z` })
-        .catch(() => toast.error(`Lỗi khi lưu ngày mới của Buổi ${row.no} (${row.studentName}) lên server`, { persist: true }))
+        .catch(() => {
+          toast.error(`Lỗi khi lưu ngày mới của Buổi ${row.no} (${row.studentName}) lên server — đã khôi phục ngày cũ`, { persist: true })
+          update((c) => {
+            const s = c.students.find((y) => y.id === row.studentId)
+            const ss = s?.sessions.find((y) => y.id === row.sessionId)
+            if (ss) ss.date = oldDate
+          })
+        })
     }
   }
 
@@ -158,8 +166,11 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
     update((c) => {
       const s = c.students.find((y) => y.id === row.studentId)
       if (!s) return
+      // Không đánh lại số buổi còn lại — "Buổi N" là do giáo viên CHỌN, không
+      // tự tăng theo thứ tự (xem EntryScreen.tsx findOrCreateSession). Đánh
+      // lại số ở đây chỉ đổi cục bộ, không đồng bộ lessonNo lên server, nên
+      // sẽ lệch dữ liệu thật ngay khi tải lại/đổi thiết bị.
       s.sessions = s.sessions.filter((y) => y.id !== row.sessionId)
-      s.sessions.forEach((y, idx) => { y.no = idx + 1 })
     })
   }
 

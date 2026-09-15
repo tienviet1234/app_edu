@@ -105,9 +105,9 @@ ${sessionRows.map(({ no, date, attended, total, entry, sessIdx: _ }) => {
 <td>${sessionLabel(no, cls.perMonth)}</td>
 <td>${viDate(date)}</td>
 <td class="num">${attendLabel}</td>
-${r.comps.map(() => {
+${r.comps.map((c) => {
   if (!entry || !attended) return '<td class="num">—</td>'
-  return '<td class="num">—</td>'
+  return `<td class="num">${compScore(c, entry)}</td>`
 }).join('')}
 <td class="num bold">${total !== null && total !== undefined ? total : '—'}</td>
 </tr>`
