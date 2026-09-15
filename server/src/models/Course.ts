@@ -4,7 +4,7 @@ export type CourseLevel = 'primary' | 'secondary' | 'high' | 'adult'
 
 export interface ICourse extends Document {
   _id: Types.ObjectId
-  centerId: Types.ObjectId
+  centerId?: Types.ObjectId
   name: string
   code?: string
   description?: string
@@ -20,7 +20,7 @@ export interface ICourse extends Document {
 
 const courseSchema = new Schema<ICourse>(
   {
-    centerId: { type: Schema.Types.ObjectId, ref: 'Center', required: true, index: true },
+    centerId: { type: Schema.Types.ObjectId, ref: 'Center', index: true },
     name: { type: String, required: true, trim: true, maxlength: 160 },
     code: { type: String, trim: true, uppercase: true, maxlength: 40, index: true },
     description: { type: String, trim: true, maxlength: 2000 },

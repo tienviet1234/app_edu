@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { adminService, type ApiUser, type InviteToken } from '@/services/admin'
 import { C } from '@/constants/colors'
+import { toast } from '@/store/toastStore'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 
@@ -64,11 +65,13 @@ function InvitePanel() {
       setNote('')
       void qc.invalidateQueries({ queryKey: ['admin', 'invites'] })
     },
+    onError: () => toast.error('Tạo mã mời thất bại, thử lại.'),
   })
 
   const { mutate: revokeInvite, isPending: isRevoking } = useMutation({
     mutationFn: (id: string) => adminService.revokeInvite(id),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'invites'] }),
+    onError: () => toast.error('Thu hồi mã mời thất bại, thử lại.'),
   })
 
   function copyCode(code: string, id: string) {
@@ -257,6 +260,7 @@ export function UsersPage() {
       void qc.invalidateQueries({ queryKey: ['admin', 'users'] })
       setEditing(null)
     },
+    onError: () => toast.error('Lưu thay đổi thất bại, thử lại.'),
   })
 
   const handleSearch = useCallback((v: string) => {

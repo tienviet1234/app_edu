@@ -3,7 +3,7 @@ import { objectIdSchema, optionalDateSchema, requiredDateSchema } from './common
 
 // ─── Course ───────────────────────────────────────────────────────────────────
 export const courseBodySchema = z.object({
-  centerId: objectIdSchema,
+  centerId: objectIdSchema.optional(),
   name: z.string().min(2).max(160),
   code: z.string().max(40).optional(),
   description: z.string().max(2000).optional(),
@@ -31,7 +31,7 @@ export const classBodySchema = z.object({
   name: z.string().min(2).max(160),
   academicYear: z.string().min(4).max(20).optional(),
   semester: z.string().max(40).optional(),
-  teacherId: objectIdSchema.optional(),
+  teacherId: objectIdSchema.nullable().optional(),
   assistantTeacherIds: z.array(objectIdSchema).default([]),
   studentIds: z.array(objectIdSchema).default([]),
   schedule: z.array(scheduleSlotSchema).default([]),

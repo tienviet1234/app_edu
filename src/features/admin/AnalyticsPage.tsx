@@ -5,8 +5,19 @@ import {
   ResponsiveContainer, Legend,
 } from 'recharts'
 import { adminService } from '@/services/admin'
+import { classService } from '@/services/classes'
 import { C } from '@/constants/colors'
 import { Card } from '@/components/atoms/Card'
+
+/** Danh sách lớp dùng cho các bộ lọc theo lớp trong trang này */
+function useClassOptions() {
+  const { data } = useQuery({
+    queryKey: ['admin', 'classes', 'analytics-filter'],
+    queryFn: () => classService.list({ limit: '100' }),
+    staleTime: 60_000,
+  })
+  return data?.items ?? []
+}
 
 type Tab = 'attendance' | 'heatmap' | 'teachers'
 
@@ -27,8 +38,9 @@ function scoreTextColor(v: number | null): string {
 
 // ── Tab: Xu hướng điểm danh ──────────────────────────────────────────────────
 function AttendanceTrendTab() {
-  const [classId] = useState('')
+  const [classId, setClassId] = useState('')
   const [limit, setLimit] = useState('20')
+  const classOptions = useClassOptions()
 
   const params: Record<string, string> = { limit }
   if (classId) params.classId = classId
@@ -50,6 +62,20 @@ function AttendanceTrendTab() {
     <div className="space-y-4">
       {/* Filters */}
       <Card className="p-3 flex flex-wrap gap-3 items-center">
+        <div className="flex items-center gap-2 text-sm">
+          <span style={{ color: C.muted }}>Lớp:</span>
+          <select
+            value={classId}
+            onChange={(e) => setClassId(e.target.value)}
+            className="rounded-xl px-3 py-1.5"
+            style={{ border: `1px solid ${C.line}` }}
+          >
+            <option value="">Tất cả các lớp</option>
+            {classOptions.map((c) => (
+              <option key={c._id} value={c._id}>{c.name}</option>
+            ))}
+          </select>
+        </div>
         <div className="flex items-center gap-2 text-sm">
           <span style={{ color: C.muted }}>Buổi gần nhất:</span>
           <select
@@ -193,6 +219,7 @@ function AttendanceTrendTab() {
 // ── Tab: Score Heatmap ────────────────────────────────────────────────────────
 function ScoreHeatmapTab() {
   const [classId, setClassId] = useState('')
+  const classOptions = useClassOptions()
 
   const { data: heatmap, isLoading } = useQuery({
     queryKey: ['analytics', 'score-heatmap', classId],
@@ -205,14 +232,17 @@ function ScoreHeatmapTab() {
     <div className="space-y-4">
       <Card className="p-3 flex flex-wrap gap-3 items-center">
         <span className="text-sm" style={{ color: C.muted }}>Chọn lớp:</span>
-        <input
-          type="text"
+        <select
           value={classId}
-          onChange={(e) => setClassId(e.target.value.trim())}
-          placeholder="Dán Class ID vào đây..."
-          className="flex-1 min-w-0 rounded-xl px-3 py-1.5 text-sm font-mono"
+          onChange={(e) => setClassId(e.target.value)}
+          className="flex-1 min-w-0 rounded-xl px-3 py-1.5 text-sm"
           style={{ border: `1px solid ${C.line}` }}
-        />
+        >
+          <option value="">— Chọn lớp —</option>
+          {classOptions.map((c) => (
+            <option key={c._id} value={c._id}>{c.name}</option>
+          ))}
+        </select>
       </Card>
 
       {!classId ? (

@@ -23,7 +23,7 @@ export async function listClasses(req: Request, res: Response): Promise<void> {
   }
   const { page, limit, skip, sort } = parsePagination(req.query)
   const [items, total] = await Promise.all([
-    Class.find(filter).sort(sort).skip(skip).limit(limit).populate('teacherId', 'name email'),
+    Class.find(filter).sort(sort).skip(skip).limit(limit).populate('teacherId', 'name email').populate('studentIds', 'name'),
     Class.countDocuments(filter),
   ])
   ok(res, { items, total, page, totalPages: Math.max(1, Math.ceil(total / limit)) })
