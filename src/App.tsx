@@ -15,8 +15,12 @@ import { useAuthStore } from '@/store/authStore'
 import { useClasses, useClassStudents, useSessions, useClassScores, usePwaInstall } from '@/hooks'
 import { isMongoid } from '@/utils/mongoid'
 import { emptyEntry } from '@/business/seed'
-import { autoLevel } from '@/constants/rubrics'
-import type { AppData, SessionEntry } from '@/types'
+import { autoLevel, getClassRubric } from '@/constants/rubrics'
+import { rescaleComp, sessionScore } from '@/business/scoring'
+import { sessionService } from '@/services/sessions'
+import { scoreService } from '@/services/scores'
+import { toast } from '@/store/toastStore'
+import type { AppData, ClassData, SessionEntry } from '@/types'
 
 // Các màn theo tab tách thành chunk riêng, chỉ tải khi thực sự mở tab đó —
 // trước đây tất cả (kể cả recharts ở Dashboard/Report/Leaderboard, xlsx ở
@@ -76,6 +80,78 @@ const ALL_TABS = [
   { key: 'notifications', label: 'Thông báo', icon: '🔔', roles: ['teacher', 'admin', 'student'] },
   { key: 'my-child', label: 'Con tôi', icon: '👶', roles: ['parent'] },
 ]
+
+/** Tự động đẩy lên server các buổi học đã chấm điểm nhưng còn "kẹt lại"
+ *  trên máy này (tạo cục bộ, chưa từng gửi lên server — do đổi buổi/học
+ *  sinh quá nhanh trước khi kịp lưu, mất mạng giữa chừng, hoặc đóng tab
+ *  đột ngột). Trước đây phải tự bấm nút "☁ Đồng bộ điểm cũ" ở màn Nhập
+ *  điểm mới đẩy lên; giờ chạy 1 lần ngay khi mở app, không cần biết để
+ *  bấm — tránh hiểu nhầm dữ liệu đã an toàn chỉ vì thấy chữ "Đã lưu" (đó
+ *  là lưu vào TRÌNH DUYỆT, không phải lên server). */
+async function autoSyncStrandedScores(
+  classes: ClassData[],
+  setData: (fn: (d: AppData) => void) => void,
+) {
+  interface Job {
+    classId: string
+    studentId: string
+    sessionLocalId: string
+    no: number
+    date: string
+    entry: SessionEntry
+    total: number
+  }
+  const jobs: Job[] = []
+  classes.forEach((c) => {
+    if (!isMongoid(c.id)) return
+    const r = getClassRubric(c)
+    c.students.forEach((stu) => {
+      if (!isMongoid(stu.id)) return
+      stu.sessions.forEach((s) => {
+        if (isMongoid(s.id)) return // đã từng lên server rồi, không cần đẩy lại
+        const maxes = s.maxes ?? {}
+        const comps = r.comps.map((comp) => (maxes[comp.key] != null ? rescaleComp(comp, maxes[comp.key]) : comp))
+        const total = sessionScore(s.entry, { ...r, comps })
+        if (total === null) return // buổi trống, chưa nhập gì — không có gì để đẩy
+        jobs.push({ classId: c.id, studentId: stu.id, sessionLocalId: s.id, no: s.no, date: s.date, entry: s.entry, total })
+      })
+    })
+  })
+  if (!jobs.length) return
+
+  let ok = 0
+  let fail = 0
+  for (const job of jobs) {
+    try {
+      const apiSession = await sessionService.create({
+        classId: job.classId,
+        studentId: job.studentId,
+        title: `Buổi ${job.no}`,
+        lessonNo: job.no,
+        scheduledAt: `${job.date}T00:00:00.000Z`,
+      })
+      await scoreService.upsert({
+        classId: job.classId, sessionId: apiSession._id, studentId: job.studentId,
+        ...job.entry, total: job.total,
+      })
+      setData(produce((d: AppData) => {
+        const cls2 = d.classes.find((c) => c.id === job.classId)
+        const stu2 = cls2?.students.find((s) => s.id === job.studentId)
+        const ss2 = stu2?.sessions.find((s) => s.id === job.sessionLocalId)
+        if (ss2) ss2.id = apiSession._id
+      }))
+      ok++
+    } catch {
+      fail++
+    }
+  }
+  if (ok > 0) {
+    toast.success(`Đã tự động đồng bộ ${ok} buổi học còn thiếu lên server`)
+  }
+  if (fail > 0) {
+    toast.error(`${fail} buổi chưa đồng bộ được (lỗi mạng) — thử mở lại app sau`, { persist: true })
+  }
+}
 
 // Ưu tiên hiển thị trực tiếp trên Bottom Nav (mobile) — tối đa 4 tab, còn lại vào "☰ Thêm"
 const MOBILE_PRIMARY_KEYS: Record<string, string[]> = {
@@ -282,6 +358,19 @@ export default function App() {
     }))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiSessionsKey, apiScoresKey, currentClassIndex])
+
+  // Tự động đồng bộ điểm còn kẹt lại máy này lên server — 1 lần mỗi khi mở
+  // app (không lặp lại liên tục vì effect chỉ phụ thuộc userId, không phụ
+  // thuộc `data` — tránh gọi lại mỗi khi gõ điểm làm `data` đổi liên tục).
+  const autoSyncedForRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    if (!data || !user) return
+    if (user.role !== 'teacher' && user.role !== 'admin') return
+    if (autoSyncedForRef.current === user.id) return
+    autoSyncedForRef.current = user.id
+    void autoSyncStrandedScores(data.classes, setData)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!data, user?.id])
 
   if (!data) {
     return (
