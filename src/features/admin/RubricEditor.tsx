@@ -32,10 +32,18 @@ const TYPE_DESC: Record<CompType, string> = {
 // nhầm nhất (chọn "Lựa chọn" nhưng lại tưởng các mức sẽ cộng dồn như
 // "Các phần"), nên tách riêng 1 dòng cảnh báo rõ ràng, có màu, thay vì
 // gộp chung vào mô tả để dễ lướt qua.
-const TYPE_CALC: Record<CompType, { text: string; color: string }> = {
-  score: { text: 'Điểm = số đã nhập', color: C.muted },
-  choice: { text: '⚠ Không cộng dồn — điểm = mức đã chọn', color: C.amber },
-  parts: { text: '✓ Cộng dồn — điểm = tổng các phần', color: C.emerald },
+const TYPE_CALC: Record<CompType, { text: string; short: string; color: string }> = {
+  score: { text: 'Điểm = số đã nhập', short: 'Nhập số', color: C.muted },
+  choice: { text: '⚠ Không cộng dồn — điểm = mức đã chọn', short: '⚠ Không cộng dồn', color: C.amber },
+  parts: { text: '✓ Cộng dồn — điểm = tổng các phần', short: '✓ Cộng dồn', color: C.emerald },
+}
+
+// "ticks" là loại cũ (chọn nhiều ô, mỗi ô 1 điểm) chỉ còn ở vài tiêu chí gốc
+// có sẵn từ trước — không nằm trong 3 loại admin tự tạo được (CompType),
+// nhưng vẫn cần hiển thị đúng cơ chế cộng dồn khi liệt kê tiêu chí gốc.
+const CALC_INFO: Record<string, { text: string; short: string; color: string }> = {
+  ...TYPE_CALC,
+  ticks: { text: '✓ Cộng dồn — điểm = tổng các mục đã tick', short: '✓ Cộng dồn', color: C.emerald },
 }
 
 type RubricPatch = Partial<
@@ -371,10 +379,11 @@ export function RubricEditor() {
                       {effComp.label}
                     </span>
                     <span
-                      className="text-xs px-1.5 py-0.5 rounded-md shrink-0"
-                      style={{ background: C.line, color: C.muted }}
+                      className="text-xs px-1.5 py-0.5 rounded-md shrink-0 font-semibold"
+                      style={{ background: (CALC_INFO[comp.type]?.color ?? C.muted) + '18', color: CALC_INFO[comp.type]?.color ?? C.muted }}
+                      title={CALC_INFO[comp.type]?.text}
                     >
-                      {TYPE_LABELS[comp.type as CompType] ?? comp.type}
+                      {TYPE_LABELS[comp.type as CompType] ?? comp.type} · {CALC_INFO[comp.type]?.short ?? '?'}
                     </span>
                     <span className="text-xs shrink-0" style={{ color: C.muted }}>
                       {effComp.max}đ{Object.keys(overrides).length > 0 ? ` (gốc ${comp.max}đ)` : ''}
@@ -569,10 +578,11 @@ export function RubricEditor() {
                       style={{ border: `1px solid ${C.line}`, color: C.ink }}
                     />
                     <span
-                      className="text-xs px-1.5 py-0.5 rounded-md shrink-0"
-                      style={{ background: C.board + '15', color: C.board }}
+                      className="text-xs px-1.5 py-0.5 rounded-md shrink-0 font-semibold"
+                      style={{ background: (CALC_INFO[ec.type ?? 'score']?.color ?? C.muted) + '18', color: CALC_INFO[ec.type ?? 'score']?.color ?? C.muted }}
+                      title={CALC_INFO[ec.type ?? 'score']?.text}
                     >
-                      {TYPE_LABELS[(ec.type ?? 'score') as CompType]}
+                      {TYPE_LABELS[(ec.type ?? 'score') as CompType]} · {CALC_INFO[ec.type ?? 'score']?.short ?? '?'}
                     </span>
                     <span className="text-xs shrink-0" style={{ color: C.muted }}>{ec.max}đ</span>
                     {(ec.type === 'choice' || ec.type === 'parts' || !ec.type) && (
@@ -735,6 +745,17 @@ export function RubricEditor() {
                   </div>
                 </button>
               ))}
+            </div>
+            {/* Nhắc lại chế độ đang chọn — hiện xuyên suốt phần điền bên dưới
+             *  (tên, mức/phần...) để admin không quên mình đang tạo loại nào
+             *  giữa chừng, nhất là trên điện thoại phải cuộn xa khỏi 3 nút chọn. */}
+            <div
+              className="mt-2 rounded-lg px-2.5 py-1.5 text-xs font-semibold flex items-center gap-1.5"
+              style={{ background: TYPE_CALC[newType].color + '14', color: TYPE_CALC[newType].color }}
+            >
+              <span>Đang tạo: {TYPE_LABELS[newType]}</span>
+              <span style={{ color: C.muted, fontWeight: 400 }}>·</span>
+              <span>{TYPE_CALC[newType].text}</span>
             </div>
           </div>
 
