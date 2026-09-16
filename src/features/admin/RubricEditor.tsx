@@ -23,9 +23,19 @@ const TYPE_LABELS: Record<CompType, string> = {
 }
 
 const TYPE_DESC: Record<CompType, string> = {
-  score: 'Nhập trực tiếp số điểm (vd: Mini Test)',
-  choice: 'Chọn 1 trong nhiều mức (vd: BTVN)',
-  parts: 'Gồm nhiều tiêu chí con (vd: Video bài nói)',
+  score: 'Nhập trực tiếp 1 số điểm, không có phần nhỏ (vd: Mini Test)',
+  choice: 'Chọn ĐÚNG 1 mức trong nhiều mức xếp loại (vd: Giỏi/Khá/TB)',
+  parts: 'Chấm nhiều phần nhỏ, mỗi phần 1 số điểm riêng (vd: Video bài nói)',
+}
+
+// Nhãn nhấn mạnh cơ chế TÍNH ĐIỂM của từng loại — đây là chỗ admin hay
+// nhầm nhất (chọn "Lựa chọn" nhưng lại tưởng các mức sẽ cộng dồn như
+// "Các phần"), nên tách riêng 1 dòng cảnh báo rõ ràng, có màu, thay vì
+// gộp chung vào mô tả để dễ lướt qua.
+const TYPE_CALC: Record<CompType, { text: string; color: string }> = {
+  score: { text: 'Điểm = số đã nhập', color: C.muted },
+  choice: { text: '⚠ Không cộng dồn — điểm = mức đã chọn', color: C.amber },
+  parts: { text: '✓ Cộng dồn — điểm = tổng các phần', color: C.emerald },
 }
 
 type RubricPatch = Partial<
@@ -719,6 +729,9 @@ export function RubricEditor() {
                   </div>
                   <div className="text-xs mt-0.5 leading-tight" style={{ color: C.muted }}>
                     {TYPE_DESC[t]}
+                  </div>
+                  <div className="text-[10px] font-bold mt-1 leading-tight" style={{ color: TYPE_CALC[t].color }}>
+                    {TYPE_CALC[t].text}
                   </div>
                 </button>
               ))}
