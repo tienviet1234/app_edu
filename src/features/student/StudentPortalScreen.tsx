@@ -137,6 +137,17 @@ export function StudentPortalScreen() {
             <StatCard icon="🏆" value={maxScore !== null ? String(maxScore) : '—'} label="Điểm cao nhất" loading={scoresLoading} />
           </div>
 
+          {/* Lời động viên nhẹ nhàng khi điểm còn thấp — không tô đỏ/không
+           *  dùng từ "cảnh báo", chỉ nhắc nhở tích cực để không gây tự ti. */}
+          {!scoresLoading && avgScore !== null && avgScore < 65 && (
+            <div
+              className="rounded-2xl p-3 text-sm"
+              style={{ background: '#FFFBEB', border: '1px solid #FDE68A', color: '#92400E' }}
+            >
+              💪 Điểm trung bình của em còn có thể cố gắng thêm — mỗi buổi học đều là 1 cơ hội tiến bộ, thầy cô luôn đồng hành cùng em!
+            </div>
+          )}
+
           {/* Attendance dots timeline */}
           {!scoresLoading && scores.length > 0 && (
             <div className="rounded-2xl p-4" style={{ background: '#fff', border: `1px solid ${C.line}` }}>

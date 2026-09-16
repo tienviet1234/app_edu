@@ -116,8 +116,10 @@ export function DashboardScreen({ data, setTab, setCurrent }: DashboardScreenPro
       action: () => go(c.i, 'report'),
     })),
     ...summary.lowClasses.map((c) => ({
-      key: `low-${c.cls.id}`, icon: '⚠', tone: C.rose,
-      text: <><b>{c.cls.name}</b> có {c.lowCount} học sinh điểm dưới 70</>,
+      // Cố ý dùng tông màu/ngôn từ nhẹ nhàng hơn "cảnh báo đỏ" — đây là gợi ý
+      // hỗ trợ học sinh, không phải lỗi hệ thống, tránh cảm giác "báo động".
+      key: `low-${c.cls.id}`, icon: '🤝', tone: C.gold,
+      text: <><b>{c.cls.name}</b> có {c.lowCount} học sinh cần hỗ trợ thêm</>,
       action: () => go(c.i, 'board'),
     })),
     ...summary.unsyncedClasses.map((cls) => {
@@ -285,9 +287,9 @@ export function DashboardScreen({ data, setTab, setCurrent }: DashboardScreenPro
                   {lowCount > 0 && (
                     <span
                       className="rounded-lg px-2 py-1 text-xs font-semibold"
-                      style={{ background: C.rose + '18', color: C.rose }}
+                      style={{ background: C.gold + '28', color: '#7A5A05' }}
                     >
-                      ⚠ {lowCount} học sinh điểm dưới 70
+                      🤝 {lowCount} học sinh cần hỗ trợ thêm
                     </span>
                   )}
                 </div>

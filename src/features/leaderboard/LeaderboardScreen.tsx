@@ -253,6 +253,12 @@ export function LeaderboardScreen({ cls, update, userId }: LeaderboardScreenProp
               const d = prev ? (pp[x.student.id] ?? x.place) - x.place : 0
               const isOpen = expanded === x.student.id
               const isOwn = !!userId && x.student.id === userId
+              // Khi 1 học sinh đang xem (userId có giá trị) — chỉ hiện số hạng
+              // cụ thể của top 3 (đã tích cực, công khai) và của CHÍNH em đó;
+              // hạng của các bạn khác ẩn số cụ thể để giảm áp lực so sánh
+              // trực tiếp, nhất là với các bạn thứ hạng thấp. Giáo viên/admin
+              // xem (userId undefined) vẫn thấy đầy đủ để theo dõi cả lớp.
+              const showPlaceNumber = !userId || isOwn || x.place <= 3
               const avatar = x.student.avatar ?? defaultAvatar(x.student.id)
               const badges = badgesOf(x.s, x.place)
               const missions = missionsOf(x.s)
@@ -266,15 +272,20 @@ export function LeaderboardScreen({ cls, update, userId }: LeaderboardScreenProp
                     ...(isOwn ? { background: C.gold + '0A', borderLeft: `3px solid ${C.gold}` } : {}),
                   }}
                 >
-                  {/* Main row */}
+                  {/* Main row — với học sinh xem, không cho mở rộng chi tiết
+                   *  (điểm TB, chuỗi buổi...) của bạn khác ngoài top 3/chính
+                   *  mình, tránh lộ thêm thông tin so sánh qua cửa khác. */}
                   <div
-                    className="flex items-center gap-3 px-3 py-3 cursor-pointer select-none"
-                    onClick={() => setExpanded(isOpen ? null : x.student.id)}
+                    className={showPlaceNumber ? 'flex items-center gap-3 px-3 py-3 cursor-pointer select-none' : 'flex items-center gap-3 px-3 py-3 select-none'}
+                    onClick={() => { if (showPlaceNumber) setExpanded(isOpen ? null : x.student.id) }}
                     style={{ background: isOpen ? C.board + '08' : 'transparent' }}
                   >
                     {/* Place */}
                     <div className="w-7 text-center text-lg font-bold shrink-0">
-                      {['🥇', '🥈', '🥉'][x.place - 1] ?? <span className="text-sm" style={{ color: C.muted }}>{x.place}</span>}
+                      {['🥇', '🥈', '🥉'][x.place - 1]
+                        ?? (showPlaceNumber
+                          ? <span className="text-sm" style={{ color: C.muted }}>{x.place}</span>
+                          : <span className="text-sm" style={{ color: C.line }}>•</span>)}
                     </div>
 
                     {/* Avatar */}
@@ -320,15 +331,21 @@ export function LeaderboardScreen({ cls, update, userId }: LeaderboardScreenProp
                       </div>
                     </div>
 
-                    {/* Score + delta */}
-                    <div className="text-right shrink-0">
-                      <div className="text-lg font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                        {round1(x.s.monthTotal)}
+                    {/* Score + delta — cùng nguyên tắc với số hạng: chỉ hiện
+                     *  điểm/biến động cụ thể của bạn khác cho giáo viên/admin
+                     *  hoặc top 3; học sinh xem bạn khác (không phải top 3,
+                     *  không phải chính mình) chỉ thấy huy hiệu cấp độ, không
+                     *  thấy điểm số/biến động trần trụi gây so sánh. */}
+                    {showPlaceNumber && (
+                      <div className="text-right shrink-0">
+                        <div className="text-lg font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {round1(x.s.monthTotal)}
+                        </div>
+                        <div className="text-xs" style={{ color: d > 0 ? C.emerald : d < 0 ? C.rose : C.muted }}>
+                          {d > 0 ? `↑ +${d}` : d < 0 ? `↓ ${d}` : '='}
+                        </div>
                       </div>
-                      <div className="text-xs" style={{ color: d > 0 ? C.emerald : d < 0 ? C.rose : C.muted }}>
-                        {d > 0 ? `↑ +${d}` : d < 0 ? `↓ ${d}` : '='}
-                      </div>
-                    </div>
+                    )}
                   </div>
 
                   {/* Expanded panel */}
