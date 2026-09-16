@@ -152,7 +152,12 @@ export interface MissingCompFlag {
  *  năng cao là giáo viên quên chấm cho riêng em này, chứ không phải hôm đó
  *  không có tiêu chí ấy (nếu thật sự không có thì CẢ LỚP đều thiếu, không
  *  chỉ riêng 1 bạn — trường hợp đó không báo gì, để tránh làm phiền). Bỏ
- *  qua học sinh nghỉ học (vắng/phép) ở cả 2 phía vì không có gì để chấm. */
+ *  qua học sinh nghỉ học (vắng/phép) ở cả 2 phía vì không có gì để chấm.
+ *
+ *  Quan trọng: chỉ báo khi học sinh này ĐÃ được chấm ít nhất 1 mục khác rồi
+ *  (đang chấm dở, lỡ bỏ sót 1 mục) — một học sinh CHƯA hề được chạm tới
+ *  (vừa mở lên, còn nguyên mặc định) không phải "quên chấm", chỉ đơn giản
+ *  là giáo viên chưa tới lượt em đó, không nên báo động. */
 export function detectMissingComps(
   cls: ClassData,
   no: number,
@@ -162,6 +167,7 @@ export function detectMissingComps(
   const mySession = cls.students.find((s) => s.id === studentId)?.sessions.find((x) => x.no === no)
   if (!mySession) return []
   if (mySession.entry.attendance === 'absent' || mySession.entry.attendance === 'excused') return []
+  if (!comps.some((c) => compHasData(c, mySession.entry))) return []
 
   const flags: MissingCompFlag[] = []
   for (const comp of comps) {

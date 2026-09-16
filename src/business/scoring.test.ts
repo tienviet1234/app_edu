@@ -165,6 +165,18 @@ describe('detectMissingComps — phân biệt "quên chấm" và "hôm đó khô
     const cls = makeClass([{ id: 'a', sessions: [] }])
     expect(detectMissingComps(cls, 1, 'a', comps)).toEqual([])
   })
+
+  it('học sinh CHƯA được chấm mục nào cả (mới mở lên, còn mặc định) → không báo, dù bạn khác đã có dữ liệu', () => {
+    // Giáo viên chỉ đang lần lượt chấm từng em — em chưa tới lượt không phải
+    // "quên chấm", chỉ là chưa bắt đầu. Đây là bug thật đã xảy ra: học sinh
+    // hoàn toàn trống (chỉ có attendance mặc định 'present') vẫn bị báo
+    // "quên chấm Thái độ học tập" chỉ vì 1 bạn khác trong lớp đã có điểm.
+    const cls = makeClass([
+      { id: 'a', sessions: [session(1)] }, // hoàn toàn trống, chưa chấm gì
+      { id: 'b', sessions: [session(1, { attendance: 'present', scores: { mini: 25, hw: 40 } })] },
+    ])
+    expect(detectMissingComps(cls, 1, 'a', comps)).toEqual([])
+  })
 })
 
 describe('rescaleComp — đổi "Số câu" (newMax), tự chia lại điểm phần nhỏ', () => {
