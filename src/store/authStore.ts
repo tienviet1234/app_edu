@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { api, setAccessToken } from '@/utils/api'
+import { queryClient } from '@/lib/queryClient'
 import type {
   ApiResponse,
   AuthUser,
@@ -53,6 +54,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
       const res = await api.post<ApiResponse<LoginResponse>>('/auth/login', creds)
       const payload = requireData(res.data)
       setAccessToken(payload.accessToken)
+      queryClient.clear() // phòng khi tài khoản trước đó chưa kịp đăng xuất sạch cache
       set({ user: payload.user, isLoading: false })
     } catch (err: unknown) {
       const msg = extractErrorMessage(err)
@@ -83,6 +85,11 @@ export const useAuthStore = create<AuthStore>((set) => ({
     }
     setAccessToken(null)
     set({ user: null, error: null })
+    // Xóa sạch cache React Query — không có full page reload khi đăng xuất,
+    // nên nếu không dọn cache thủ công, tài khoản đăng nhập TIẾP THEO trên
+    // cùng trình duyệt có thể thấy tạm thời dữ liệu cache của tài khoản cũ
+    // (VD lớp đã bị xóa nhưng vẫn còn trong cache của phiên trước).
+    queryClient.clear()
   },
 
   async forgotPassword(payload) {
@@ -141,6 +148,7 @@ if (typeof window !== 'undefined') {
   window.addEventListener('auth:logout', () => {
     setAccessToken(null)
     useAuthStore.setState({ user: null })
+    queryClient.clear()
   })
 }
 
