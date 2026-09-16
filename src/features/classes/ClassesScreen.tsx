@@ -2,7 +2,7 @@ import { useState, useMemo, useRef } from 'react'
 import { produce } from 'immer'
 import type { AppData, ClassData } from '@/types'
 import { C } from '@/constants/colors'
-import { RUBRICS, getRubric, autoLevel } from '@/constants/rubrics'
+import { RUBRICS, getClassRubric, autoLevel } from '@/constants/rubrics'
 import { sessionScore } from '@/business/scoring'
 import { uid } from '@/utils/uid'
 import { round1, viDate } from '@/utils/format'
@@ -577,7 +577,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                     </div>
                     {(() => {
                       const stu = cls.students[Math.min(sessionStudentIdx, cls.students.length - 1)]
-                      const r = getRubric(cls.level)
+                      const r = getClassRubric(cls)
                       if (!stu.sessions.length) {
                         return (
                           <div className="rounded-xl p-6 text-center text-sm" style={{ background: C.paper, color: C.muted }}>

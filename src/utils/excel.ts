@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx'
 import type { ClassData } from '@/types'
-import { getRubric } from '@/constants/rubrics'
+import { getClassRubric } from '@/constants/rubrics'
 import { statsOf } from '@/business/stats'
 import { rankingOf } from '@/business/ranking'
 import { round1 } from '@/utils/format'
@@ -16,7 +16,7 @@ export interface ExportPeriod {
  *  nhau) — áp cùng khoảng chỉ số cho mọi học sinh; xếp hạng dùng chuẩn hiện
  *  tại (không gắn với 1 mốc ngày cụ thể của kỳ, để đơn giản và luôn nhất quán). */
 export function exportScores(cls: ClassData, p: ExportPeriod): void {
-  const r = getRubric(cls.level)
+  const r = getClassRubric(cls)
   const ranking = rankingOf(cls)
 
   const headers = [

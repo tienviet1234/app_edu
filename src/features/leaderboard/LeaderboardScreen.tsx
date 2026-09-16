@@ -5,7 +5,7 @@ import {
 } from 'recharts'
 import type { ClassData, RankingEntry } from '@/types'
 import { C, scoreColor } from '@/constants/colors'
-import { getRubric } from '@/constants/rubrics'
+import { getClassRubric } from '@/constants/rubrics'
 import { round1, daysAgoISO } from '@/utils/format'
 import { rankingOf, badgesOf } from '@/business/ranking'
 import { teachingDaysOf } from '@/business/stats'
@@ -66,7 +66,7 @@ function AvatarPicker({ current, onPick, onClose }: {
 
 // ── Coins history mini-list ───────────────────────────────────────────────────
 function CoinsHistory({ cls, studentId }: { cls: ClassData; studentId: string }) {
-  const r = getRubric(cls.level)
+  const r = getClassRubric(cls)
   const student = cls.students.find((s) => s.id === studentId)
   const rows = (student?.sessions ?? [])
     .map((s, i) => {
@@ -152,7 +152,7 @@ function Podium({ top3 }: { top3: RankingEntry[] }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export function LeaderboardScreen({ cls, update, userId }: LeaderboardScreenProps) {
-  const r = getRubric(cls.level)
+  const r = getClassRubric(cls)
   const [expanded, setExpanded] = useState<string | null>(() => userId ?? null)
   const [pickerFor, setPickerFor] = useState<string | null>(null)
   const [subTab, setSubTab] = useState<'board' | 'class'>('board')

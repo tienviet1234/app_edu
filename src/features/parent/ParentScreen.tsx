@@ -5,7 +5,7 @@ import {
 } from 'recharts'
 import type { ClassData } from '@/types'
 import { C } from '@/constants/colors'
-import { getRubric } from '@/constants/rubrics'
+import { getClassRubric } from '@/constants/rubrics'
 import { round1, viDate } from '@/utils/format'
 import { statsOf } from '@/business/stats'
 import { rankingOf } from '@/business/ranking'
@@ -29,7 +29,7 @@ const ATTEND_STYLE: Record<string, { label: string; bg: string; color: string }>
 const DAYS_VI = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 
 export function ParentScreen({ cls }: ParentScreenProps) {
-  const r = getRubric(cls.level)
+  const r = getClassRubric(cls)
   const [stIdx, setStIdx] = useState(0)
   // Mặc định kỳ mới nhất của học sinh đang xem lúc mở màn hình.
   const [pIdx, setPIdx] = useState(() => {
