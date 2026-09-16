@@ -60,7 +60,16 @@ describe('compHasData', () => {
 })
 
 describe('sessionScore', () => {
+  // Rubric giả lập giống thật: attendance(10) + mini(40) + hw(50) = 100, khớp
+  // đúng cách rubric thật luôn thiết kế tổng = 100 khi MỌI tiêu chí đều có dữ liệu.
   const r: Pick<RubricDef, 'comps' | 'attendance'> = {
+    comps: [
+      { key: 'mini', label: 'Mini', max: 40, type: 'score' },
+      { key: 'hw', label: 'BTVN', max: 50, type: 'score' },
+    ],
+    attendance: { mode: 'avg' },
+  }
+  const rSingle: Pick<RubricDef, 'comps' | 'attendance'> = {
     comps: [{ key: 'mini', label: 'Mini', max: 40, type: 'score' }],
     attendance: { mode: 'avg' },
   }
@@ -77,8 +86,19 @@ describe('sessionScore', () => {
     expect(sessionScore(entry({ attendance: 'present' }), r)).toBeNull()
   })
 
-  it('có mặt + đã chấm → điểm chuyên cần (10) + tổng các tiêu chí', () => {
-    expect(sessionScore(entry({ attendance: 'present', scores: { mini: 35 } }), r)).toBe(45)
+  it('có mặt + đã chấm ĐỦ mọi tiêu chí → giống hệt cách tính cũ (tổng thô, vì mẫu số vừa đúng 100)', () => {
+    expect(sessionScore(entry({ attendance: 'present', scores: { mini: 35, hw: 50 } }), r)).toBe(95)
+  })
+
+  it('hôm đó KHÔNG có 1 tiêu chí (VD không có BTVN) → không bị tính là 0đ kéo điểm xuống, tự quy đổi lại thang 100 theo phần đã chấm', () => {
+    // Chỉ chấm Mini (35/40), không đụng tới BTVN (giả sử hôm đó không có bài tập).
+    // Trước fix: 10 + 35 + 0 = 45/100 → tưởng học sinh học kém, cảnh báo oan.
+    // Sau fix: chỉ quy đổi trên phần ĐÃ chấm — (10+35)/(10+40) = 45/50 = 90%.
+    expect(sessionScore(entry({ attendance: 'present', scores: { mini: 35 } }), r)).toBe(90)
+  })
+
+  it('rubric chỉ có 1 tiêu chí (mẫu số tự nhiên khác 100) vẫn quy đổi đúng thang 100', () => {
+    expect(sessionScore(entry({ attendance: 'present', scores: { mini: 35 } }), rSingle)).toBe(90)
   })
 
   it('không có session (chưa tạo buổi) → null', () => {

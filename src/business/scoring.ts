@@ -115,10 +115,25 @@ export function compErrors(comp: RubricComponent, e: SessionEntry): Tag[] {
   }
 }
 
+// Điểm chuyên cần tối đa (luôn là mức "Có mặt") — dùng làm mốc quy đổi %
+// khi 1 buổi không áp dụng đủ mọi tiêu chí (VD hôm đó không có Mini Test).
+const ATTEND_MAX = Math.max(...ATTEND.map((a) => a.pts))
+
+/** Tổng điểm 1 buổi, quy về thang 100 dựa trên NHỮNG TIÊU CHÍ THỰC SỰ ĐÃ
+ *  CHẤM — không phải luôn cộng cả những tiêu chí giáo viên chưa chạm tới.
+ *  Trước đây 1 tiêu chí không có dữ liệu (VD hôm đó không có Mini Test/BTVN)
+ *  vẫn bị tính là 0 điểm trong tổng, kéo điểm xuống sai và gây cảnh báo
+ *  "điểm dưới ngưỡng" oan cho học sinh dù em không hề làm kém — hôm đó chỉ
+ *  đơn giản là không có tiêu chí ấy. Khi TẤT CẢ tiêu chí đều có dữ liệu (case
+ *  bình thường mỗi ngày), công thức cho kết quả giống hệt trước đây vì mẫu
+ *  số luôn đúng bằng 100 theo thiết kế rubric gốc — không phá vỡ hành vi cũ. */
 export function sessionScore(e: SessionEntry | undefined, r: { comps: RubricComponent[]; attendance: { mode: string } }): number | null {
   if (!e) return null
   if (e.attendance === 'excused') return null
   if (e.attendance === 'absent') return 0
-  if (!r.comps.some((c) => compHasData(c, e))) return null
-  return attInfo(e.attendance).pts + r.comps.reduce((a, c) => a + compScore(c, e), 0)
+  const applicable = r.comps.filter((c) => compHasData(c, e))
+  if (applicable.length === 0) return null
+  const earned = attInfo(e.attendance).pts + applicable.reduce((a, c) => a + compScore(c, e), 0)
+  const maxPossible = ATTEND_MAX + applicable.reduce((a, c) => a + c.max, 0)
+  return maxPossible > 0 ? Math.round((earned / maxPossible) * 100) : null
 }
