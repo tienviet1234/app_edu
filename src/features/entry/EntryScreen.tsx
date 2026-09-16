@@ -400,7 +400,16 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
             <>
               <select
                 value={selectedNo}
-                onChange={(x) => { setSelectedNo(Number(x.target.value)); setDraftDate(todayISO()) }}
+                onChange={(x) => {
+                  const newNo = Number(x.target.value)
+                  // Lưu điểm buổi ĐANG chọn lên server trước khi chuyển sang
+                  // buổi khác — trước đây đổi buổi ở đây không lưu, chỉ có
+                  // chuyển HỌC SINH (Trước/Tiếp theo/chọn tên) mới lưu, nên
+                  // điểm buổi cũ bị kẹt lại máy này, không lên được server.
+                  if (st) { announceSave(st.id); void syncScore(st.id) }
+                  setSelectedNo(newNo)
+                  setDraftDate(todayISO())
+                }}
                 title="Chọn số buổi — mỗi học sinh có buổi riêng, có thể khác ngày nhau"
                 className="rounded-xl px-3 py-2 text-sm font-semibold"
                 style={{ background: C.paper, color: C.board, border: `1px solid ${C.line}` }}
@@ -514,7 +523,16 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                 {daySummary.map(({ student, session: ss, total: t }, i) => (
                   <tr
                     key={student.id}
-                    onClick={() => setCur(i)}
+                    onClick={() => {
+                      if (i === cur) return
+                      // Cùng luồng lưu-rồi-mới-chuyển như bấm chọn học sinh ở
+                      // dải pill bên dưới — trước đây bấm dòng này đổi thẳng
+                      // học sinh đang xem, bỏ qua lưu điểm của người đang xem.
+                      requestNav(() => {
+                        if (st) { announceSave(st.id); void syncScore(st.id) }
+                        setCur(i)
+                      })
+                    }}
                     className="cursor-pointer"
                     style={{ borderTop: `1px solid ${C.line}`, background: i === cur ? C.board + '0D' : undefined }}
                   >
