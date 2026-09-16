@@ -5,7 +5,7 @@ import { ATTEND } from '@/constants/tags'
 import { getClassRubric } from '@/constants/rubrics'
 import { uid } from '@/utils/uid'
 import { todayISO, viDate } from '@/utils/format'
-import { sessionScore, rescaleComp } from '@/business/scoring'
+import { sessionScore, rescaleComp, detectMissingComps } from '@/business/scoring'
 import { emptyEntry } from '@/business/seed'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
@@ -371,6 +371,10 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   // ──────────────────────────────────────────────────────────────────────────
 
   const total = sessionScore(e, r2)
+  // So với các bạn cùng buổi này — nếu có bạn khác đã chấm 1 mục mà học sinh
+  // đang xem chưa có, khả năng cao là quên chấm (không phải hôm đó không có
+  // mục ấy, vì nếu vậy CẢ LỚP sẽ cùng thiếu, không riêng 1 người).
+  const missingFlags = st ? detectMissingComps(cls, selectedNo, st.id, r2.comps) : []
   const done = cls.students.filter((s) => {
     const ss = s.sessions.find((x) => x.no === selectedNo)
     return ss ? sessionScore(ss.entry, r2) !== null : false
@@ -717,6 +721,27 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                 style={{ background: C.gold + '22', color: '#7A5A05', border: `1px solid ${C.gold}55` }}
               >
                 ⏰ {st.name} đã đủ <b>{studentSessionCount}</b> buổi học! Nhớ vào <b>Báo cáo</b> để gửi nhận xét cho phụ huynh.
+              </div>
+            )}
+
+            {missingFlags.length > 0 && (
+              <div
+                className="rounded-xl px-4 py-2.5 text-sm"
+                style={{ background: C.rose + '14', color: '#9F1239', border: `1px solid ${C.rose}44` }}
+              >
+                <div className="font-semibold">
+                  ⚠ Có thể quên chấm cho {st.name} — Buổi {selectedNo}:
+                </div>
+                <ul className="mt-1 ml-4 list-disc space-y-0.5">
+                  {missingFlags.map((f) => (
+                    <li key={f.compKey}>
+                      <b>{f.compLabel}</b>: {f.peersWithData}/{f.totalPeers} bạn khác cùng buổi này đã chấm mục này rồi.
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-1 text-xs opacity-80">
+                  Không phải hôm nay không có mục này (nếu vậy cả lớp sẽ cùng thiếu) — kiểm tra lại nhé.
+                </div>
               </div>
             )}
 

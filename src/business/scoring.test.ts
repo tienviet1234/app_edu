@@ -1,12 +1,16 @@
 import { describe, it, expect } from 'vitest'
-import { compScore, compHasData, sessionScore, rescaleComp } from './scoring'
+import { compScore, compHasData, sessionScore, rescaleComp, detectMissingComps } from './scoring'
 import { emptyEntry } from './seed'
-import type { RubricComponent, RubricDef, SessionEntry } from '@/types'
+import type { ClassData, RubricComponent, RubricDef, Session, SessionEntry } from '@/types'
 
 // Tính điểm là phần lõi quan trọng nhất của toàn hệ thống — 1 lỗi ở đây làm
 // sai điểm thật của học sinh mà không ai để ý, khác với lỗi UI dễ thấy ngay.
 
 const entry = (patch: Partial<SessionEntry> = {}): SessionEntry => ({ ...emptyEntry(), ...patch })
+
+const session = (no: number, entryPatch: Partial<SessionEntry> = {}): Session => ({
+  id: `s${no}`, no, date: '2026-01-01', entry: entry(entryPatch),
+})
 
 describe('compScore', () => {
   it('score: đọc trực tiếp từ scores[key], "" hoặc thiếu = 0', () => {
@@ -103,6 +107,63 @@ describe('sessionScore', () => {
 
   it('không có session (chưa tạo buổi) → null', () => {
     expect(sessionScore(undefined, r)).toBeNull()
+  })
+})
+
+describe('detectMissingComps — phân biệt "quên chấm" và "hôm đó không có mục này"', () => {
+  const comps: RubricComponent[] = [
+    { key: 'mini', label: 'Mini Test', max: 40, type: 'score' },
+    { key: 'hw', label: 'BTVN', max: 50, type: 'score' },
+  ]
+
+  function makeClass(students: Array<{ id: string; sessions: Session[] }>): ClassData {
+    return {
+      id: 'c1', name: 'Lớp Test', teacher: 'Cô A', level: 'secondary', perMonth: 12,
+      students: students.map((s) => ({ id: s.id, name: s.id, sessions: s.sessions })),
+      comments: {},
+    }
+  }
+
+  it('cả lớp đều thiếu cùng 1 mục (hôm đó thật sự không có) → không báo gì', () => {
+    const cls = makeClass([
+      { id: 'a', sessions: [session(1, { attendance: 'present', scores: { mini: 30 } })] },
+      { id: 'b', sessions: [session(1, { attendance: 'present', scores: { mini: 25 } })] },
+    ])
+    expect(detectMissingComps(cls, 1, 'a', comps)).toEqual([])
+  })
+
+  it('có bạn khác đã chấm mục này, mình thì chưa → báo thiếu (khả năng quên chấm)', () => {
+    const cls = makeClass([
+      { id: 'a', sessions: [session(1, { attendance: 'present', scores: { mini: 30 } })] }, // thiếu hw
+      { id: 'b', sessions: [session(1, { attendance: 'present', scores: { mini: 25, hw: 40 } })] }, // có đủ
+    ])
+    const flags = detectMissingComps(cls, 1, 'a', comps)
+    expect(flags).toHaveLength(1)
+    expect(flags[0]).toMatchObject({ compKey: 'hw', peersWithData: 1, totalPeers: 1 })
+  })
+
+  it('học sinh nghỉ học → không báo gì (không có gì để chấm)', () => {
+    const cls = makeClass([
+      { id: 'a', sessions: [session(1, { attendance: 'absent' })] },
+      { id: 'b', sessions: [session(1, { attendance: 'present', scores: { mini: 25, hw: 40 } })] },
+    ])
+    expect(detectMissingComps(cls, 1, 'a', comps)).toEqual([])
+  })
+
+  it('bạn khác nghỉ học thì không tính vào "peersWithData/totalPeers"', () => {
+    const cls = makeClass([
+      { id: 'a', sessions: [session(1, { attendance: 'present', scores: { mini: 30 } })] },
+      { id: 'b', sessions: [session(1, { attendance: 'absent' })] },
+      { id: 'c', sessions: [session(1, { attendance: 'present', scores: { mini: 20, hw: 40 } })] },
+    ])
+    const flags = detectMissingComps(cls, 1, 'a', comps)
+    expect(flags).toHaveLength(1)
+    expect(flags[0]).toMatchObject({ compKey: 'hw', peersWithData: 1, totalPeers: 1 }) // chỉ tính c, bỏ qua b
+  })
+
+  it('học sinh chưa có buổi này → không báo gì', () => {
+    const cls = makeClass([{ id: 'a', sessions: [] }])
+    expect(detectMissingComps(cls, 1, 'a', comps)).toEqual([])
   })
 })
 

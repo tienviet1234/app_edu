@@ -1,4 +1,4 @@
-import type { RubricComponent, SessionEntry, Tag } from '@/types'
+import type { ClassData, RubricComponent, SessionEntry, Tag } from '@/types'
 import { TAG_BY_ID, ATTEND } from '@/constants'
 
 export const attInfo = (k: string) => ATTEND.find((a) => a.key === k) ?? ATTEND[0]
@@ -136,4 +136,49 @@ export function sessionScore(e: SessionEntry | undefined, r: { comps: RubricComp
   const earned = attInfo(e.attendance).pts + applicable.reduce((a, c) => a + compScore(c, e), 0)
   const maxPossible = ATTEND_MAX + applicable.reduce((a, c) => a + c.max, 0)
   return maxPossible > 0 ? Math.round((earned / maxPossible) * 100) : null
+}
+
+export interface MissingCompFlag {
+  compKey: string
+  compLabel: string
+  /** Bao nhiêu bạn khác cùng buổi này đã có dữ liệu mục này */
+  peersWithData: number
+  /** Tổng số bạn có mặt ở buổi này (không tính bạn nghỉ) */
+  totalPeers: number
+}
+
+/** So sánh 1 học sinh với các bạn CÙNG LỚP, CÙNG SỐ BUỔI (`no`) — nếu học
+ *  sinh này thiếu dữ liệu 1 tiêu chí mà có bạn khác ở buổi đó ĐÃ chấm, khả
+ *  năng cao là giáo viên quên chấm cho riêng em này, chứ không phải hôm đó
+ *  không có tiêu chí ấy (nếu thật sự không có thì CẢ LỚP đều thiếu, không
+ *  chỉ riêng 1 bạn — trường hợp đó không báo gì, để tránh làm phiền). Bỏ
+ *  qua học sinh nghỉ học (vắng/phép) ở cả 2 phía vì không có gì để chấm. */
+export function detectMissingComps(
+  cls: ClassData,
+  no: number,
+  studentId: string,
+  comps: RubricComponent[],
+): MissingCompFlag[] {
+  const mySession = cls.students.find((s) => s.id === studentId)?.sessions.find((x) => x.no === no)
+  if (!mySession) return []
+  if (mySession.entry.attendance === 'absent' || mySession.entry.attendance === 'excused') return []
+
+  const flags: MissingCompFlag[] = []
+  for (const comp of comps) {
+    if (compHasData(comp, mySession.entry)) continue
+    let peersWithData = 0
+    let totalPeers = 0
+    cls.students.forEach((s) => {
+      if (s.id === studentId) return
+      const ss = s.sessions.find((x) => x.no === no)
+      if (!ss) return
+      if (ss.entry.attendance === 'absent' || ss.entry.attendance === 'excused') return
+      totalPeers++
+      if (compHasData(comp, ss.entry)) peersWithData++
+    })
+    if (peersWithData > 0) {
+      flags.push({ compKey: comp.key, compLabel: comp.label, peersWithData, totalPeers })
+    }
+  }
+  return flags
 }
