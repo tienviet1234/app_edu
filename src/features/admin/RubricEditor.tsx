@@ -510,9 +510,19 @@ export function RubricEditor() {
                         </div>
                       </div>
                     ))}
-                    <div className="pt-1 text-xs" style={{ color: C.muted }}>
-                      Tổng điểm ({effComp.max}đ) tự cộng lại từ các phần trên.
-                    </div>
+                    {comp.type === 'choice' ? (
+                      <div className="pt-1 text-xs" style={{ color: '#B45309' }}>
+                        ⚠ Đây là tiêu chí "Lựa chọn" — học sinh chỉ chọn ĐÚNG 1 mức, điểm hiển thị
+                        ({effComp.max}đ) là mức CAO NHẤT trong các mức, <b>không cộng dồn</b> các mức lại.
+                        Nếu muốn chấm nhiều phần độc lập rồi cộng điểm lại (VD hoàn thành + làm đúng +
+                        trình bày đẹp), hãy bấm "Ẩn" tiêu chí này rồi thêm 1 "Tiêu chí tùy chỉnh" bên dưới,
+                        chọn dạng "Các phần".
+                      </div>
+                    ) : (
+                      <div className="pt-1 text-xs" style={{ color: C.muted }}>
+                        Tổng điểm ({effComp.max}đ) tự cộng lại từ các phần trên.
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -633,7 +643,11 @@ export function RubricEditor() {
                           </div>
                         </div>
                       ))}
-                      <div className="pt-1 text-xs" style={{ color: C.muted }}>Cần giữ lại ít nhất 2 mức lựa chọn.</div>
+                      <div className="pt-1 text-xs" style={{ color: '#B45309' }}>
+                        ⚠ Học sinh chỉ chọn ĐÚNG 1 mức trong các mức trên (không cộng dồn nhiều mức) — điểm tối
+                        đa là mức cao nhất. Cần chấm nhiều phần độc lập rồi cộng lại? Xóa tiêu chí này và tạo
+                        lại dạng "Các phần" thay vì "Lựa chọn". Cần giữ lại ít nhất 2 mức lựa chọn.
+                      </div>
                     </div>
                   )}
 
