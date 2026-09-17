@@ -58,11 +58,47 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
   const [joinCodeLoading, setJoinCodeLoading] = useState(false)
   const [sessionTab, setSessionTab] = useState<'students' | 'sessions'>('students')
   const [sessionStudentIdx, setSessionStudentIdx] = useState(0)
+  // Bản nháp đang gõ cho ô "Buổi số" — tách khỏi giá trị đã lưu, chỉ áp dụng
+  // lúc rời ô (blur/Enter), tránh vừa gõ số 2 chữ số đã bị coi là đổi buổi.
+  const [noDrafts, setNoDrafts] = useState<Record<string, string>>({})
   const [importError, setImportError] = useState('')
   const xlsxRef = useRef<HTMLInputElement>(null)
   const { user } = useAuthStore()
   const cls = data.classes[current]
   const edit = (fn: (c: ClassData) => void) => setData(produce((d) => fn(d.classes[current])))
+
+  /** Đổi số Buổi của 1 buổi ĐÃ CÓ — giữ nguyên id, ngày, điểm, bài tập... của
+   *  buổi đó, chỉ đổi nhãn số hiển thị. Khác hẳn việc chọn buổi khác ở màn
+   *  Nhập điểm (tạo/mở 1 bản ghi RIÊNG) — ở đây là sửa lại đúng bản ghi cũ,
+   *  dùng khi giáo viên lỡ đặt sai số buổi lúc chấm. */
+  function commitSessionNo(studentId: string, studentName: string, sessionId: string, oldNo: number, raw: string) {
+    setNoDrafts((d) => { const next = { ...d }; delete next[sessionId]; return next })
+    const newNo = Number(raw)
+    if (!raw.trim() || !Number.isFinite(newNo) || newNo < 1 || newNo === oldNo) return
+    const stu = cls?.students.find((s) => s.id === studentId)
+    if (stu?.sessions.some((s) => s.id !== sessionId && s.no === newNo)) {
+      toast.error(`${studentName} đã có sẵn Buổi ${newNo} rồi — chọn số khác.`)
+      return
+    }
+    edit((c) => {
+      const s = c.students.find((y) => y.id === studentId)
+      const found = s?.sessions.find((y) => y.id === sessionId)
+      if (found) found.no = newNo
+      s?.sessions.sort((a, b) => a.no - b.no)
+    })
+    if (isMongoid(sessionId)) {
+      sessionService.update(sessionId, { lessonNo: newNo }).catch(() => {
+        toast.error(`Lỗi khi lưu số Buổi mới lên server — đã khôi phục số cũ`, { persist: true })
+        edit((c) => {
+          const s = c.students.find((y) => y.id === studentId)
+          const found = s?.sessions.find((y) => y.id === sessionId)
+          if (found) found.no = oldNo
+          s?.sessions.sort((a, b) => a.no - b.no)
+        })
+      })
+    }
+    toast.success(`Đã đổi Buổi ${oldNo} → Buổi ${newNo} cho ${studentName}`)
+  }
   const preview = useMemo(() => parseBulk(bulk), [bulk])
 
   const { data: apiStudents } = useClassStudents(cls && isMongoid(cls.id) ? cls.id : '')
@@ -605,7 +641,23 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                                 }
                                 return (
                                   <tr key={ss.id} style={{ borderTop: `1px solid ${C.line}` }}>
-                                    <td className="py-2 px-3 font-bold">B{ss.no}</td>
+                                    <td className="py-2 px-3">
+                                      <div className="flex items-center gap-1">
+                                        <span className="font-bold" style={{ color: C.muted }}>B</span>
+                                        <input
+                                          type="text"
+                                          inputMode="numeric"
+                                          value={noDrafts[ss.id] ?? String(ss.no)}
+                                          onFocus={(x) => x.target.select()}
+                                          onChange={(x) => setNoDrafts((d) => ({ ...d, [ss.id]: x.target.value.replace(/\D/g, '') }))}
+                                          onBlur={(x) => commitSessionNo(stu.id, stu.name, ss.id, ss.no, x.target.value)}
+                                          onKeyDown={(x) => { if (x.key === 'Enter') x.currentTarget.blur() }}
+                                          title="Sửa số Buổi — giữ nguyên điểm/bài tập đã chấm, chỉ đổi nhãn số"
+                                          className="w-12 rounded-lg px-1.5 py-1 text-center text-sm font-bold"
+                                          style={{ border: `1px solid ${C.line}` }}
+                                        />
+                                      </div>
+                                    </td>
                                     <td className="py-2 px-3">
                                       <input
                                         type="date"
