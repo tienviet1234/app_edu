@@ -108,6 +108,17 @@ export function RegisterPage() {
           </div>
         </Field>
 
+        {role === 'student' && (
+          <div
+            className="rounded-xl px-3 py-2 text-xs"
+            style={{ background: C.board + '0D', color: C.board }}
+          >
+            Học sinh không cần nhập mã gì để đăng ký. Sau khi tạo tài khoản xong,
+            bấm <b>"+ Tham gia lớp"</b> và nhập mã 6 ký tự do giáo viên cung cấp —
+            khác với ô "Mã mời quản trị viên" bên dưới.
+          </div>
+        )}
+
         <Field label="Mật khẩu" error={errors.password?.message}>
           <div className="relative">
             <input
@@ -165,7 +176,7 @@ export function RegisterPage() {
               style={{ color: C.muted }}
             >
               <span style={{ display: 'inline-block', transform: showInvite ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>
-              Bạn có mã mời quản trị viên?
+              Bạn có mã mời làm quản trị viên?
             </button>
             {showInvite && (
               <div className="mt-2">
@@ -179,6 +190,10 @@ export function RegisterPage() {
                     autoComplete="off"
                   />
                 </Field>
+                <p className="mt-1 text-xs" style={{ color: C.muted }}>
+                  Chỉ dành cho người được mời làm quản trị viên trung tâm — <b>không phải</b> mã
+                  tham gia lớp học. Đa số người dùng để trống mục này.
+                </p>
               </div>
             )}
           </div>
