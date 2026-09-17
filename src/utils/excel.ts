@@ -4,7 +4,7 @@ import { getClassRubric } from '@/constants/rubrics'
 import { statsOf } from '@/business/stats'
 import { rankingOf } from '@/business/ranking'
 import { sessionScore, compScore } from '@/business/scoring'
-import { round1 } from '@/utils/format'
+import { round1, viDate, viDateTime } from '@/utils/format'
 
 export interface ExportPeriod {
   from: number
@@ -169,6 +169,102 @@ export function exportFullBackupXlsx(data: AppData): void {
 
   const today = new Date().toISOString().slice(0, 10)
   XLSX.writeFile(wb, `sao-luu-hoc-tap-${today}.xlsx`)
+}
+
+/** Xuất bảng "Thống kê buổi" (tab Thống kê buổi) của 1 lớp trong 1 tháng ra
+ *  Excel — chi tiết từng buổi (Buổi/Học sinh/Lớp/Ngày/Giờ/Điểm danh/Giáo
+ *  viên) kèm 3 sheet tổng kết (theo ngày, theo học sinh, theo giáo viên) để
+ *  admin quản lý/đối chiếu công dạy, học phí mà không cần mở app. */
+export function exportSessionStats(cls: ClassData, month: string): void {
+  interface Row {
+    no: number
+    studentName: string
+    date: string
+    recordedAt?: string
+    attendance: string
+    teacherName: string
+  }
+  const rows: Row[] = []
+  cls.students.forEach((st) => {
+    st.sessions
+      .filter((s) => s.date.startsWith(month))
+      .forEach((s) => {
+        rows.push({
+          no: s.no,
+          studentName: st.name,
+          date: s.date,
+          recordedAt: s.recordedAt,
+          attendance: ATTEND_LABEL_FULL[s.entry.attendance] ?? s.entry.attendance,
+          teacherName: s.createdByName ?? 'Chưa rõ giáo viên',
+        })
+      })
+  })
+  rows.sort((a, b) => a.date.localeCompare(b.date) || a.studentName.localeCompare(b.studentName, 'vi'))
+
+  const wb = XLSX.utils.book_new()
+
+  // Sheet 1 — chi tiết từng buổi
+  const detailHeaders = ['Buổi', 'Học sinh', 'Lớp', 'Ngày', 'Giờ ghi nhận', 'Điểm danh', 'Giáo viên dạy']
+  const detailRows = rows.map((r) => [
+    r.no,
+    r.studentName,
+    cls.name,
+    viDate(r.date),
+    r.recordedAt ? viDateTime(r.recordedAt).split(' ')[1] : '—',
+    r.attendance,
+    r.teacherName,
+  ])
+  const detailWs = XLSX.utils.aoa_to_sheet([detailHeaders, ...detailRows])
+  detailWs['!cols'] = [{ wch: 7 }, { wch: 20 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 18 }]
+  XLSX.utils.book_append_sheet(wb, detailWs, 'Chi tiết từng buổi')
+
+  // Sheet 2 — tổng theo ngày (số buổi ghi nhận mỗi ngày)
+  const byDate = new Map<string, number>()
+  rows.forEach((r) => byDate.set(r.date, (byDate.get(r.date) ?? 0) + 1))
+  const dateRows = [...byDate.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  const dateWs = XLSX.utils.aoa_to_sheet([
+    ['Ngày', 'Số buổi ghi nhận'],
+    ...dateRows.map(([d, n]) => [viDate(d), n]),
+  ])
+  dateWs['!cols'] = [{ wch: 12 }, { wch: 16 }]
+  XLSX.utils.book_append_sheet(wb, dateWs, 'Tổng theo ngày')
+
+  // Sheet 3 — tổng theo học sinh (gộp buổi trùng ngày, giống màn hình)
+  const studentDays = new Map<string, Set<string>>()
+  rows.forEach((r) => {
+    const days = studentDays.get(r.studentName) ?? new Set<string>()
+    days.add(r.date)
+    studentDays.set(r.studentName, days)
+  })
+  const studentWs = XLSX.utils.aoa_to_sheet([
+    ['Học sinh', 'Số buổi trong tháng'],
+    ...[...studentDays.entries()].sort((a, b) => b[1].size - a[1].size).map(([name, days]) => [name, days.size]),
+  ])
+  studentWs['!cols'] = [{ wch: 20 }, { wch: 18 }]
+  XLSX.utils.book_append_sheet(wb, studentWs, 'Tổng theo học sinh')
+
+  // Sheet 4 — tổng theo giáo viên (số ngày dạy, số học sinh đã dạy trong tháng)
+  const teacherDayStudents = new Map<string, Map<string, Set<string>>>()
+  rows.forEach((r) => {
+    const byDay = teacherDayStudents.get(r.teacherName) ?? new Map<string, Set<string>>()
+    const names = byDay.get(r.date) ?? new Set<string>()
+    names.add(r.studentName)
+    byDay.set(r.date, names)
+    teacherDayStudents.set(r.teacherName, byDay)
+  })
+  const teacherRows: [string, number, number][] = [...teacherDayStudents.entries()].map(([name, byDay]) => {
+    const allStudents = new Set<string>()
+    byDay.forEach((names) => names.forEach((n) => allStudents.add(n)))
+    return [name, byDay.size, allStudents.size]
+  })
+  const teacherWs = XLSX.utils.aoa_to_sheet([
+    ['Giáo viên', 'Số ngày dạy', 'Số học sinh đã dạy'],
+    ...teacherRows.sort((a, b) => b[1] - a[1]),
+  ])
+  teacherWs['!cols'] = [{ wch: 20 }, { wch: 12 }, { wch: 16 }]
+  XLSX.utils.book_append_sheet(wb, teacherWs, 'Tổng theo giáo viên')
+
+  XLSX.writeFile(wb, `${cls.name}_thongke-buoi_${month}.xlsx`)
 }
 
 /** Parse first column of uploaded .xlsx/.xls/.csv as student names */

@@ -262,6 +262,14 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
             style={{ border: `1px solid ${C.line}` }}
           />
           <Btn kind="solid" onClick={() => setShowAdd((v) => !v)}>+ Thêm buổi</Btn>
+          <Btn
+            onClick={async () => {
+              const { exportSessionStats } = await import('@/utils/excel')
+              exportSessionStats(cls, month)
+            }}
+          >
+            📊 Xuất Excel
+          </Btn>
         </div>
 
         {showAdd && (
