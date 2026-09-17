@@ -51,6 +51,8 @@ const StudentScreen = lazy(() =>
   import('@/features/student/StudentScreen').then((m) => ({ default: m.StudentScreen })))
 const StudentPortalScreen = lazy(() =>
   import('@/features/student/StudentPortalScreen').then((m) => ({ default: m.StudentPortalScreen })))
+const StudentHomeworkScreen = lazy(() =>
+  import('@/features/student/StudentHomeworkScreen').then((m) => ({ default: m.StudentHomeworkScreen })))
 
 /** Hiện trong lúc chunk JS của tab đang mở được tải về — chỉ xảy ra 1 lần
  *  cho mỗi tab (trình duyệt cache lại chunk sau lần đầu). */
@@ -70,6 +72,7 @@ const ALL_TABS = [
   { key: 'entry', label: 'Nhập điểm', icon: '✏️', roles: ['teacher', 'admin'] },
   { key: 'homework', label: 'Bài tập', icon: '📝', roles: ['teacher', 'admin'] },
   { key: 'my-scores', label: 'Điểm của tôi', icon: '📊', roles: ['student'] },
+  { key: 'my-homework', label: 'Bài tập của tôi', icon: '📝', roles: ['student'] },
   { key: 'board', label: 'Xếp hạng', icon: '🏆', roles: ['teacher', 'admin', 'student'] },
   { key: 'report', label: 'Báo cáo', icon: '📊', roles: ['teacher', 'admin'] },
   { key: 'billing', label: 'Thống kê buổi', icon: '📅', roles: ['teacher', 'admin'] },
@@ -157,7 +160,7 @@ async function autoSyncStrandedScores(
 const MOBILE_PRIMARY_KEYS: Record<string, string[]> = {
   teacher: ['dashboard', 'entry', 'board', 'homework'],
   admin: ['dashboard', 'entry', 'board', 'homework'],
-  student: ['my-scores', 'board', 'learn', 'notifications'],
+  student: ['my-scores', 'my-homework', 'board', 'notifications'],
   parent: ['my-child'],
 }
 
@@ -549,6 +552,7 @@ export default function App() {
         )}
         {cls && activeTab === 'homework' && <HomeworkScreen cls={cls} />}
         {activeTab === 'my-scores' && <StudentPortalScreen />}
+        {activeTab === 'my-homework' && <StudentHomeworkScreen />}
         {cls && activeTab === 'board' && <LeaderboardScreen cls={cls} update={updateClass} userId={user?.role === 'student' ? user.id : undefined} />}
         {cls && activeTab === 'report' && <ReportScreen cls={cls} update={updateClass} />}
         {cls && activeTab === 'billing' && (
