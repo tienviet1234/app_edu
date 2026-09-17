@@ -72,19 +72,31 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
         })
     })
 
-    const studentCount = new Map<string, number>()
+    // Buổi của học sinh = số NGÀY khác nhau em đó có bản ghi buổi — gộp lại
+    // nếu có 2+ bản ghi cùng 1 ngày (VD do trước đây từng bị lỗi tách buổi
+    // nhầm), tránh đếm dư ảnh hưởng học phí. Dùng studentId để tránh trùng
+    // tên giữa 2 học sinh khác nhau.
+    const studentDays = new Map<string, Set<string>>()
+    const studentNameById = new Map<string, string>()
     // Buổi của giáo viên = số NGÀY khác nhau giáo viên đó có điểm danh học
     // sinh — không đếm theo từng học sinh (1 ngày dạy 8 em vẫn tính 1 buổi).
     // Kèm chi tiết từng buổi: ngày đó có những học sinh nào (bấm vào xem).
     const teacherDayStudents = new Map<string, Map<string, Set<string>>>()
     all.forEach((r) => {
-      studentCount.set(r.studentName, (studentCount.get(r.studentName) ?? 0) + 1)
+      const days = studentDays.get(r.studentId) ?? new Set<string>()
+      days.add(r.date)
+      studentDays.set(r.studentId, days)
+      studentNameById.set(r.studentId, r.studentName)
+
       const byDay = teacherDayStudents.get(r.teacherName) ?? new Map<string, Set<string>>()
       const names = byDay.get(r.date) ?? new Set<string>()
       names.add(r.studentName)
       byDay.set(r.date, names)
       teacherDayStudents.set(r.teacherName, byDay)
     })
+    const studentCount = new Map(
+      [...studentDays.entries()].map(([sid, days]) => [studentNameById.get(sid)!, days.size] as const),
+    )
     const teacherCount = new Map(
       [...teacherDayStudents.entries()].map(([name, byDay]) => {
         const allStudents = new Set<string>()
