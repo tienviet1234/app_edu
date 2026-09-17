@@ -1,8 +1,9 @@
 import * as XLSX from 'xlsx'
-import type { ClassData } from '@/types'
+import type { AppData, ClassData } from '@/types'
 import { getClassRubric } from '@/constants/rubrics'
 import { statsOf } from '@/business/stats'
 import { rankingOf } from '@/business/ranking'
+import { sessionScore, compScore } from '@/business/scoring'
 import { round1 } from '@/utils/format'
 
 export interface ExportPeriod {
@@ -102,6 +103,72 @@ export function exportAttendance(cls: ClassData): void {
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Điểm danh')
   XLSX.writeFile(wb, `${cls.name}_diemdanh.xlsx`)
+}
+
+const ATTEND_LABEL_FULL: Record<string, string> = {
+  present: 'Có mặt', late: 'Muộn', excused: 'Có phép', absent: 'Vắng',
+}
+
+/** Xuất TOÀN BỘ dữ liệu (mọi lớp, mọi học sinh, mọi buổi đã chấm) ra 1 file
+ *  Excel dễ đọc — sheet "Tổng quan" liệt kê các lớp, mỗi lớp có 1 sheet
+ *  riêng ghi chi tiết từng buổi của từng học sinh. Đây là bản xem/đối chiếu
+ *  bằng mắt, KHÔNG dùng để nhập lại vào app (muốn khôi phục đầy đủ, dùng nút
+ *  "Xuất file sao lưu" — file .json giữ nguyên cấu trúc để "Nhập lại" đọc được). */
+export function exportFullBackupXlsx(data: AppData): void {
+  const wb = XLSX.utils.book_new()
+
+  const overviewHeaders = ['Lớp', 'Giáo viên', 'Cấp', 'Số học sinh', 'Tổng số buổi đã chấm']
+  const overviewRows = data.classes.map((cls) => [
+    cls.name,
+    cls.teacher ?? '',
+    cls.level,
+    cls.students.length,
+    cls.students.reduce((a, s) => a + s.sessions.length, 0),
+  ])
+  const overviewWs = XLSX.utils.aoa_to_sheet([overviewHeaders, ...overviewRows])
+  overviewWs['!cols'] = [{ wch: 24 }, { wch: 16 }, { wch: 10 }, { wch: 12 }, { wch: 18 }]
+  XLSX.utils.book_append_sheet(wb, overviewWs, 'Tổng quan')
+
+  const usedSheetNames = new Set<string>(['Tổng quan'])
+  data.classes.forEach((cls, ci) => {
+    const r = getClassRubric(cls)
+    const headers = ['STT', 'Học sinh', 'Buổi', 'Ngày', 'Điểm danh', ...r.comps.map((c) => c.label), 'Tổng điểm', 'Ghi chú']
+
+    const rows: (string | number)[][] = []
+    let stt = 1
+    cls.students.forEach((st) => {
+      ;[...st.sessions].sort((a, b) => a.no - b.no).forEach((s) => {
+        const total = sessionScore(s.entry, r)
+        rows.push([
+          stt++,
+          st.name,
+          s.no,
+          s.date,
+          ATTEND_LABEL_FULL[s.entry.attendance] ?? s.entry.attendance,
+          ...r.comps.map((c) => compScore(c, s.entry)),
+          total ?? '',
+          s.entry.note ?? '',
+        ])
+      })
+    })
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
+    ws['!cols'] = [
+      { wch: 5 }, { wch: 20 }, { wch: 7 }, { wch: 12 }, { wch: 12 },
+      ...r.comps.map(() => ({ wch: 14 })),
+      { wch: 10 }, { wch: 24 },
+    ]
+
+    const base = (cls.name || `Lop ${ci + 1}`).replace(/[\\/?*[\]:]/g, '_').slice(0, 28) || `Lop ${ci + 1}`
+    let sheetName = base
+    let dupCount = 2
+    while (usedSheetNames.has(sheetName)) sheetName = `${base}_${dupCount++}`.slice(0, 31)
+    usedSheetNames.add(sheetName)
+    XLSX.utils.book_append_sheet(wb, ws, sheetName)
+  })
+
+  const today = new Date().toISOString().slice(0, 10)
+  XLSX.writeFile(wb, `sao-luu-hoc-tap-${today}.xlsx`)
 }
 
 /** Parse first column of uploaded .xlsx/.xls/.csv as student names */

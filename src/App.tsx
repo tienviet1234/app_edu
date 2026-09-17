@@ -578,6 +578,14 @@ export default function App() {
             Dữ liệu lưu tự động trên thiết bị của bạn. Nên xuất file sao lưu cuối mỗi tháng.
           </span>
           <Btn onClick={exportData}>Xuất file sao lưu</Btn>
+          <Btn
+            onClick={async () => {
+              const { exportFullBackupXlsx } = await import('@/utils/excel')
+              exportFullBackupXlsx(data)
+            }}
+          >
+            📊 Xuất Excel
+          </Btn>
           <Btn onClick={() => fileRef.current?.click()}>Nhập lại từ file</Btn>
           <input
             ref={fileRef}
