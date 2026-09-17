@@ -1,8 +1,11 @@
 import type { Request, Response } from 'express'
+import { Types } from 'mongoose'
 import { Assignment, type IQuestion } from '../models/Assignment.js'
 import { Submission } from '../models/Submission.js'
 import { Class } from '../models/Class.js'
 import { User } from '../models/User.js'
+import { Notification } from '../models/Notification.js'
+import { sendPushToUser } from '../services/pushService.js'
 import { ok, created, forbidden } from '../utils/response.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
 import type { AuthRequest } from '../middleware/auth.js'
@@ -123,6 +126,30 @@ export const createAssignment = asyncHandler(async (req: Request, res: Response)
     return
   }
   const assignment = await Assignment.create({ ...req.body, createdBy: authReq.userId })
+
+  // Báo ngay cho học sinh trong lớp khi có bài tập mới — trước đây học sinh
+  // chỉ biết có bài tập nếu tự vào xem lại, không có thông báo chủ động nào.
+  const cls = await Class.findById(assignment.classId).select('studentIds centerId')
+  if (cls?.studentIds.length) {
+    const title = 'Bài tập mới'
+    const body = `${assignment.title} — hạn nộp ${new Date(assignment.dueDate).toLocaleDateString('vi-VN')}`
+    const createdBy = new Types.ObjectId(authReq.userId)
+    await Notification.insertMany(
+      cls.studentIds.map((sid) => ({
+        centerId: cls.centerId,
+        recipientId: sid,
+        title,
+        body,
+        type: 'course' as const,
+        data: { classId: String(assignment.classId), assignmentId: String(assignment._id) },
+        createdBy,
+      })),
+    )
+    cls.studentIds.forEach((sid) =>
+      void sendPushToUser(String(sid), { title, body, tag: `assignment-${assignment._id}`, url: '/app' }),
+    )
+  }
+
   created(res, assignment)
 })
 

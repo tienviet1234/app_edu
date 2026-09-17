@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { classService } from '@/services/classes'
 import { scoreService } from '@/services/scores'
 import { reportService } from '@/services/reports'
+import { useAuthStore } from '@/store/authStore'
+import { HomeworkTab } from '@/features/parent/HomeworkTab'
 import { C } from '@/constants/colors'
 
 const ATT_COLOR: Record<string, string> = {
@@ -37,7 +39,9 @@ function StatCard({ icon, value, label, loading }: { icon: string; value: string
 }
 
 export function StudentPortalScreen() {
+  const { user } = useAuthStore()
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [innerTab, setInnerTab] = useState<'scores' | 'homework'>('scores')
 
   const { data: classData, isLoading: clsLoading } = useQuery({
     queryKey: ['student-portal', 'classes'],
@@ -129,6 +133,42 @@ export function StudentPortalScreen() {
       {/* Selected class detail */}
       {selectedId && (
         <div className="space-y-4">
+          {/* Inner tab: Kết quả / Bài tập */}
+          <div className="flex gap-1 rounded-2xl p-1" style={{ background: C.paper }}>
+            {(['scores', 'homework'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setInnerTab(t)}
+                className="flex-1 rounded-xl py-2 text-sm font-bold transition-all"
+                style={{
+                  background: innerTab === t ? '#fff' : 'transparent',
+                  color: innerTab === t ? C.board : C.muted,
+                  boxShadow: innerTab === t ? '0 1px 3px 0 rgb(0 0 0 / 0.08)' : 'none',
+                }}
+              >
+                {t === 'scores' ? '📊 Kết quả' : '📚 Bài tập'}
+              </button>
+            ))}
+          </div>
+
+          {innerTab === 'homework' && user && (
+            <HomeworkTab
+              classId={selectedId}
+              studentId={user.id}
+              className={classes.find((c) => c._id === selectedId)?.name}
+              teacherName={
+                (() => {
+                  const cls = classes.find((c) => c._id === selectedId)
+                  return typeof cls?.teacherId === 'object' && cls.teacherId !== null
+                    ? (cls.teacherId as unknown as { name: string }).name
+                    : undefined
+                })()
+              }
+            />
+          )}
+
+          {innerTab === 'scores' && (
+          <>
           {/* Stats strip */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <StatCard icon="📅" value={String(scores.length)} label="Số buổi học" loading={scoresLoading} />
@@ -227,6 +267,8 @@ export function StudentPortalScreen() {
               <div className="text-4xl mb-2">📝</div>
               <div className="text-sm" style={{ color: C.muted }}>Giáo viên chưa nhập điểm cho lớp này.</div>
             </div>
+          )}
+          </>
           )}
         </div>
       )}
