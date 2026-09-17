@@ -99,6 +99,12 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   // số cũ trở lại mỗi khi xóa hết ô để gõ số mới (input là controlled).
   const [maxDrafts, setMaxDrafts] = useState<Record<string, string>>({})
 
+  // Đổi số Buổi CỦA BUỔI ĐANG XEM — sửa trực tiếp đúng bản ghi hiện có (giữ
+  // nguyên điểm/bài tập/điểm danh đã chấm), khác với việc chọn số buổi khác
+  // ở select bên trên (mở/tạo 1 buổi KHÁC, không di chuyển dữ liệu buổi cũ).
+  const [renamingNo, setRenamingNo] = useState(false)
+  const [renameDraft, setRenameDraft] = useState('')
+
   const st = cls.students[cur]
   const session = st?.sessions.find((s) => s.no === selectedNo)
   const effectiveDate = session?.date ?? draftDate
@@ -117,6 +123,50 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
     } else {
       setDraftDate(newDate)
     }
+  }
+
+  /** Đổi số Buổi của buổi ĐANG CÓ (session hiện tại) sang số khác — sửa
+   *  đúng bản ghi đó (giữ nguyên điểm/bài tập/điểm danh), rồi theo dõi luôn
+   *  sang số mới. Chặn nếu học sinh này đã có sẵn 1 buổi khác trùng số. */
+  function commitRenameSessionNo() {
+    if (!st || !session) return
+    const newNo = Number(renameDraft)
+    if (!renameDraft.trim() || !Number.isFinite(newNo) || newNo < 1) {
+      toast.error('Số buổi không hợp lệ')
+      return
+    }
+    if (newNo === session.no) {
+      setRenamingNo(false)
+      return
+    }
+    if (st.sessions.some((s) => s.id !== session.id && s.no === newNo)) {
+      toast.error(`${st.name} đã có sẵn Buổi ${newNo} rồi — chọn số khác.`)
+      return
+    }
+    const oldNo = session.no
+    const sessionId = session.id
+    const studentId = st.id
+    update((c) => {
+      const stu = c.students.find((s) => s.id === studentId)
+      const found = stu?.sessions.find((s) => s.id === sessionId)
+      if (found) found.no = newNo
+      stu?.sessions.sort((a, b) => a.no - b.no)
+    })
+    if (isMongoid(sessionId)) {
+      sessionService.update(sessionId, { lessonNo: newNo }).catch(() => {
+        toast.error(`Lỗi khi lưu số Buổi mới lên server — đã khôi phục số cũ`, { persist: true })
+        update((c) => {
+          const stu = c.students.find((s) => s.id === studentId)
+          const found = stu?.sessions.find((s) => s.id === sessionId)
+          if (found) found.no = oldNo
+          stu?.sessions.sort((a, b) => a.no - b.no)
+        })
+      })
+    }
+    setSelectedNo(newNo)
+    setRenamingNo(false)
+    setRenameDraft('')
+    toast.success(`Đã đổi Buổi ${oldNo} → Buổi ${newNo} cho ${st.name} — điểm/bài tập vẫn giữ nguyên`)
   }
 
   const maxNo = Math.max(
@@ -431,6 +481,49 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                 className="rounded-xl px-3 py-2 text-sm font-semibold"
                 style={{ border: `1px solid ${C.line}` }}
               />
+              {session && (
+                renamingNo ? (
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs" style={{ color: C.muted }}>Đổi thành Buổi</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      autoFocus
+                      value={renameDraft}
+                      onChange={(x) => setRenameDraft(x.target.value.replace(/\D/g, ''))}
+                      onKeyDown={(x) => {
+                        if (x.key === 'Enter') commitRenameSessionNo()
+                        if (x.key === 'Escape') { setRenamingNo(false); setRenameDraft('') }
+                      }}
+                      className="w-14 rounded-lg px-2 py-1.5 text-center text-sm font-bold"
+                      style={{ border: `1px solid ${C.line}` }}
+                    />
+                    <button
+                      onClick={commitRenameSessionNo}
+                      className="rounded-lg px-2.5 py-1.5 text-xs font-bold"
+                      style={{ background: C.emerald, color: '#fff' }}
+                    >
+                      Lưu
+                    </button>
+                    <button
+                      onClick={() => { setRenamingNo(false); setRenameDraft('') }}
+                      className="rounded-lg px-2 py-1.5 text-xs"
+                      style={{ color: C.muted }}
+                    >
+                      Hủy
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => { setRenamingNo(true); setRenameDraft(String(selectedNo)) }}
+                    title="Đổi số Buổi này — giữ nguyên điểm/bài tập/điểm danh đã chấm, chỉ đổi nhãn số"
+                    className="rounded-xl px-2.5 py-2 text-xs font-bold"
+                    style={{ color: C.board2, border: `1px dashed ${C.board2}66` }}
+                  >
+                    ✎ Đổi số buổi
+                  </button>
+                )
+              )}
               <button
                 onClick={() => setEditingWhen(false)}
                 className="rounded-xl px-3 py-1.5 text-sm font-bold"
