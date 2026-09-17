@@ -651,8 +651,13 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                                           edit((c) => {
                                             const s = c.students.find((y) => y.id === stu.id)
                                             if (!s) return
+                                            // KHÔNG đánh lại số các buổi còn lại — "Buổi N" là do giáo
+                                            // viên tự chọn, không phải số thứ tự (xem EntryScreen.tsx
+                                            // findOrCreateSession). Đánh lại ở đây chỉ đổi cục bộ, không
+                                            // đồng bộ lessonNo lên server, khiến buổi đã chấm điểm bị
+                                            // "đổi tên" trên máy này nhưng server vẫn giữ số cũ — mở máy
+                                            // khác/tải lại dữ liệu sẽ thấy lệch số, tưởng nhầm là mất điểm.
                                             s.sessions = s.sessions.filter((y) => y.id !== ss.id)
-                                            s.sessions.forEach((y, idx) => { y.no = idx + 1 })
                                           })
                                         }}
                                       >
