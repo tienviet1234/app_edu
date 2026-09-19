@@ -104,6 +104,13 @@ async function autoSyncStrandedScores(
     date: string
     entry: SessionEntry
     total: number
+    // true = buổi chưa từng lên server, cần tạo mới trước khi gửi điểm.
+    // false = buổi ĐÃ có id thật (đã tạo được) nhưng bước gửi điểm lúc đó
+    // có thể đã lỗi giữa chừng — vẫn phải gửi lại điểm, chỉ là không cần
+    // tạo buổi mới nữa. Trước đây bỏ qua thẳng nếu buổi đã có id thật, nên
+    // đúng những buổi "tạo được nhưng điểm gửi lỗi" này không bao giờ được
+    // đồng bộ lại — nhìn tưởng đã xong nhưng điểm thật ra vẫn trống trên server.
+    needsCreate: boolean
   }
   const jobs: Job[] = []
   // Bọc riêng từng lớp — 1 lớp có rubric/dữ liệu bất thường (VD override trỏ
@@ -118,12 +125,11 @@ async function autoSyncStrandedScores(
       c.students.forEach((stu) => {
         if (!isMongoid(stu.id)) return
         stu.sessions.forEach((s) => {
-          if (isMongoid(s.id)) return // đã từng lên server rồi, không cần đẩy lại
           const maxes = s.maxes ?? {}
           const comps = r.comps.map((comp) => (maxes[comp.key] != null ? rescaleComp(comp, maxes[comp.key]) : comp))
           const total = sessionScore(s.entry, { ...r, comps })
           if (total === null) return // buổi trống, chưa nhập gì — không có gì để đẩy
-          jobs.push({ classId: c.id, studentId: stu.id, sessionLocalId: s.id, no: s.no, date: s.date, entry: s.entry, total })
+          jobs.push({ classId: c.id, studentId: stu.id, sessionLocalId: s.id, no: s.no, date: s.date, entry: s.entry, total, needsCreate: !isMongoid(s.id) })
         })
       })
     } catch (err) {
@@ -136,23 +142,27 @@ async function autoSyncStrandedScores(
   let fail = 0
   for (const job of jobs) {
     try {
-      const apiSession = await sessionService.create({
-        classId: job.classId,
-        studentId: job.studentId,
-        title: `Buổi ${job.no}`,
-        lessonNo: job.no,
-        scheduledAt: `${job.date}T00:00:00.000Z`,
-      })
+      let sessionId = job.sessionLocalId
+      if (job.needsCreate) {
+        const apiSession = await sessionService.create({
+          classId: job.classId,
+          studentId: job.studentId,
+          title: `Buổi ${job.no}`,
+          lessonNo: job.no,
+          scheduledAt: `${job.date}T00:00:00.000Z`,
+        })
+        sessionId = apiSession._id
+        setData(produce((d: AppData) => {
+          const cls2 = d.classes.find((c) => c.id === job.classId)
+          const stu2 = cls2?.students.find((s) => s.id === job.studentId)
+          const ss2 = stu2?.sessions.find((s) => s.id === job.sessionLocalId)
+          if (ss2) ss2.id = sessionId
+        }))
+      }
       await scoreService.upsert({
-        classId: job.classId, sessionId: apiSession._id, studentId: job.studentId,
+        classId: job.classId, sessionId, studentId: job.studentId,
         ...job.entry, total: job.total,
       })
-      setData(produce((d: AppData) => {
-        const cls2 = d.classes.find((c) => c.id === job.classId)
-        const stu2 = cls2?.students.find((s) => s.id === job.studentId)
-        const ss2 = stu2?.sessions.find((s) => s.id === job.sessionLocalId)
-        if (ss2) ss2.id = apiSession._id
-      }))
       ok++
     } catch {
       fail++
