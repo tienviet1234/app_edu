@@ -245,8 +245,25 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
           onClick={async () => {
             if (!preview.length) return
             setSyncing(true)
+            // Tạo lớp trên server TRƯỚC, rồi đẩy luôn danh sách học sinh vừa
+            // dán lên server (giống hệt nhánh "Thêm thủ công" đã làm đúng) —
+            // trước đây chỉ tạo lớp, học sinh bị bỏ quên ở local, máy khác
+            // đăng nhập cùng tài khoản sẽ thấy lớp rỗng không có học sinh.
             const settled = await Promise.allSettled(
-              preview.map(async (c) => ({ ...c, id: await tryCreateInApi(c.name) })),
+              preview.map(async (c) => {
+                const newId = await tryCreateInApi(c.name)
+                if (isMongoid(newId) && c.students.length) {
+                  try {
+                    const created = await classService.addManagedStudents(newId, c.students.map((s) => s.name))
+                    return { ...c, id: newId, students: created.map((s) => ({ id: s._id, name: s.name, sessions: [] })) }
+                  } catch {
+                    // Lớp tạo được nhưng học sinh lỗi — giữ học sinh local-only,
+                    // banner cảnh báo trong trang chi tiết lớp sẽ nhắc đồng bộ lại.
+                    return { ...c, id: newId }
+                  }
+                }
+                return { ...c, id: newId }
+              }),
             )
             const classes = settled.map((r, i) =>
               r.status === 'fulfilled' ? r.value : preview[i],
