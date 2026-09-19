@@ -5,16 +5,16 @@ import { ParentProfile } from '../models/ParentProfile.js'
 import { Notification } from '../models/Notification.js'
 import { sendPushToUser } from './pushService.js'
 
-type ReminderPhase = '24h' | '3h'
+type ReminderPhase = '12h' | '5h'
 
 const MESSAGES: Record<ReminderPhase, ((title: string) => string)[]> = {
-  '24h': [
-    (t) => `⏰ Bài tập "${t}" sắp hết hạn trong 24 giờ nữa rồi! Nộp bài sớm để cô giáo khen nhé 🌟`,
-    (t) => `📚 Đừng quên "${t}" nha — còn khoảng 1 ngày nữa là hết hạn đó! 🐝`,
-    (t) => `🎈 Nhắc nhẹ xíu: "${t}" còn 1 ngày nữa hết hạn thôi, làm sớm cho nhẹ đầu nhé!`,
+  '12h': [
+    (t) => `⏰ Bài tập "${t}" sắp hết hạn trong 12 giờ nữa rồi! Nộp bài sớm để cô giáo khen nhé 🌟`,
+    (t) => `📚 Đừng quên "${t}" nha — còn khoảng 12 tiếng nữa là hết hạn đó! 🐝`,
+    (t) => `🎈 Nhắc nhẹ xíu: "${t}" còn nửa ngày nữa hết hạn thôi, làm sớm cho nhẹ đầu nhé!`,
   ],
-  '3h': [
-    (t) => `⚡ Chỉ còn vài tiếng nữa là hết hạn "${t}" — tranh thủ làm ngay bây giờ nào! 🚀`,
+  '5h': [
+    (t) => `⚡ Chỉ còn khoảng 5 tiếng nữa là hết hạn "${t}" — tranh thủ làm ngay bây giờ nào! 🚀`,
     (t) => `🔔 Sắp hết giờ rồi! "${t}" đang chờ được nộp đó ✨`,
     (t) => `🐢 Đừng để nước đến chân mới nhảy — "${t}" sắp hết hạn trong vài giờ tới!`,
   ],
@@ -43,7 +43,7 @@ async function sendRemindersFor(assignmentId: string, classId: string, title: st
   ])
 
   const body = pickMessage(phase, title)
-  const notifTitle = phase === '24h' ? '⏰ Bài tập sắp hết hạn' : '⚡ Sắp hết giờ nộp bài!'
+  const notifTitle = phase === '12h' ? '⏰ Bài tập sắp hết hạn' : '⚡ Sắp hết giờ nộp bài!'
 
   const docs = [...recipientIds].map((uid) => ({
     centerId: cls.centerId,
@@ -63,40 +63,40 @@ async function sendRemindersFor(assignmentId: string, classId: string, title: st
 }
 
 export interface ReminderRunResult {
-  checked24h: number
-  checked3h: number
+  checked12h: number
+  checked5h: number
   notificationsSent: number
 }
 
-/** Quét toàn bộ assignment sắp hết hạn, gửi nhắc 24h và 3h trước (chỉ gửi 1 lần/mốc) */
+/** Quét toàn bộ assignment sắp hết hạn, gửi nhắc 12h và 5h trước (chỉ gửi 1 lần/mốc) */
 export async function runReminderCheck(): Promise<ReminderRunResult> {
   const now = new Date()
-  const in24h = new Date(now.getTime() + 24 * 3600 * 1000)
-  const in3h = new Date(now.getTime() + 3 * 3600 * 1000)
+  const in12h = new Date(now.getTime() + 12 * 3600 * 1000)
+  const in5h = new Date(now.getTime() + 5 * 3600 * 1000)
 
   let notificationsSent = 0
 
-  const due24h = await Assignment.find({
+  const due12h = await Assignment.find({
     isActive: true,
-    dueDate: { $gt: now, $lte: in24h },
-    reminder24hSent: false,
+    dueDate: { $gt: now, $lte: in12h },
+    reminder12hSent: false,
   })
-  for (const a of due24h) {
-    notificationsSent += await sendRemindersFor(String(a._id), String(a.classId), a.title, '24h')
-    a.reminder24hSent = true
+  for (const a of due12h) {
+    notificationsSent += await sendRemindersFor(String(a._id), String(a.classId), a.title, '12h')
+    a.reminder12hSent = true
     await a.save()
   }
 
-  const due3h = await Assignment.find({
+  const due5h = await Assignment.find({
     isActive: true,
-    dueDate: { $gt: now, $lte: in3h },
-    reminder3hSent: false,
+    dueDate: { $gt: now, $lte: in5h },
+    reminder5hSent: false,
   })
-  for (const a of due3h) {
-    notificationsSent += await sendRemindersFor(String(a._id), String(a.classId), a.title, '3h')
-    a.reminder3hSent = true
+  for (const a of due5h) {
+    notificationsSent += await sendRemindersFor(String(a._id), String(a.classId), a.title, '5h')
+    a.reminder5hSent = true
     await a.save()
   }
 
-  return { checked24h: due24h.length, checked3h: due3h.length, notificationsSent }
+  return { checked12h: due12h.length, checked5h: due5h.length, notificationsSent }
 }
