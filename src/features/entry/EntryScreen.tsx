@@ -33,6 +33,27 @@ const FIELDS = ['scores', 'tags', 'ticks', 'choice', 'parts', 'skip', 'ev'] as c
 const cloneEntry = (e: SessionEntry): SessionEntry =>
   JSON.parse(JSON.stringify(e)) as SessionEntry
 
+// Nhớ lại "đang xem buổi mấy, học sinh nào" theo từng lớp — F5 tải lại
+// trang không còn bị nhảy về Buổi 1/học sinh đầu tiên như trước.
+const viewStorageKey = (classId: string) => `entry-view:${classId}`
+
+function loadPersistedView(classId: string): { selectedNo?: number; cur?: number } {
+  try {
+    const raw = localStorage.getItem(viewStorageKey(classId))
+    return raw ? (JSON.parse(raw) as { selectedNo?: number; cur?: number }) : {}
+  } catch {
+    return {}
+  }
+}
+
+/** Số buổi lớn nhất đã có ít nhất 1 học sinh được điểm danh — dùng làm buổi
+ *  mặc định khi mở màn lần đầu cho lớp này (chưa có gì lưu ở localStorage),
+ *  thay vì luôn nhảy về Buổi 1 dù lớp đã học tới buổi 8, 9... */
+function latestGradedNo(cls: ClassData): number {
+  const nos = cls.students.flatMap((s) => s.sessions.map((ss) => ss.no))
+  return nos.length ? Math.max(...nos) : 1
+}
+
 /** Tìm buổi số N của đúng học sinh này; nếu chưa có thì tạo mới với ngày
  *  `dateForNew` (chỉ ở local — đẩy lên server xảy ra khi lưu điểm, xem
  *  syncScore). Buổi số là do giáo viên CHỌN, không tự tăng theo thứ tự
@@ -59,13 +80,31 @@ function findOrCreateSession(c: ClassData, studentId: string, no: number, dateFo
 
 export function EntryScreen({ cls, update, teacherName, initialTarget, onConsumeInitialTarget }: EntryScreenProps) {
   const r = getClassRubric(cls)
-  const [selectedNo, setSelectedNo] = useState(initialTarget?.no ?? 1)
+  const [selectedNo, setSelectedNo] = useState(() => {
+    if (initialTarget) return initialTarget.no
+    const persisted = loadPersistedView(cls.id)
+    return persisted.selectedNo ?? latestGradedNo(cls)
+  })
   const [draftDate, setDraftDate] = useState(todayISO())
   const [cur, setCur] = useState(() => {
-    if (!initialTarget) return 0
-    const idx = cls.students.findIndex((s) => s.id === initialTarget.studentId)
-    return idx >= 0 ? idx : 0
+    if (initialTarget) {
+      const idx = cls.students.findIndex((s) => s.id === initialTarget.studentId)
+      return idx >= 0 ? idx : 0
+    }
+    const persisted = loadPersistedView(cls.id)
+    if (persisted.cur != null && persisted.cur >= 0 && persisted.cur < cls.students.length) return persisted.cur
+    return 0
   })
+
+  // Lưu lại "đang xem buổi mấy, học sinh nào" mỗi khi đổi — để F5 tải lại
+  // trang khôi phục đúng chỗ đang làm dở, không cần chọn lại từ đầu.
+  useEffect(() => {
+    try {
+      localStorage.setItem(viewStorageKey(cls.id), JSON.stringify({ selectedNo, cur }))
+    } catch {
+      // localStorage đầy/bị chặn — bỏ qua, không ảnh hưởng chức năng chính
+    }
+  }, [cls.id, selectedNo, cur])
 
   // Chỉ áp dụng initialTarget MỘT LẦN lúc mở màn — sau đó xóa đi để lần mở
   // tiếp theo (không qua "Sửa điểm") không bị nhảy tới chỗ cũ.
