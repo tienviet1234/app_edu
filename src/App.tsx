@@ -19,6 +19,7 @@ import { autoLevel, getClassRubric } from '@/constants/rubrics'
 import { rescaleComp, sessionScore } from '@/business/scoring'
 import { sessionService } from '@/services/sessions'
 import { scoreService } from '@/services/scores'
+import { classService } from '@/services/classes'
 import { toast } from '@/store/toastStore'
 import type { AppData, ClassData, SessionEntry } from '@/types'
 
@@ -153,6 +154,46 @@ async function autoSyncStrandedScores(
   }
   if (fail > 0) {
     toast.error(`${fail} buổi chưa đồng bộ được (lỗi mạng) — thử mở lại app sau`, { persist: true })
+  }
+}
+
+/** Tự động đẩy lên server các học sinh còn "kẹt lại" máy này (lớp đã đồng
+ *  bộ nhưng học sinh vẫn mang id tạm — thường do dán tên hàng loạt lúc tạo
+ *  lớp trước đây bị bỏ sót). Trước đây phải tự mở từng lớp, thấy banner
+ *  cảnh báo mới bấm "Đồng bộ ngay"; giờ chạy nền 1 lần khi mở app, không
+ *  cần biết để bấm. */
+async function autoSyncStrandedStudents(
+  classes: ClassData[],
+  setData: (fn: (d: AppData) => void) => void,
+) {
+  const targets = classes.filter((c) => isMongoid(c.id) && c.students.some((s) => !isMongoid(s.id)))
+  if (!targets.length) return
+
+  let ok = 0
+  let fail = 0
+  for (const c of targets) {
+    const localOnly = c.students.filter((s) => !isMongoid(s.id))
+    try {
+      const created = await classService.addManagedStudents(c.id, localOnly.map((s) => s.name))
+      setData(produce((d: AppData) => {
+        const cls2 = d.classes.find((x) => x.id === c.id)
+        localOnly.forEach((oldSt, i) => {
+          const newSt = created[i]
+          if (!newSt) return
+          const stu2 = cls2?.students.find((s) => s.id === oldSt.id)
+          if (stu2) stu2.id = newSt._id
+        })
+      }))
+      ok += created.length
+    } catch {
+      fail += localOnly.length
+    }
+  }
+  if (ok > 0) {
+    toast.success(`Đã tự động đồng bộ ${ok} học sinh còn thiếu lên server`)
+  }
+  if (fail > 0) {
+    toast.error(`${fail} học sinh chưa đồng bộ được (lỗi mạng) — thử mở lại app sau`, { persist: true })
   }
 }
 
@@ -362,16 +403,22 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiSessionsKey, apiScoresKey, currentClassIndex])
 
-  // Tự động đồng bộ điểm còn kẹt lại máy này lên server — 1 lần mỗi khi mở
-  // app (không lặp lại liên tục vì effect chỉ phụ thuộc userId, không phụ
-  // thuộc `data` — tránh gọi lại mỗi khi gõ điểm làm `data` đổi liên tục).
+  // Tự động đồng bộ học sinh + điểm còn kẹt lại máy này lên server — 1 lần
+  // mỗi khi mở app (không lặp lại liên tục vì effect chỉ phụ thuộc userId,
+  // không phụ thuộc `data` — tránh gọi lại mỗi khi gõ điểm làm `data` đổi
+  // liên tục). Đồng bộ HỌC SINH trước — điểm của 1 buổi chỉ đồng bộ được
+  // khi chính học sinh đó đã có id thật trên server.
   const autoSyncedForRef = useRef<string | undefined>(undefined)
   useEffect(() => {
     if (!data || !user) return
     if (user.role !== 'teacher' && user.role !== 'admin') return
     if (autoSyncedForRef.current === user.id) return
     autoSyncedForRef.current = user.id
-    void autoSyncStrandedScores(data.classes, setData)
+    void (async () => {
+      await autoSyncStrandedStudents(data.classes, setData)
+      const fresh = useAppStore.getState().data
+      if (fresh) await autoSyncStrandedScores(fresh.classes, setData)
+    })()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!data, user?.id])
 
