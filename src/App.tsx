@@ -106,20 +106,29 @@ async function autoSyncStrandedScores(
     total: number
   }
   const jobs: Job[] = []
+  // Bọc riêng từng lớp — 1 lớp có rubric/dữ liệu bất thường (VD override trỏ
+  // tới tiêu chí đã bị xóa) ném lỗi ở đây trước đây làm literal DỪNG NGANG cả
+  // vòng lặp, khiến MỌI lớp khác (kể cả bình thường) cũng không được quét,
+  // và vì hàm này không có try/catch ở nơi gọi nên lỗi biến mất hoàn toàn,
+  // không có gì báo cho biết vì sao điểm không lên được server.
   classes.forEach((c) => {
-    if (!isMongoid(c.id)) return
-    const r = getClassRubric(c)
-    c.students.forEach((stu) => {
-      if (!isMongoid(stu.id)) return
-      stu.sessions.forEach((s) => {
-        if (isMongoid(s.id)) return // đã từng lên server rồi, không cần đẩy lại
-        const maxes = s.maxes ?? {}
-        const comps = r.comps.map((comp) => (maxes[comp.key] != null ? rescaleComp(comp, maxes[comp.key]) : comp))
-        const total = sessionScore(s.entry, { ...r, comps })
-        if (total === null) return // buổi trống, chưa nhập gì — không có gì để đẩy
-        jobs.push({ classId: c.id, studentId: stu.id, sessionLocalId: s.id, no: s.no, date: s.date, entry: s.entry, total })
+    try {
+      if (!isMongoid(c.id)) return
+      const r = getClassRubric(c)
+      c.students.forEach((stu) => {
+        if (!isMongoid(stu.id)) return
+        stu.sessions.forEach((s) => {
+          if (isMongoid(s.id)) return // đã từng lên server rồi, không cần đẩy lại
+          const maxes = s.maxes ?? {}
+          const comps = r.comps.map((comp) => (maxes[comp.key] != null ? rescaleComp(comp, maxes[comp.key]) : comp))
+          const total = sessionScore(s.entry, { ...r, comps })
+          if (total === null) return // buổi trống, chưa nhập gì — không có gì để đẩy
+          jobs.push({ classId: c.id, studentId: stu.id, sessionLocalId: s.id, no: s.no, date: s.date, entry: s.entry, total })
+        })
       })
-    })
+    } catch (err) {
+      console.error('autoSyncStrandedScores: lỗi khi quét lớp', c.id, err)
+    }
   })
   if (!jobs.length) return
 
@@ -415,9 +424,17 @@ export default function App() {
     if (autoSyncedForRef.current === user.id) return
     autoSyncedForRef.current = user.id
     void (async () => {
-      await autoSyncStrandedStudents(data.classes, setData)
-      const fresh = useAppStore.getState().data
-      if (fresh) await autoSyncStrandedScores(fresh.classes, setData)
+      try {
+        await autoSyncStrandedStudents(data.classes, setData)
+        const fresh = useAppStore.getState().data
+        if (fresh) await autoSyncStrandedScores(fresh.classes, setData)
+      } catch (err) {
+        // Trước đây lỗi ở đây biến mất hoàn toàn (không try/catch), khiến
+        // điểm không lên được server mà không ai biết vì sao — giờ luôn báo
+        // rõ ràng thay vì im lặng.
+        console.error('Lỗi đồng bộ tự động:', err)
+        toast.error('Có lỗi khi tự động đồng bộ dữ liệu — thử tải lại trang.', { persist: true })
+      }
     })()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!data, user?.id])
