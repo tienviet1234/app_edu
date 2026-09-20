@@ -111,9 +111,9 @@ ${sessionRows.map(({ no, date, attended, total, entry, sessIdx: _, recordedAt, t
 <td class="num">${attendLabel}</td>
 ${r.comps.map((c) => {
   if (!entry || !attended) return '<td class="num">—</td>'
-  return `<td class="num">${compScore(c, entry)}</td>`
+  return `<td class="num">${compScore(c, entry)}/${c.max}</td>`
 }).join('')}
-<td class="num bold">${total !== null && total !== undefined ? total : '—'}</td>
+<td class="num bold">${total !== null && total !== undefined ? `${total}/100` : '—'}</td>
 <td>${teacherName || '—'}</td>
 </tr>`
 }).join('')}
@@ -388,12 +388,12 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}</td>`).join
                         {attendLabel[e.attendance] ?? '—'}
                       </td>
                       {r.comps.map((c) => (
-                        <td key={c.key} className="py-2 px-3 text-right">
-                          {!absent ? compScore(c, e) : '—'}
+                        <td key={c.key} className="py-2 px-3 text-right tabular-nums">
+                          {!absent ? `${compScore(c, e)}/${c.max}` : '—'}
                         </td>
                       ))}
-                      <td className="py-2 px-3 text-right font-bold">
-                        {t !== null ? t : '—'}
+                      <td className="py-2 px-3 text-right font-bold tabular-nums">
+                        {t !== null ? `${t}/100` : '—'}
                       </td>
                       <td className="py-2 px-3 text-xs" style={{ color: C.muted }}>
                         {sess.createdByName || '—'}
