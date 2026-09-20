@@ -4,7 +4,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import type { ClassData } from '@/types'
 import { C } from '@/constants/colors'
 import { getClassRubric } from '@/constants/rubrics'
-import { round1, todayISO, viDate, sessionLabel } from '@/utils/format'
+import { round1, todayISO, viDate, viDateTime, sessionLabel } from '@/utils/format'
 import { statsOf } from '@/business/stats'
 import { rankingOf } from '@/business/ranking'
 import { periodsOf, detailBlocks, buildComment } from '@/business/report'
@@ -52,7 +52,10 @@ export function ReportScreen({ cls, update }: ReportScreenProps) {
       const e = sess.entry
       const t = sessionScore(e, r)
       const attended = e.attendance !== 'absent'
-      return { no: sess.no, date: sess.date, attended, total: t, entry: e, sessIdx: i }
+      return {
+        no: sess.no, date: sess.date, attended, total: t, entry: e, sessIdx: i,
+        recordedAt: sess.recordedAt, teacherName: sess.createdByName,
+      }
     })
 
     const html = `<!DOCTYPE html>
@@ -93,23 +96,25 @@ export function ReportScreen({ cls, update }: ReportScreenProps) {
 <h2>CHI TIẾT TỪNG BUỔI</h2>
 <table>
 <thead><tr>
-<th>Buổi</th><th>Ngày</th><th>Chuyên cần</th>
+<th>Buổi</th><th>Ngày</th><th>Giờ ghi nhận</th><th>Chuyên cần</th>
 ${r.comps.map((c) => `<th>${c.label}</th>`).join('')}
-<th>Tổng</th>
+<th>Tổng</th><th>Giáo viên</th>
 ${student.sessions[0]?.homework !== undefined ? '<th>BTVN</th>' : ''}
 </tr></thead>
 <tbody>
-${sessionRows.map(({ no, date, attended, total, entry, sessIdx: _ }) => {
+${sessionRows.map(({ no, date, attended, total, entry, sessIdx: _, recordedAt, teacherName }) => {
   const attendLabel = entry?.attendance === 'present' ? 'P' : entry?.attendance === 'late' ? 'Muộn' : entry?.attendance === 'excused' ? 'Phép' : entry?.attendance === 'absent' ? 'Vắng' : '—'
   return `<tr class="${!attended ? 'absent' : ''}">
 <td>${sessionLabel(no, cls.perMonth)}</td>
 <td>${viDate(date)}</td>
+<td>${recordedAt ? viDateTime(recordedAt).split(' ')[1] : '—'}</td>
 <td class="num">${attendLabel}</td>
 ${r.comps.map((c) => {
   if (!entry || !attended) return '<td class="num">—</td>'
   return `<td class="num">${compScore(c, entry)}</td>`
 }).join('')}
 <td class="num bold">${total !== null && total !== undefined ? total : '—'}</td>
+<td>${teacherName || '—'}</td>
 </tr>`
 }).join('')}
 </tbody>
@@ -352,6 +357,7 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}</td>`).join
                 <tr style={{ background: C.paper }}>
                   <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Buổi</th>
                   <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Ngày</th>
+                  <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Giờ ghi nhận</th>
                   <th className="py-2 px-3 text-center font-semibold" style={{ color: C.muted }}>Chuyên cần</th>
                   {r.comps.map((c) => (
                     <th key={c.key} className="py-2 px-3 text-right font-semibold" style={{ color: C.muted }}>
@@ -359,6 +365,7 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}</td>`).join
                     </th>
                   ))}
                   <th className="py-2 px-3 text-right font-semibold" style={{ color: C.muted }}>Tổng</th>
+                  <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Giáo viên</th>
                   <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Ghi chú</th>
                 </tr>
               </thead>
@@ -374,6 +381,9 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}</td>`).join
                     <tr key={sess.id} style={{ borderTop: `1px solid ${C.line}`, opacity: absent ? 0.5 : 1 }}>
                       <td className="py-2 px-3 font-bold">{sessionLabel(sess.no, cls.perMonth)}</td>
                       <td className="py-2 px-3">{viDate(sess.date)}</td>
+                      <td className="py-2 px-3 text-xs" style={{ color: C.muted }}>
+                        {sess.recordedAt ? viDateTime(sess.recordedAt).split(' ')[1] : '—'}
+                      </td>
                       <td className="py-2 px-3 text-center">
                         {attendLabel[e.attendance] ?? '—'}
                       </td>
@@ -384,6 +394,9 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}</td>`).join
                       ))}
                       <td className="py-2 px-3 text-right font-bold">
                         {t !== null ? t : '—'}
+                      </td>
+                      <td className="py-2 px-3 text-xs" style={{ color: C.muted }}>
+                        {sess.createdByName || '—'}
                       </td>
                       <td className="py-2 px-3 text-xs" style={{ color: C.muted }}>
                         {e.note || ''}
