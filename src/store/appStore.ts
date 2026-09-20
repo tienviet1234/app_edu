@@ -28,6 +28,20 @@ const persist = (next: AppData, userId: string | undefined, setState: (partial: 
   setTimeout(() => setState({ saving: '' }), 1200)
 }
 
+// Nhớ ĐÚNG lớp đang xem qua mỗi lần F5 — trước đây currentClassIndex luôn
+// reset về 0 (lớp đầu tiên) sau khi tải lại trang, dù đang xem lớp khác.
+// Lưu theo classId (không phải index) để không bị lệch nếu thứ tự lớp
+// thay đổi (thêm/xóa lớp khác).
+const lastClassKey = (userId?: string) => `lms:lastClass${userId ? `:${userId}` : ''}`
+
+const getLastClassId = (userId?: string): string | null => {
+  try { return localStorage.getItem(lastClassKey(userId)) } catch { return null }
+}
+
+const setLastClassId = (userId: string | undefined, classId: string) => {
+  try { localStorage.setItem(lastClassKey(userId), classId) } catch {}
+}
+
 export const useAppStore = create<AppStore>((set, get) => ({
   data: null,
   currentClassIndex: 0,
@@ -40,9 +54,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const raw = makeStorage(userId).get()
     try {
       const parsed = raw ? JSON.parse(raw) : null
-      set({ data: parsed ? normalize(parsed) : seed(), userId })
+      const data = parsed ? normalize(parsed) : seed()
+      const lastId = getLastClassId(userId)
+      const idx = lastId ? data.classes.findIndex((c) => c.id === lastId) : -1
+      set({ data, userId, currentClassIndex: idx >= 0 ? idx : 0 })
     } catch {
-      set({ data: seed(), userId })
+      set({ data: seed(), userId, currentClassIndex: 0 })
     }
   },
 
@@ -58,6 +75,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   setCurrentClass(i) {
+    const { data, userId } = get()
+    const classId = data?.classes[i]?.id
+    if (classId) setLastClassId(userId, classId)
     set({ currentClassIndex: i })
   },
 
