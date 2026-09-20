@@ -46,10 +46,12 @@ export function AdminLayout({ page, setPage, children }: AdminLayoutProps) {
         <div className="ml-auto flex items-center gap-2">
           <button
             onClick={() => navigate('/app')}
-            className="hidden sm:block rounded-xl px-3 py-1.5 text-xs font-semibold"
+            title="Quay về App"
+            className="shrink-0 rounded-xl px-2.5 sm:px-3 py-1.5 text-xs font-semibold"
             style={{ background: '#ffffff18', color: '#fff' }}
           >
-            Quay về App
+            <span className="sm:hidden">↩ App</span>
+            <span className="hidden sm:inline">Quay về App</span>
           </button>
           {user && (
             <div className="flex items-center gap-2 rounded-xl px-3 py-1.5" style={{ background: '#ffffff14' }}>
