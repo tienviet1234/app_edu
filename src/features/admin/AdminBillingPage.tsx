@@ -210,6 +210,17 @@ export function AdminBillingPage() {
 
       {data && (
         <>
+          {data.unassignedClasses.length > 0 && (
+            <div
+              className="rounded-2xl px-4 py-3 text-sm"
+              style={{ background: C.rose + '14', border: `1px solid ${C.rose}44`, color: '#9F1239' }}
+            >
+              ⚠ {data.unassignedClasses.length} lớp có buổi học trong tháng nhưng <b>chưa gán giáo viên chính thức</b> —
+              chưa tính được lương vì không rõ trả cho ai: {data.unassignedClasses.map((c) => c.className).join(', ')}.
+              Vào tab <b>Lớp học</b> để gán giáo viên cho các lớp này.
+            </div>
+          )}
+
           {/* Đơn giá theo lớp */}
           <Card className="overflow-hidden">
             <div className="px-4 py-3" style={{ background: C.board, color: '#fff' }}>

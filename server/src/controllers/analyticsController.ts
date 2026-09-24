@@ -221,6 +221,17 @@ export async function getTeacherPerformance(_req: Request, res: Response): Promi
  *  bản ghi buổi trong tháng — kể cả buổi điểm danh "Vắng" vẫn tính là 1 buổi
  *  (đã lên lịch dạy/học ngày đó), khớp đúng cách "Thống kê buổi" đã đếm.
  *
+ *  Lương giáo viên LUÔN quy về Class.teacherId (giáo viên CHÍNH THỨC của
+ *  lớp, chỉ admin gán được ở trang Lớp học) — CỐ Ý KHÔNG dùng
+ *  ClassSession.createdBy (ai bấm lưu bản ghi buổi học đó). createdBy chỉ
+ *  phản ánh AI THAO TÁC LƯU (có thể là admin sửa ngày/số buổi giúp, thêm bù
+ *  buổi bị sót, hoặc 1 giáo viên khác hỗ trợ nhập hộ) — dùng nó để tính
+ *  lương sẽ bị tính nhầm tiền từ giáo viên thật sang người vừa thao tác lưu,
+ *  dù người đó không hề đứng lớp hôm đó. Nhược điểm: hệ thống hiện chưa hỗ
+ *  trợ giáo viên dạy thay (1 buổi dạy bởi người khác giáo viên chính) — nếu
+ *  trung tâm cần việc này, phải thêm tính năng riêng, không suy luận từ
+ *  createdBy.
+ *
  *  Lương giáo viên có 2 cách, chọn riêng theo từng lớp (Class.teacherPayMode):
  *   - 'fixed': đơn giá/buổi CỐ ĐỊNH × số buổi đã dạy, không tính sĩ số.
  *   - 'perStudent': đơn giá/học-sinh-CÓ MẶT/buổi × tổng số lượt học sinh có
@@ -253,7 +264,7 @@ export async function getBillingReport(req: Request, res: Response): Promise<voi
       studentId: { $exists: true },
       migratedAt: { $exists: false },
     },
-    { classId: 1, studentId: 1, createdBy: 1, scheduledAt: 1 },
+    { classId: 1, studentId: 1, scheduledAt: 1 },
   ).lean()
 
   const scores = await Score.find(
@@ -266,9 +277,8 @@ export async function getBillingReport(req: Request, res: Response): Promise<voi
   const studentDayMap = new Map<string, Set<string>>()
 
   // Dữ liệu gốc để vừa tính lương theo sĩ số, vừa dựng bảng đối chiếu theo
-  // ngày — key "classId:date" → studentId → { attendance, teacherId }.
-  interface RawEntry { attendance: string; teacherId: string }
-  const classDateMap = new Map<string, Map<string, RawEntry>>()
+  // ngày — key "classId:date" → studentId → trạng thái điểm danh.
+  const classDateMap = new Map<string, Map<string, string>>()
 
   const allUserIds = new Set<string>()
 
@@ -284,15 +294,18 @@ export async function getBillingReport(req: Request, res: Response): Promise<voi
     days.add(dateKey)
     studentDayMap.set(studentKey, days)
 
-    const teacherId = s.createdBy ? String(s.createdBy) : ''
-    if (teacherId) allUserIds.add(teacherId)
     const attendance = attendanceBySessionId.get(String(s._id)) ?? 'present'
-
     const cdKey = `${classId}:${dateKey}`
-    const dayMap = classDateMap.get(cdKey) ?? new Map<string, RawEntry>()
-    dayMap.set(studentId, { attendance, teacherId })
+    const dayMap = classDateMap.get(cdKey) ?? new Map<string, string>()
+    dayMap.set(studentId, attendance)
     classDateMap.set(cdKey, dayMap)
   }
+
+  // Giáo viên chính thức của từng lớp — nguồn duy nhất để tính lương (xem
+  // ghi chú ở đầu hàm). Lớp chưa gán giáo viên (teacherId trống) bị bỏ qua
+  // khỏi phần lương, liệt kê riêng trong unassignedClasses để admin biết cần
+  // gán giáo viên trước khi tính được lương cho lớp đó.
+  classes.forEach((c) => { if (c.teacherId) allUserIds.add(String(c.teacherId)) })
 
   const users = await User.find(
     { _id: { $in: [...allUserIds].map((id) => new Types.ObjectId(id)) } },
@@ -331,36 +344,30 @@ export async function getBillingReport(req: Request, res: Response): Promise<voi
   // "classId:teacherId" → danh sách từng ngày đã dạy, để vừa tính lương vừa
   // hiện bảng đối chiếu chi tiết.
   const teacherClassDays = new Map<string, DayDetail[]>()
+  const unassignedClassIds = new Set<string>()
 
   for (const [cdKey, dayMap] of classDateMap.entries()) {
     const [classId, date] = cdKey.split(':')
-    // Nhóm theo giáo viên trong đúng ngày đó — thường chỉ 1 người, nhưng
-    // phòng trường hợp 2 giáo viên cùng chấm chung 1 ngày cho các em khác nhau.
-    const byTeacher = new Map<string, { studentId: string; attendance: string }[]>()
-    dayMap.forEach((entry, studentId) => {
-      if (!entry.teacherId) return
-      const list = byTeacher.get(entry.teacherId) ?? []
-      list.push({ studentId, attendance: entry.attendance })
-      byTeacher.set(entry.teacherId, list)
+    const cls = classMap.get(classId)
+    const teacherId = cls?.teacherId ? String(cls.teacherId) : ''
+    if (!teacherId) { unassignedClassIds.add(classId); continue }
+
+    const entries = [...dayMap.entries()] // [studentId, attendance][]
+    const present = entries.filter(([, a]) => a === 'present').length
+    const late = entries.filter(([, a]) => a === 'late').length
+    const excused = entries.filter(([, a]) => a === 'excused').length
+    const absent = entries.filter(([, a]) => a === 'absent').length
+    const absentNames = entries.filter(([, a]) => a === 'absent').map(([sid]) => userNameMap.get(sid) ?? '—')
+
+    const key = `${classId}:${teacherId}`
+    const dayList = teacherClassDays.get(key) ?? []
+    dayList.push({
+      date,
+      totalStudents: entries.length,
+      attendedStudents: present + late,
+      present, late, excused, absent, absentNames,
     })
-    byTeacher.forEach((list, teacherId) => {
-      const present = list.filter((x) => x.attendance === 'present').length
-      const late = list.filter((x) => x.attendance === 'late').length
-      const excused = list.filter((x) => x.attendance === 'excused').length
-      const absent = list.filter((x) => x.attendance === 'absent').length
-      const absentNames = list
-        .filter((x) => x.attendance === 'absent')
-        .map((x) => userNameMap.get(x.studentId) ?? '—')
-      const key = `${classId}:${teacherId}`
-      const dayList = teacherClassDays.get(key) ?? []
-      dayList.push({
-        date,
-        totalStudents: list.length,
-        attendedStudents: present + late,
-        present, late, excused, absent, absentNames,
-      })
-      teacherClassDays.set(key, dayList)
-    })
+    teacherClassDays.set(key, dayList)
   }
 
   const teacherRows = [...teacherClassDays.entries()].map(([key, days]) => {
@@ -412,6 +419,9 @@ export async function getBillingReport(req: Request, res: Response): Promise<voi
       teacherPayMode: c.teacherPayMode ?? 'fixed',
       teacherPayPerSession: c.teacherPayPerSession ?? null,
       teacherPayPerStudentSession: c.teacherPayPerStudentSession ?? null,
+    })),
+    unassignedClasses: [...unassignedClassIds].map((id) => ({
+      classId: id, className: classMap.get(id)?.name ?? '—',
     })),
     students,
     studentsTotal: students.reduce((a, s) => a + s.total, 0),

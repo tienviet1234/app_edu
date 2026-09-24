@@ -154,6 +154,9 @@ export interface BillingTeacherRow {
 export interface BillingReport {
   month: string
   classes: BillingClassRow[]
+  // Lớp có buổi học trong tháng nhưng chưa gán giáo viên chính thức
+  // (Class.teacherId trống) — không tính được lương vì không rõ trả cho ai.
+  unassignedClasses: { classId: string; className: string }[]
   students: BillingStudentRow[]
   studentsTotal: number
   teachers: BillingTeacherRow[]
