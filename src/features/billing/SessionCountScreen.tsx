@@ -34,6 +34,17 @@ interface TeacherDay {
   students: string[]
 }
 
+interface NoDateGroup {
+  date: string
+  students: string[]
+  teachers: string[]
+}
+
+interface NoGroup {
+  no: number
+  dates: NoDateGroup[]
+}
+
 const ATTEND_STYLE: Record<AttendanceKey, { label: string; bg: string; fg: string }> = {
   present: { label: 'Có mặt', bg: C.emerald + '18', fg: C.emerald },
   late: { label: 'Muộn', bg: C.gold + '28', fg: '#7A5A05' },
@@ -48,12 +59,13 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
   const [search, setSearch] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [expandedTeacher, setExpandedTeacher] = useState<string | null>(null)
+  const [expandedNo, setExpandedNo] = useState<number | null>(null)
   const [showAdd, setShowAdd] = useState(false)
   const [addStudentId, setAddStudentId] = useState(cls.students[0]?.id ?? '')
   const [addNo, setAddNo] = useState(1)
   const [addDate, setAddDate] = useState(todayISO())
 
-  const { byDate, byStudent, byTeacher, teacherNames, totalRows } = useMemo(() => {
+  const { byDate, byStudent, byTeacher, byNo, teacherNames, totalRows } = useMemo(() => {
     const all: DetailRow[] = []
     cls.students.forEach((st) => {
       st.sessions
@@ -108,6 +120,32 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
       }),
     )
 
+    // Tổng hợp theo SỐ BUỔI — vì mỗi học sinh có số buổi riêng, "Buổi 3" của
+    // em này có thể rơi vào ngày khác hẳn "Buổi 3" của em khác. Gộp lại theo
+    // đúng số buổi, liệt kê rõ từng ngày khác nhau bên trong — tránh nhầm là
+    // dữ liệu trùng/lỗi khi thấy cùng 1 số buổi xuất hiện ở nhiều ngày.
+    const noDateMap = new Map<number, Map<string, { students: Set<string>; teachers: Set<string> }>>()
+    all.forEach((r) => {
+      const byDateForNo = noDateMap.get(r.no) ?? new Map<string, { students: Set<string>; teachers: Set<string> }>()
+      const entry = byDateForNo.get(r.date) ?? { students: new Set<string>(), teachers: new Set<string>() }
+      entry.students.add(r.studentName)
+      entry.teachers.add(r.teacherName)
+      byDateForNo.set(r.date, entry)
+      noDateMap.set(r.no, byDateForNo)
+    })
+    const noGroups: NoGroup[] = [...noDateMap.entries()]
+      .map(([no, byDateForNo]) => ({
+        no,
+        dates: [...byDateForNo.entries()]
+          .map(([date, v]) => ({
+            date,
+            students: [...v.students].sort((a, b) => a.localeCompare(b, 'vi')),
+            teachers: [...v.teachers],
+          }))
+          .sort((a, b) => a.date.localeCompare(b.date)),
+      }))
+      .sort((a, b) => a.no - b.no)
+
     const q = search.trim().toLowerCase()
     const filtered = all.filter(
       (r) =>
@@ -129,6 +167,7 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
       byDate: dateGroups,
       byStudent: [...studentCount.entries()].sort((a, b) => b[1] - a[1]),
       byTeacher: [...teacherCount.entries()].sort((a, b) => b[1].days - a[1].days),
+      byNo: noGroups,
       teacherNames: [...teacherDayStudents.keys()].sort((a, b) => a.localeCompare(b, 'vi')),
       totalRows: filtered.length,
     }
@@ -355,6 +394,40 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
           </div>
         </Card>
       </div>
+
+      <Card className="p-3">
+        <div className="mb-1.5 flex items-center justify-between">
+          <div className="text-xs font-bold uppercase" style={{ color: C.muted }}>Tổng hợp theo Buổi</div>
+          <div className="text-xs" style={{ color: C.muted }}>Cùng 1 số buổi có thể rơi vào nhiều ngày khác nhau</div>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {byNo.length === 0 && <span className="text-sm" style={{ color: C.muted }}>Chưa có buổi nào.</span>}
+          {byNo.map((g) => {
+            const isOpen = expandedNo === g.no
+            return (
+              <div key={g.no} className="w-full sm:w-auto">
+                <button
+                  onClick={() => setExpandedNo(isOpen ? null : g.no)}
+                  className="w-full rounded-lg px-2 py-1 text-left text-xs font-semibold sm:w-auto"
+                  style={{ background: C.paper, border: `1px solid ${C.line}` }}
+                >
+                  {isOpen ? '▾' : '▸'} Buổi {g.no} — <b style={{ color: C.board2 }}>{g.dates.length} ngày khác nhau</b>
+                </button>
+                {isOpen && (
+                  <div className="mt-1 space-y-1 pl-4">
+                    {g.dates.map((d) => (
+                      <div key={d.date} className="text-xs" style={{ color: C.muted }}>
+                        <b style={{ color: C.ink }}>{viDate(d.date)}</b> — {d.students.length} học sinh
+                        {d.teachers.length ? ` · GV: ${d.teachers.join(', ')}` : ''} — {d.students.join(', ')}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </Card>
 
       <Card className="overflow-hidden">
         <div className="px-4 py-3" style={{ background: C.board, color: '#fff' }}>
