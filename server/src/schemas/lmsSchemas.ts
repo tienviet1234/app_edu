@@ -45,6 +45,9 @@ export const classBodySchema = z.object({
   extraComps: z.array(z.record(z.string(), z.any())).optional(),
   compOverrides: z.record(z.string(), z.record(z.string(), z.number())).optional(),
   compLabelOverrides: z.record(z.string(), z.record(z.string(), z.string())).optional(),
+  // Đơn giá tính học phí/lương theo từng lớp — xem ghi chú ở Class model.
+  tuitionPerSession: z.number().min(0).max(100_000_000).optional(),
+  teacherPayPerSession: z.number().min(0).max(100_000_000).optional(),
 })
 
 export const classUpdateSchema = classBodySchema.partial().omit({ centerId: true })

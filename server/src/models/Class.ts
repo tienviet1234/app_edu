@@ -41,6 +41,13 @@ export interface IClass extends Document {
   extraComps?: unknown[]
   compOverrides?: Record<string, Record<string, number>>
   compLabelOverrides?: Record<string, Record<string, string>>
+  // Đơn giá tính tiền — admin tự nhập theo TỪNG LỚP (không theo "cấp" chung),
+  // vì mỗi lớp có thể có mức giá riêng. Học phí = đơn giá/buổi × số buổi học
+  // sinh đã học trong tháng; lương giáo viên = đơn giá/buổi × số buổi giáo
+  // viên đã dạy trong tháng (cố định, KHÔNG nhân theo sĩ số). Xem
+  // analyticsController.getBillingReport() — nơi duy nhất tính ra số tiền.
+  tuitionPerSession?: number
+  teacherPayPerSession?: number
 }
 
 const scheduleSlotSchema = new Schema<IScheduleSlot>(
@@ -87,6 +94,8 @@ const classSchema = new Schema<IClass>(
     extraComps: [{ type: Schema.Types.Mixed }],
     compOverrides: { type: Schema.Types.Mixed },
     compLabelOverrides: { type: Schema.Types.Mixed },
+    tuitionPerSession: { type: Number, min: 0 },
+    teacherPayPerSession: { type: Number, min: 0 },
   },
   { timestamps: true },
 )

@@ -8,6 +8,7 @@ const NAV = [
   { key: 'activity',   label: 'Hoạt động',          icon: '📡' },
   { key: 'users',      label: 'Người dùng',         icon: '👥' },
   { key: 'classes',    label: 'Lớp học',             icon: '🏫' },
+  { key: 'billing',    label: 'Học phí & Lương',     icon: '💰' },
   { key: 'courses',    label: 'Khóa học',            icon: '📚' },
   { key: 'rubric',     label: 'Tiêu chí chấm',      icon: '✏️' },
   { key: 'analytics',  label: 'Phân tích',           icon: '📈' },

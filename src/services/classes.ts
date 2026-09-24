@@ -25,6 +25,10 @@ export interface ApiClass {
   extraComps?: ExtraComp[]
   compOverrides?: Record<string, Record<string, number>>
   compLabelOverrides?: Record<string, Record<string, string>>
+  // Đơn giá tính học phí/lương — xem AdminBillingPage.tsx + ghi chú ở
+  // server/src/models/Class.ts. Chỉ admin sửa được (qua endpoint update).
+  tuitionPerSession?: number
+  teacherPayPerSession?: number
 }
 
 interface PagedData<T> {

@@ -99,6 +99,49 @@ export interface TeacherPerfRow {
   reportCount: number
 }
 
+export interface BillingClassRow {
+  classId: string
+  className: string
+  tuitionPerSession: number | null
+  teacherPayPerSession: number | null
+}
+
+export interface BillingStudentRow {
+  classId: string
+  className: string
+  studentId: string
+  studentName: string
+  sessionsCount: number
+  ratePerSession: number
+  total: number
+}
+
+export interface BillingTeacherClassRow {
+  classId: string
+  className: string
+  teacherId: string
+  teacherName: string
+  sessionsCount: number
+  ratePerSession: number
+  total: number
+}
+
+export interface BillingTeacherRow {
+  teacherId: string
+  teacherName: string
+  total: number
+  byClass: BillingTeacherClassRow[]
+}
+
+export interface BillingReport {
+  month: string
+  classes: BillingClassRow[]
+  students: BillingStudentRow[]
+  studentsTotal: number
+  teachers: BillingTeacherRow[]
+  teachersTotal: number
+}
+
 export const adminService = {
   getOverview: () =>
     api.get<{ data: AnalyticsOverview }>('/analytics/overview').then((r) => r.data.data),
@@ -140,6 +183,11 @@ export const adminService = {
   getTeacherPerformance: () =>
     api
       .get<{ data: TeacherPerfRow[] }>('/analytics/teacher-performance')
+      .then((r) => r.data.data),
+
+  getBillingReport: (month: string) =>
+    api
+      .get<{ data: BillingReport }>('/analytics/billing', { params: { month } })
       .then((r) => r.data.data),
 
   createInvite: (body: { note?: string; expireDays?: number }) =>

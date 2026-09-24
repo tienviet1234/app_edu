@@ -8,6 +8,7 @@ import { AnalyticsPage } from './AnalyticsPage'
 import { RubricEditor } from './RubricEditor'
 import { AdminActivityPage } from './AdminActivityPage'
 import { AdminClassesPage } from './AdminClassesPage'
+import { AdminBillingPage } from './AdminBillingPage'
 
 export function AdminPage() {
   const [page, setPage] = useState('dashboard')
@@ -18,6 +19,7 @@ export function AdminPage() {
       {page === 'activity'   && <AdminActivityPage />}
       {page === 'users'      && <UsersPage />}
       {page === 'classes'    && <AdminClassesPage />}
+      {page === 'billing'    && <AdminBillingPage />}
       {page === 'courses'    && <CoursesPage />}
       {page === 'rubric'     && <RubricEditor />}
       {page === 'analytics'  && <AnalyticsPage />}

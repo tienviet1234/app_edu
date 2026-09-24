@@ -65,6 +65,12 @@ export async function updateClass(req: Request, res: Response): Promise<void> {
     forbidden(res, 'You can only update your own classes.')
     return
   }
+  // Đơn giá học phí/lương chỉ admin được sửa — giáo viên sở hữu lớp vẫn sửa
+  // được các trường khác (tên, lịch học...) qua chính endpoint này.
+  if (authReq.user?.role !== 'admin' && ('tuitionPerSession' in req.body || 'teacherPayPerSession' in req.body)) {
+    forbidden(res, 'Chỉ quản trị viên được sửa đơn giá học phí/lương.')
+    return
+  }
   const updated = await Class.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
   await writeAudit(req, { action: 'class.update', resource: 'Class', resourceId: String(cls._id) })
   ok(res, updated)

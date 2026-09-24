@@ -7,7 +7,7 @@ import { Course } from '../models/Course.js'
 import { Report } from '../models/Report.js'
 import { Score } from '../models/Score.js'
 import { User } from '../models/User.js'
-import { ok } from '../utils/response.js'
+import { badRequest, ok } from '../utils/response.js'
 
 export async function getAnalyticsOverview(_req: Request, res: Response): Promise<void> {
   const [
@@ -214,4 +214,128 @@ export async function getTeacherPerformance(_req: Request, res: Response): Promi
     .sort((a, b) => (b.avgScore ?? 0) - (a.avgScore ?? 0))
 
   ok(res, result)
+}
+
+// ── GET /analytics/billing?month=YYYY-MM ─────────────────────────────────────
+/** Học phí học sinh = đơn giá/buổi (đặt riêng từng lớp) × số buổi em đó có
+ *  bản ghi buổi trong tháng. Lương giáo viên = đơn giá/buổi (đặt riêng từng
+ *  lớp) × số buổi giáo viên đó đã dạy lớp này trong tháng — CỐ ĐỊNH, không
+ *  nhân theo sĩ số hôm đó. "Số buổi" đếm theo số NGÀY khác nhau có bản ghi
+ *  (không phải số dòng), khớp đúng cách "Thống kê buổi" đã tính — kể cả buổi
+ *  điểm danh "Vắng" vẫn tính là 1 buổi (đã lên lịch dạy/học ngày đó), giống
+ *  hệt cách màn Thống kê buổi đang đếm, để 2 nơi không lệch số nhau. */
+export async function getBillingReport(req: Request, res: Response): Promise<void> {
+  const { month } = req.query as Record<string, string>
+  if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+    badRequest(res, 'month (định dạng YYYY-MM) là bắt buộc.')
+    return
+  }
+  const start = new Date(`${month}-01T00:00:00.000Z`)
+  const end = new Date(start)
+  end.setUTCMonth(end.getUTCMonth() + 1)
+
+  const classes = await Class.find(
+    {},
+    { name: 1, tuitionPerSession: 1, teacherPayPerSession: 1, teacherId: 1, teacherName: 1 },
+  ).lean()
+  const classMap = new Map(classes.map((c) => [String(c._id), c]))
+
+  const sessions = await ClassSession.find(
+    {
+      scheduledAt: { $gte: start, $lt: end },
+      studentId: { $exists: true },
+      migratedAt: { $exists: false },
+    },
+    { classId: 1, studentId: 1, createdBy: 1, scheduledAt: 1 },
+  ).lean()
+
+  // key "classId:studentId" | "classId:teacherId" → Set các ngày khác nhau
+  const studentDayMap = new Map<string, Set<string>>()
+  const teacherDayMap = new Map<string, Set<string>>()
+
+  for (const s of sessions) {
+    const dateKey = (s.scheduledAt as Date).toISOString().slice(0, 10)
+    const classId = String(s.classId)
+    if (s.studentId) {
+      const key = `${classId}:${s.studentId}`
+      const set = studentDayMap.get(key) ?? new Set<string>()
+      set.add(dateKey)
+      studentDayMap.set(key, set)
+    }
+    if (s.createdBy) {
+      const key = `${classId}:${s.createdBy}`
+      const set = teacherDayMap.get(key) ?? new Set<string>()
+      set.add(dateKey)
+      teacherDayMap.set(key, set)
+    }
+  }
+
+  const studentIds = new Set<string>()
+  const teacherIds = new Set<string>()
+  studentDayMap.forEach((_v, key) => studentIds.add(key.split(':')[1]))
+  teacherDayMap.forEach((_v, key) => teacherIds.add(key.split(':')[1]))
+  const users = await User.find(
+    { _id: { $in: [...studentIds, ...teacherIds].map((id) => new Types.ObjectId(id)) } },
+    { name: 1 },
+  ).lean()
+  const userNameMap = new Map(users.map((u) => [String(u._id), u.name as string]))
+
+  const students = [...studentDayMap.entries()]
+    .map(([key, days]) => {
+      const [classId, studentId] = key.split(':')
+      const cls = classMap.get(classId)
+      const ratePerSession = cls?.tuitionPerSession ?? 0
+      return {
+        classId,
+        className: cls?.name ?? '—',
+        studentId,
+        studentName: userNameMap.get(studentId) ?? '—',
+        sessionsCount: days.size,
+        ratePerSession,
+        total: ratePerSession * days.size,
+      }
+    })
+    .sort((a, b) => a.className.localeCompare(b.className, 'vi') || a.studentName.localeCompare(b.studentName, 'vi'))
+
+  const teacherRows = [...teacherDayMap.entries()].map(([key, days]) => {
+    const [classId, teacherId] = key.split(':')
+    const cls = classMap.get(classId)
+    const ratePerSession = cls?.teacherPayPerSession ?? 0
+    return {
+      classId,
+      className: cls?.name ?? '—',
+      teacherId,
+      teacherName: userNameMap.get(teacherId) ?? cls?.teacherName ?? '—',
+      sessionsCount: days.size,
+      ratePerSession,
+      total: ratePerSession * days.size,
+    }
+  })
+
+  const teacherTotals = new Map<
+    string,
+    { teacherId: string; teacherName: string; total: number; byClass: typeof teacherRows }
+  >()
+  teacherRows.forEach((row) => {
+    const t = teacherTotals.get(row.teacherId) ?? {
+      teacherId: row.teacherId, teacherName: row.teacherName, total: 0, byClass: [],
+    }
+    t.total += row.total
+    t.byClass.push(row)
+    teacherTotals.set(row.teacherId, t)
+  })
+
+  ok(res, {
+    month,
+    classes: classes.map((c) => ({
+      classId: String(c._id),
+      className: c.name,
+      tuitionPerSession: c.tuitionPerSession ?? null,
+      teacherPayPerSession: c.teacherPayPerSession ?? null,
+    })),
+    students,
+    studentsTotal: students.reduce((a, s) => a + s.total, 0),
+    teachers: [...teacherTotals.values()].sort((a, b) => b.total - a.total),
+    teachersTotal: [...teacherTotals.values()].reduce((a, t) => a + t.total, 0),
+  })
 }
