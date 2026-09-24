@@ -43,11 +43,15 @@ export interface IClass extends Document {
   compLabelOverrides?: Record<string, Record<string, string>>
   // Đơn giá tính tiền — admin tự nhập theo TỪNG LỚP (không theo "cấp" chung),
   // vì mỗi lớp có thể có mức giá riêng. Học phí = đơn giá/buổi × số buổi học
-  // sinh đã học trong tháng; lương giáo viên = đơn giá/buổi × số buổi giáo
-  // viên đã dạy trong tháng (cố định, KHÔNG nhân theo sĩ số). Xem
+  // sinh đã học trong tháng. Lương giáo viên có 2 cách tính, chọn theo từng
+  // lớp qua teacherPayMode: 'fixed' = đơn giá/buổi cố định (không tính sĩ
+  // số); 'perStudent' = đơn giá/học-sinh-có-mặt/buổi (buổi đông thì lương
+  // cao hơn, buổi vắng nhiều thì thấp hơn). Xem
   // analyticsController.getBillingReport() — nơi duy nhất tính ra số tiền.
   tuitionPerSession?: number
   teacherPayPerSession?: number
+  teacherPayMode?: 'fixed' | 'perStudent'
+  teacherPayPerStudentSession?: number
 }
 
 const scheduleSlotSchema = new Schema<IScheduleSlot>(
@@ -96,6 +100,8 @@ const classSchema = new Schema<IClass>(
     compLabelOverrides: { type: Schema.Types.Mixed },
     tuitionPerSession: { type: Number, min: 0 },
     teacherPayPerSession: { type: Number, min: 0 },
+    teacherPayMode: { type: String, enum: ['fixed', 'perStudent'], default: 'fixed' },
+    teacherPayPerStudentSession: { type: Number, min: 0 },
   },
   { timestamps: true },
 )

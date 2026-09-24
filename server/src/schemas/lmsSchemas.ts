@@ -48,6 +48,8 @@ export const classBodySchema = z.object({
   // Đơn giá tính học phí/lương theo từng lớp — xem ghi chú ở Class model.
   tuitionPerSession: z.number().min(0).max(100_000_000).optional(),
   teacherPayPerSession: z.number().min(0).max(100_000_000).optional(),
+  teacherPayMode: z.enum(['fixed', 'perStudent']).optional(),
+  teacherPayPerStudentSession: z.number().min(0).max(100_000_000).optional(),
 })
 
 export const classUpdateSchema = classBodySchema.partial().omit({ centerId: true })

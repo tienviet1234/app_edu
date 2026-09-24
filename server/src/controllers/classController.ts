@@ -67,7 +67,8 @@ export async function updateClass(req: Request, res: Response): Promise<void> {
   }
   // Đơn giá học phí/lương chỉ admin được sửa — giáo viên sở hữu lớp vẫn sửa
   // được các trường khác (tên, lịch học...) qua chính endpoint này.
-  if (authReq.user?.role !== 'admin' && ('tuitionPerSession' in req.body || 'teacherPayPerSession' in req.body)) {
+  const BILLING_FIELDS = ['tuitionPerSession', 'teacherPayPerSession', 'teacherPayMode', 'teacherPayPerStudentSession']
+  if (authReq.user?.role !== 'admin' && BILLING_FIELDS.some((f) => f in req.body)) {
     forbidden(res, 'Chỉ quản trị viên được sửa đơn giá học phí/lương.')
     return
   }

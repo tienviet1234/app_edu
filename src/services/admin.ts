@@ -99,11 +99,15 @@ export interface TeacherPerfRow {
   reportCount: number
 }
 
+export type TeacherPayMode = 'fixed' | 'perStudent'
+
 export interface BillingClassRow {
   classId: string
   className: string
   tuitionPerSession: number | null
+  teacherPayMode: TeacherPayMode
   teacherPayPerSession: number | null
+  teacherPayPerStudentSession: number | null
 }
 
 export interface BillingStudentRow {
@@ -116,14 +120,28 @@ export interface BillingStudentRow {
   total: number
 }
 
+export interface BillingDayDetail {
+  date: string
+  totalStudents: number
+  attendedStudents: number
+  present: number
+  late: number
+  excused: number
+  absent: number
+  absentNames: string[]
+}
+
 export interface BillingTeacherClassRow {
   classId: string
   className: string
   teacherId: string
   teacherName: string
-  sessionsCount: number
+  payMode: TeacherPayMode
   ratePerSession: number
+  ratePerStudentSession: number
+  sessionsCount: number
   total: number
+  days: BillingDayDetail[]
 }
 
 export interface BillingTeacherRow {

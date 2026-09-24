@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { adminService } from '@/services/admin'
+import { adminService, type TeacherPayMode } from '@/services/admin'
 import { classService } from '@/services/classes'
 import { C } from '@/constants/colors'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { toast } from '@/store/toastStore'
+import { viDate } from '@/utils/format'
 
 const fmtVnd = (n: number) => `${n.toLocaleString('vi-VN')}đ`
 
@@ -18,20 +19,31 @@ function todayMonth() {
 function ClassRateRow({
   row, onSaved,
 }: {
-  row: { classId: string; className: string; tuitionPerSession: number | null; teacherPayPerSession: number | null }
+  row: {
+    classId: string; className: string; tuitionPerSession: number | null
+    teacherPayMode: TeacherPayMode; teacherPayPerSession: number | null; teacherPayPerStudentSession: number | null
+  }
   onSaved: () => void
 }) {
   const [tuition, setTuition] = useState(String(row.tuitionPerSession ?? ''))
+  const [mode, setMode] = useState<TeacherPayMode>(row.teacherPayMode)
   const [teacherPay, setTeacherPay] = useState(String(row.teacherPayPerSession ?? ''))
+  const [teacherPayPerStudent, setTeacherPayPerStudent] = useState(String(row.teacherPayPerStudentSession ?? ''))
   const [saving, setSaving] = useState(false)
-  const dirty = tuition !== String(row.tuitionPerSession ?? '') || teacherPay !== String(row.teacherPayPerSession ?? '')
+  const dirty =
+    tuition !== String(row.tuitionPerSession ?? '') ||
+    mode !== row.teacherPayMode ||
+    teacherPay !== String(row.teacherPayPerSession ?? '') ||
+    teacherPayPerStudent !== String(row.teacherPayPerStudentSession ?? '')
 
   async function save() {
     setSaving(true)
     try {
       await classService.update(row.classId, {
         tuitionPerSession: tuition.trim() === '' ? undefined : Number(tuition),
-        teacherPayPerSession: teacherPay.trim() === '' ? undefined : Number(teacherPay),
+        teacherPayMode: mode,
+        teacherPayPerSession: mode === 'fixed' && teacherPay.trim() !== '' ? Number(teacherPay) : undefined,
+        teacherPayPerStudentSession: mode === 'perStudent' && teacherPayPerStudent.trim() !== '' ? Number(teacherPayPerStudent) : undefined,
       })
       toast.success(`Đã lưu đơn giá cho ${row.className}`)
       onSaved()
@@ -44,8 +56,8 @@ function ClassRateRow({
 
   return (
     <tr style={{ borderTop: `1px solid ${C.line}` }}>
-      <td className="py-2 px-3 font-semibold">{row.className}</td>
-      <td className="py-2 px-3">
+      <td className="py-2 px-3 font-semibold align-top">{row.className}</td>
+      <td className="py-2 px-3 align-top">
         <div className="flex items-center gap-1">
           <input
             type="text" inputMode="numeric"
@@ -58,20 +70,53 @@ function ClassRateRow({
           <span className="text-xs" style={{ color: C.muted }}>đ/buổi</span>
         </div>
       </td>
-      <td className="py-2 px-3">
-        <div className="flex items-center gap-1">
-          <input
-            type="text" inputMode="numeric"
-            value={teacherPay}
-            onChange={(e) => setTeacherPay(e.target.value.replace(/\D/g, ''))}
-            placeholder="VD 200000"
-            className="w-28 rounded-lg px-2 py-1 text-right text-sm"
-            style={{ border: `1px solid ${C.line}` }}
-          />
-          <span className="text-xs" style={{ color: C.muted }}>đ/buổi</span>
+      <td className="py-2 px-3 align-top">
+        <div className="space-y-1.5">
+          <div className="flex gap-1">
+            {(['fixed', 'perStudent'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                className="rounded-lg px-2 py-1 text-[11px] font-semibold"
+                style={{
+                  background: mode === m ? C.board : C.paper,
+                  color: mode === m ? '#fff' : C.muted,
+                  border: `1px solid ${mode === m ? C.board : C.line}`,
+                }}
+              >
+                {m === 'fixed' ? 'Cố định/buổi' : 'Theo học sinh'}
+              </button>
+            ))}
+          </div>
+          {mode === 'fixed' ? (
+            <div className="flex items-center gap-1">
+              <input
+                type="text" inputMode="numeric"
+                value={teacherPay}
+                onChange={(e) => setTeacherPay(e.target.value.replace(/\D/g, ''))}
+                placeholder="VD 200000"
+                className="w-28 rounded-lg px-2 py-1 text-right text-sm"
+                style={{ border: `1px solid ${C.line}` }}
+              />
+              <span className="text-xs" style={{ color: C.muted }}>đ/buổi</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1">
+              <input
+                type="text" inputMode="numeric"
+                value={teacherPayPerStudent}
+                onChange={(e) => setTeacherPayPerStudent(e.target.value.replace(/\D/g, ''))}
+                placeholder="VD 25000"
+                className="w-28 rounded-lg px-2 py-1 text-right text-sm"
+                style={{ border: `1px solid ${C.line}` }}
+              />
+              <span className="text-xs" style={{ color: C.muted }}>đ/học sinh/buổi</span>
+            </div>
+          )}
         </div>
       </td>
-      <td className="py-2 px-3 text-right">
+      <td className="py-2 px-3 text-right align-top">
         <Btn kind={dirty ? 'gold' : 'ghost'} disabled={!dirty || saving} onClick={save}>
           {saving ? 'Đang lưu...' : 'Lưu'}
         </Btn>
@@ -80,8 +125,47 @@ function ClassRateRow({
   )
 }
 
+const ATTEND_SHORT: Record<string, string> = { present: 'Có mặt', late: 'Muộn', excused: 'Phép', absent: 'Vắng' }
+
+/** Bảng đối chiếu chi tiết từng ngày đã dạy của 1 lớp — sĩ số, có mặt/vắng,
+ *  tên học sinh vắng — để admin so lại với giáo viên khi có thắc mắc về lương. */
+function TeacherDayDetail({ days }: { days: { date: string; totalStudents: number; attendedStudents: number; present: number; late: number; excused: number; absent: number; absentNames: string[] }[] }) {
+  return (
+    <div className="mt-1.5 overflow-x-auto rounded-lg" style={{ border: `1px solid ${C.line}` }}>
+      <table className="w-full text-xs">
+        <thead>
+          <tr style={{ background: C.paper }}>
+            <th className="py-1.5 px-2 text-left font-semibold" style={{ color: C.muted }}>Ngày</th>
+            <th className="py-1.5 px-2 text-right font-semibold" style={{ color: C.muted }}>Sĩ số</th>
+            <th className="py-1.5 px-2 text-right font-semibold" style={{ color: C.muted }}>Có mặt</th>
+            <th className="py-1.5 px-2 text-left font-semibold" style={{ color: C.muted }}>Vắng/Muộn/Phép</th>
+          </tr>
+        </thead>
+        <tbody>
+          {days.map((d) => (
+            <tr key={d.date} style={{ borderTop: `1px solid ${C.line}` }}>
+              <td className="py-1.5 px-2 font-semibold">{viDate(d.date)}</td>
+              <td className="py-1.5 px-2 text-right tabular-nums">{d.totalStudents}</td>
+              <td className="py-1.5 px-2 text-right tabular-nums font-semibold" style={{ color: C.emerald }}>
+                {d.attendedStudents}
+              </td>
+              <td className="py-1.5 px-2" style={{ color: C.muted }}>
+                {d.late ? `${d.late} ${ATTEND_SHORT.late.toLowerCase()}` : ''}
+                {d.excused ? `${d.late ? ' · ' : ''}${d.excused} ${ATTEND_SHORT.excused.toLowerCase()}` : ''}
+                {d.absent ? `${d.late || d.excused ? ' · ' : ''}${d.absent} vắng: ${d.absentNames.join(', ')}` : ''}
+                {!d.late && !d.excused && !d.absent ? 'Đầy đủ' : ''}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 export function AdminBillingPage() {
   const [month, setMonth] = useState(todayMonth())
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const qc = useQueryClient()
 
   const { data, isLoading, isError } = useQuery({
@@ -91,13 +175,22 @@ export function AdminBillingPage() {
 
   const refetch = () => qc.invalidateQueries({ queryKey: ['admin', 'billing', month] })
 
+  function toggleExpand(key: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
   return (
     <div className="space-y-4">
       <div>
         <h2 className="text-lg font-black" style={{ color: C.board }}>Học phí & Lương</h2>
         <p className="text-sm" style={{ color: C.muted }}>
-          Học phí = đơn giá/buổi × số buổi học sinh đã học trong tháng. Lương giáo viên = đơn giá/buổi × số buổi đã dạy
-          trong tháng (cố định, không tính theo sĩ số). Đơn giá đặt riêng cho từng lớp.
+          Học phí = đơn giá/buổi × số buổi học sinh đã học trong tháng. Lương giáo viên chọn 1 trong 2 cách theo từng lớp:
+          đơn giá cố định/buổi, hoặc đơn giá/học-sinh-có-mặt/buổi (buổi đông lương cao hơn, buổi vắng nhiều lương thấp hơn).
         </p>
       </div>
 
@@ -132,7 +225,7 @@ export function AdminBillingPage() {
                     <tr style={{ background: C.paper }}>
                       <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Lớp</th>
                       <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Học phí/buổi</th>
-                      <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Lương GV/buổi</th>
+                      <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Lương giáo viên</th>
                       <th className="py-2 px-3"></th>
                     </tr>
                   </thead>
@@ -205,12 +298,28 @@ export function AdminBillingPage() {
                       <div className="font-black tabular-nums" style={{ color: C.board2 }}>{fmtVnd(t.total)}</div>
                     </div>
                     <div className="mt-1.5 space-y-1">
-                      {t.byClass.map((c) => (
-                        <div key={c.classId} className="flex items-center justify-between text-xs" style={{ color: C.muted }}>
-                          <span>{c.className} · {c.sessionsCount} buổi × {fmtVnd(c.ratePerSession)}</span>
-                          <span className="tabular-nums font-semibold" style={{ color: C.ink }}>{fmtVnd(c.total)}</span>
-                        </div>
-                      ))}
+                      {t.byClass.map((c) => {
+                        const key = `${c.classId}:${c.teacherId}`
+                        const isOpen = expanded.has(key)
+                        return (
+                          <div key={key}>
+                            <button
+                              onClick={() => toggleExpand(key)}
+                              className="flex w-full items-center justify-between text-xs text-left"
+                              style={{ color: C.muted }}
+                            >
+                              <span>
+                                {isOpen ? '▾' : '▸'} {c.className} · {c.sessionsCount} buổi ·{' '}
+                                {c.payMode === 'perStudent'
+                                  ? `${fmtVnd(c.ratePerStudentSession)}/học sinh có mặt`
+                                  : `${fmtVnd(c.ratePerSession)}/buổi`}
+                              </span>
+                              <span className="tabular-nums font-semibold" style={{ color: C.ink }}>{fmtVnd(c.total)}</span>
+                            </button>
+                            {isOpen && <TeacherDayDetail days={c.days} />}
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 ))}
