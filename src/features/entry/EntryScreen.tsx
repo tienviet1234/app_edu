@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ClassData, Session, SessionEntry } from '@/types'
-import { C, scoreColor } from '@/constants/colors'
+import { C, scoreColor, tabColor } from '@/constants/colors'
+import { Icon } from '@/components/atoms/Icon'
 import { ATTEND } from '@/constants/tags'
 import { getClassRubric } from '@/constants/rubrics'
 import { uid } from '@/utils/uid'
@@ -505,7 +506,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                   setDraftDate(todayISO())
                 }}
                 title="Chọn số buổi — mỗi học sinh có buổi riêng, có thể khác ngày nhau"
-                className="rounded-xl px-3 py-2 text-sm font-semibold"
+                className="rounded-md px-3 py-2 text-sm font-semibold"
                 style={{ background: C.paper, color: C.board, border: `1px solid ${C.line}` }}
               >
                 {Array.from({ length: maxNo }, (_, i) => i + 1).map((no) => {
@@ -522,7 +523,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                 value={effectiveDate}
                 onChange={(x) => handleDateChange(x.target.value)}
                 title="Ngày của buổi đang chọn"
-                className="rounded-xl px-3 py-2 text-sm font-semibold"
+                className="rounded-md px-3 py-2 text-sm font-semibold"
                 style={{ border: `1px solid ${C.line}` }}
               />
               {session && (
@@ -539,19 +540,19 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                         if (x.key === 'Enter') commitRenameSessionNo()
                         if (x.key === 'Escape') { setRenamingNo(false); setRenameDraft('') }
                       }}
-                      className="w-14 rounded-lg px-2 py-1.5 text-center text-sm font-bold"
+                      className="w-14 rounded-md px-2 py-1.5 text-center text-sm font-bold"
                       style={{ border: `1px solid ${C.line}` }}
                     />
                     <button
                       onClick={commitRenameSessionNo}
-                      className="rounded-lg px-2.5 py-1.5 text-xs font-bold"
+                      className="rounded-md px-2.5 py-1.5 text-xs font-bold"
                       style={{ background: C.emerald, color: '#fff' }}
                     >
                       Lưu
                     </button>
                     <button
                       onClick={() => { setRenamingNo(false); setRenameDraft('') }}
-                      className="rounded-lg px-2 py-1.5 text-xs"
+                      className="rounded-md px-2 py-1.5 text-xs"
                       style={{ color: C.muted }}
                     >
                       Hủy
@@ -561,16 +562,16 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                   <button
                     onClick={() => { setRenamingNo(true); setRenameDraft(String(selectedNo)) }}
                     title="Đổi số Buổi này — giữ nguyên điểm/bài tập/điểm danh đã chấm, chỉ đổi nhãn số"
-                    className="rounded-xl px-2.5 py-2 text-xs font-bold"
+                    className="rounded-md px-2.5 py-2 text-xs font-bold"
                     style={{ color: C.board2, border: `1px dashed ${C.board2}66` }}
                   >
-                    ✎ Đổi số buổi
+                    <span className="inline-flex items-center gap-1"><Icon name="entry" size={14} /> Đổi số buổi</span>
                   </button>
                 )
               )}
               <button
                 onClick={() => setEditingWhen(false)}
-                className="min-h-11 rounded-xl px-3 text-sm font-bold"
+                className="min-h-11 rounded-md px-3 text-sm font-bold"
                 style={{ background: C.emerald, color: '#fff' }}
               >
                 ✓ Xong
@@ -580,58 +581,58 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
             <button
               onClick={() => setEditingWhen(true)}
               title="Bấm để đổi Buổi/Ngày — đang khóa để tránh chạm nhầm"
-              className="flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold"
+              className="flex min-h-11 items-center gap-2 rounded-md px-3 text-sm font-semibold"
               style={{ background: C.paper, color: C.board, border: `1px solid ${C.line}` }}
             >
-              <span>🔒 Buổi {selectedNo} — {viDate(effectiveDate)}</span>
-              <span style={{ color: C.board2 }}>✎ Sửa</span>
+              <span className="inline-flex items-center gap-1.5"><Icon name="lock" size={16} /> Buổi {selectedNo} — {viDate(effectiveDate)}</span>
+              <span className="inline-flex items-center gap-1" style={{ color: C.board2 }}><Icon name="entry" size={16} /> Sửa</span>
             </button>
           )}
           {!session && (
             <span className="text-xs" style={{ color: C.muted }}>(chưa lưu)</span>
           )}
           <Btn onClick={presetClass} title="Đặt sẵn mức đạt cho cả lớp">
-            ⚡ Mặc định
+            <span className="inline-flex items-center gap-1.5"><Icon name="bolt" size={16} /> Mặc định</span>
           </Btn>
           <button
             onClick={toggleGroupMode}
             title="Chọn nhóm học sinh có cùng điểm để áp dụng nhanh"
-            className="min-h-11 rounded-xl px-3 text-sm font-semibold"
+            className="min-h-11 rounded-md px-3 text-sm font-semibold"
             style={{
-              background: groupMode ? '#10B981' : C.paper,
+              background: groupMode ? C.emerald : C.paper,
               color: groupMode ? '#fff' : C.muted,
-              border: `1px solid ${groupMode ? '#10B981' : C.line}`,
+              border: `1.5px solid ${groupMode ? C.emerald : C.line}`,
             }}
           >
-            ☑ Chọn nhóm
+            <span className="inline-flex items-center gap-1.5"><Icon name="checksq" size={16} /> Chọn nhóm</span>
           </button>
           <button
             onClick={() => setShowSummary((v) => !v)}
             title="Xem điểm cả lớp trong ngày đang chọn, không cần xuất Excel"
-            className="min-h-11 rounded-xl px-3 text-sm font-semibold"
+            className="min-h-11 rounded-md px-3 text-sm font-semibold"
             style={{
               background: showSummary ? C.board : C.paper,
               color: showSummary ? '#fff' : C.muted,
               border: `1px solid ${showSummary ? C.board : C.line}`,
             }}
           >
-            📋 Xem cả lớp
+            <span className="inline-flex items-center gap-1.5"><Icon name="list" size={16} /> Xem cả lớp</span>
           </button>
           <button
             onClick={backfillAllScores}
             disabled={backfilling}
             title="Đẩy điểm đã nhập trước đây (còn kẹt trên máy này) lên server"
-            className="min-h-11 rounded-xl px-3 text-sm font-semibold"
+            className="min-h-11 rounded-md px-3 text-sm font-semibold"
             style={{ background: C.paper, color: C.muted, border: `1px solid ${C.line}` }}
           >
-            {backfilling ? `☁ Đang đồng bộ ${backfillProgress.done}/${backfillProgress.total}...` : '☁ Đồng bộ điểm cũ'}
+            <span className="inline-flex items-center gap-1.5"><Icon name="cloud" size={16} />{backfilling ? `Đang đồng bộ ${backfillProgress.done}/${backfillProgress.total}...` : 'Đồng bộ điểm cũ'}</span>
           </button>
           <div className="ml-auto flex items-center gap-3 text-sm" style={{ color: C.muted }}>
             {syncStatus === 'saving' && <span style={{ color: C.board2 }}>⟳ Đang lưu...</span>}
             {syncStatus === 'saved' && (
-              <span className="animate-slide-down" style={{ color: C.emerald }}>✓ Đã lưu</span>
+              <span className="animate-slide-down inline-flex items-center gap-1" style={{ color: C.emerald }}><Icon name="check" size={16} /> Đã lưu</span>
             )}
-            {syncStatus === 'error' && <span style={{ color: C.red }}>⚠ Lỗi lưu</span>}
+            {syncStatus === 'error' && <span className="inline-flex items-center gap-1" style={{ color: C.red }}><Icon name="alert" size={16} /> Lỗi lưu</span>}
             <span>Đã nhập <b style={{ color: C.ink }}>{done}</b>/{cls.students.length}</span>
           </div>
         </div>
@@ -646,7 +647,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
 
         {/* Xem nhanh cả lớp cho đúng buổi số này — mỗi em có thể khác ngày */}
         {showSummary && (
-          <div className="mt-2 overflow-hidden rounded-xl" style={{ border: `1px solid ${C.line}` }}>
+          <div className="mt-2 overflow-hidden rounded-md" style={{ border: `1px solid ${C.line}` }}>
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ background: C.paper }}>
@@ -693,7 +694,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
         )}
 
         {/* Session-level question count settings */}
-        <div className="mt-2 flex flex-wrap items-center gap-3 rounded-xl px-3 py-2 text-xs" style={{ background: C.paper }}>
+        <div className="mt-2 flex flex-wrap items-center gap-3 rounded-md px-3 py-2 text-xs" style={{ background: C.paper }}>
           <span className="font-bold shrink-0" style={{ color: C.muted }}>Số câu:</span>
           {r2.comps.filter((c) => c.type === 'score').map((comp) => (
             <label key={comp.key} className="flex items-center gap-1">
@@ -706,7 +707,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                 onChange={(x) => setMaxDrafts((d) => ({ ...d, [comp.key]: x.target.value.replace(/\D/g, '') }))}
                 onBlur={(x) => commitSessionMax(comp.key, x.target.value)}
                 onKeyDown={(x) => { if (x.key === 'Enter') x.currentTarget.blur() }}
-                className="w-14 rounded-lg px-1 py-0.5 text-center font-bold"
+                className="w-14 rounded-md px-1 py-0.5 text-center font-bold"
                 style={{ border: `1px solid ${C.board}66` }}
               />
               <span style={{ color: C.muted }}>câu</span>
@@ -728,7 +729,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                       onChange={(x) => setMaxDrafts((d) => ({ ...d, [k]: x.target.value.replace(/\D/g, '') }))}
                       onBlur={(x) => commitSessionMax(k, x.target.value)}
                       onKeyDown={(x) => { if (x.key === 'Enter') x.currentTarget.blur() }}
-                      className="w-14 rounded-lg px-1 py-0.5 text-center font-bold"
+                      className="w-14 rounded-md px-1 py-0.5 text-center font-bold"
                       style={{ border: `1px solid ${C.board}66` }}
                     />
                     <span style={{ color: C.muted }}>câu</span>
@@ -741,8 +742,8 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
         {/* Group mode guide banner */}
         {groupMode && (
           <div
-            className="mt-2 rounded-xl px-3 py-2 text-xs"
-            style={{ background: '#ECFDF5', border: '1px solid #10B98133', color: '#065F46' }}
+            className="mt-2 rounded-md px-3 py-2 text-xs"
+            style={{ background: C.emerald + '14', border: `1.5px solid ${C.emerald}55`, color: C.ink }}
           >
             <b>Chế độ chọn nhóm:</b> Bấm vào từng học sinh để chọn → xem điểm của bạn muốn sao chép bên dưới → bấm <b>Áp dụng</b>.
             Dùng nút ← → để chuyển học sinh đang xem.
@@ -773,34 +774,29 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                     })
                   }
                 }}
-                className="relative min-h-11 rounded-lg px-3 text-sm font-semibold transition-all"
+                className="relative inline-flex min-h-11 items-center gap-1.5 rounded-sm px-3 text-sm font-semibold transition-all"
                 style={{
-                  background: active
-                    ? C.board
-                    : inGroup
-                    ? C.emerald + '33'
-                    : t !== null
-                    ? C.emerald + '26'
-                    : '#fff',
-                  color: active
-                    ? '#fff'
-                    : inGroup
-                    ? C.emerald
-                    : t !== null
-                    ? C.emerald
-                    : C.muted,
-                  border: `1px solid ${active ? C.board : inGroup ? C.emerald : t !== null ? C.emerald + '4D' : C.line}`,
+                  background: active ? C.board2 : inGroup ? C.emerald + '1F' : C.card,
+                  color: active ? '#fff' : inGroup ? C.emerald : t !== null ? C.ink : C.muted,
+                  border: `1.5px solid ${active ? C.board2 : inGroup ? C.emerald : C.line}`,
                   outline: active && groupMode ? `2px solid ${C.emerald}` : undefined,
                 }}
               >
-                {groupMode && (
-                  <span className="mr-0.5">{inGroup ? '✓' : '○'}</span>
-                )}
+                {groupMode && <Icon name={inGroup ? 'checksq' : 'list'} size={14} />}
+                {/* Đã chấm = dấu tích cỏ; đang xem = góc thẻ gấp (dấu chỗ đang dừng) */}
+                {!active && t !== null && !groupMode && <span style={{ color: C.emerald }}><Icon name="check" size={14} /></span>}
                 {s.name}
+                {active && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute right-0 top-0 h-3 w-3"
+                    style={{ background: C.gold, clipPath: 'polygon(0 0, 100% 0, 100% 100%)' }}
+                  />
+                )}
                 {!active && missing && (
                   <span
                     className="absolute -top-1 -right-1 h-2 w-2 rounded-full"
-                    style={{ background: '#F59E0B' }}
+                    style={{ background: C.gold }}
                   />
                 )}
               </button>
@@ -813,26 +809,26 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <button
               onClick={selectAll}
-              className="min-h-11 rounded-lg px-3 text-sm font-semibold"
+              className="min-h-11 rounded-md px-3 text-sm font-semibold"
               style={{ background: C.paper, border: `1px solid ${C.line}`, color: C.muted }}
             >
               Chọn tất cả
             </button>
             <button
               onClick={clearSelection}
-              className="min-h-11 rounded-lg px-3 text-sm font-semibold"
+              className="min-h-11 rounded-md px-3 text-sm font-semibold"
               style={{ background: C.paper, border: `1px solid ${C.line}`, color: C.muted }}
             >
               Bỏ chọn
             </button>
             <span className="text-xs" style={{ color: C.muted }}>
-              Đã chọn: <b style={{ color: '#059669' }}>{groupSelected.size}</b> học sinh
+              Đã chọn: <b style={{ color: C.emerald }}>{groupSelected.size}</b> học sinh
             </span>
             {groupSelected.size > 0 && st && (
               <button
                 onClick={applyGroupScores}
-                className="min-h-11 rounded-xl px-4 text-sm font-bold"
-                style={{ background: '#10B981', color: '#fff', marginLeft: 'auto' }}
+                className="min-h-11 rounded-md px-4 text-sm font-bold"
+                style={{ background: C.emerald, color: '#fff', marginLeft: 'auto' }}
               >
                 Áp dụng điểm của "{st.name}" → {groupSelected.size} học sinh đã chọn
               </button>
@@ -843,30 +839,40 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
       </Card>
 
       {st && (
-        <Card>
-          <div
-            className="flex items-center justify-between px-4 py-3"
-            style={{
-              background: groupMode ? C.emerald : e.attendance === 'absent' ? C.rose : C.board,
-              color: '#fff',
-              borderRadius: '14px 14px 0 0',
-            }}
-          >
-            <div>
-              <div className="text-xs opacity-70">
+        <Card accentTop={groupMode ? C.emerald : e.attendance === 'absent' ? C.rose : C.board2}>
+          {/* Mặt thẻ: tên học sinh là chữ to nhất trang, tổng điểm đối diện. */}
+          <div className="flex items-start justify-between gap-3 px-4 pb-1 pt-3">
+            <div className="min-w-0">
+              <div className="text-xs" style={{ color: C.muted }}>
                 {groupMode
-                  ? `Chế độ nhóm · Điểm mẫu để áp dụng`
-                  : `Phiếu đánh giá ${r.label} · học sinh ${cur + 1}/${cls.students.length}`}
+                  ? 'Chế độ nhóm · Điểm mẫu để áp dụng'
+                  : `Phiếu ${r.label} · thẻ ${cur + 1}/${cls.students.length}`}
               </div>
-              <div className="text-xl font-black">{st.name}</div>
+              <div className="font-display text-3xl font-extrabold leading-tight" style={{ color: C.ink }}>{st.name}</div>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                {e.attendance === 'absent' && (
+                  <span className="rounded-sm px-2 py-0.5 text-xs font-bold" style={{ background: C.rose + '22', color: C.ink }}>
+                    Vắng buổi này
+                  </span>
+                )}
+                {total !== null && (
+                  <span
+                    className="font-display inline-block rounded-sm px-2 text-sm font-bold"
+                    style={{ border: `2px solid ${C.board2}`, color: C.board2, transform: 'rotate(-4deg)' }}
+                  >
+                    ĐÃ CHẤM
+                  </span>
+                )}
+              </div>
             </div>
-            <div className="text-right">
-              <div className="text-xs opacity-70">Tổng buổi này</div>
+            <div className="shrink-0 text-right">
+              <div className="text-xs" style={{ color: C.muted }}>Tổng buổi này</div>
               <div
-                className="text-3xl font-black"
-                style={{ fontVariantNumeric: 'tabular-nums', color: total === null ? '#fff' : scoreColor(total) }}
+                className="font-display text-5xl font-extrabold leading-none"
+                style={{ fontVariantNumeric: 'tabular-nums', color: total === null ? C.line : scoreColor(total) }}
               >
                 {total === null ? '—' : total}
+                {total !== null && <span className="text-base font-bold" style={{ color: C.muted }}>/100</span>}
               </div>
             </div>
           </div>
@@ -874,20 +880,20 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
           <div className="space-y-4 p-4">
             {showReminder && (
               <div
-                className="rounded-xl px-4 py-2.5 text-sm font-semibold"
-                style={{ background: C.gold + '22', color: '#7A5A05', border: `1px solid ${C.gold}55` }}
+                className="rounded-md px-4 py-2.5 text-sm font-semibold"
+                style={{ background: C.gold + '26', color: C.ink, border: `1.5px solid ${C.gold}` }}
               >
-                ⏰ {st.name} đã đủ <b>{studentSessionCount}</b> buổi học! Nhớ vào <b>Báo cáo</b> để gửi nhận xét cho phụ huynh.
+                <Icon name="calendar" size={16} className="mr-1.5 inline align-[-3px]" />{st.name} đã đủ <b>{studentSessionCount}</b> buổi học! Nhớ vào <b>Báo cáo</b> để gửi nhận xét cho phụ huynh.
               </div>
             )}
 
             {missingFlags.length > 0 && (
               <div
-                className="rounded-xl px-4 py-2.5 text-sm"
-                style={{ background: C.rose + '14', color: '#9F1239', border: `1px solid ${C.rose}44` }}
+                className="rounded-md px-4 py-2.5 text-sm"
+                style={{ background: C.rose + '12', color: C.ink, border: `1.5px solid ${C.rose}66` }}
               >
                 <div className="font-semibold">
-                  ⚠ Có thể quên chấm cho {st.name} — Buổi {selectedNo}:
+                  <Icon name="alert" size={16} className="mr-1.5 inline align-[-3px]" />Có thể quên chấm cho {st.name} — Buổi {selectedNo}:
                 </div>
                 <ul className="mt-1 ml-4 list-disc space-y-0.5">
                   {missingFlags.map((f) => (
@@ -902,7 +908,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
               </div>
             )}
 
-            <div>
+            <div className="rounded-md p-3" style={{ background: C.card, border: `1.5px solid ${C.line}`, borderTop: `6px solid ${tabColor(0)}` }}>
               <div className="mb-1.5 text-xs font-bold uppercase" style={{ color: C.muted }}>
                 Chuyên cần{' '}
                 {r.attendance.mode === 'deduct'
@@ -931,21 +937,26 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
             </div>
 
             {e.attendance === 'excused' ? (
-              <div className="rounded-xl p-3 text-sm" style={{ background: C.paper, color: C.muted }}>
+              <div className="rounded-md p-3 text-sm" style={{ background: C.paper, color: C.muted }}>
                 Buổi nghỉ phép — không tính vào điểm trung bình, chỉ trừ điểm chuyên cần.
               </div>
             ) : (
-              r2.comps.map((comp) => (
-                <CompEditor
+              r2.comps.map((comp, ci) => (
+                <div
                   key={comp.key}
-                  comp={comp}
-                  e={e}
-                  mut={mut}
-                  ratioTotals={ratioTotals}
-                  maxDraft={maxDrafts[comp.key]}
-                  onMaxInput={(raw) => setMaxDrafts((d) => ({ ...d, [comp.key]: raw }))}
-                  onMaxCommit={(raw) => commitSessionMax(comp.key, raw)}
-                />
+                  className="rounded-md p-3"
+                  style={{ background: C.card, border: `1.5px solid ${C.line}`, borderTop: `6px solid ${tabColor(ci + 1)}` }}
+                >
+                  <CompEditor
+                    comp={comp}
+                    e={e}
+                    mut={mut}
+                    ratioTotals={ratioTotals}
+                    maxDraft={maxDrafts[comp.key]}
+                    onMaxInput={(raw) => setMaxDrafts((d) => ({ ...d, [comp.key]: raw }))}
+                    onMaxCommit={(raw) => commitSessionMax(comp.key, raw)}
+                  />
+                </div>
               ))
             )}
 
@@ -963,7 +974,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                     onChange={(x) =>
                       mut((en) => { en.stayHours = x.target.value === '' ? undefined : Number(x.target.value) })
                     }
-                    className="w-20 rounded-xl px-3 py-2 text-center font-bold"
+                    className="w-20 rounded-md px-3 py-2 text-center font-bold"
                     style={{ border: `1px solid ${C.line}` }}
                   />
                   <span className="text-xs" style={{ color: C.muted }}>giờ</span>
@@ -981,7 +992,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                     onChange={(x) =>
                       mut((en) => { en.homeHours = x.target.value === '' ? undefined : Number(x.target.value) })
                     }
-                    className="w-20 rounded-xl px-3 py-2 text-center font-bold"
+                    className="w-20 rounded-md px-3 py-2 text-center font-bold"
                     style={{ border: `1px solid ${C.line}` }}
                   />
                   <span className="text-xs" style={{ color: C.muted }}>giờ</span>
@@ -993,7 +1004,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
               value={session?.homework ?? ''}
               onChange={(x) => setHomework(x.target.value)}
               placeholder="Bài tập về nhà riêng cho học sinh này (bỏ trống nếu không có)"
-              className="w-full rounded-xl px-3 py-2 text-sm"
+              className="w-full rounded-md px-3 py-2 text-sm"
               style={{ border: `1px solid ${C.line}` }}
             />
 
@@ -1001,7 +1012,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
               value={e.note}
               onChange={(x) => mut((en) => { en.note = x.target.value })}
               placeholder="Ghi chú riêng cho học sinh này (không bắt buộc)"
-              className="w-full rounded-xl px-3 py-2 text-sm"
+              className="w-full rounded-md px-3 py-2 text-sm"
               style={{ border: `1px solid ${C.line}` }}
             />
 
@@ -1014,19 +1025,19 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                   setCur(Math.max(0, cur - 1))
                 })}
               >
-                ← Trước
+                <span className="inline-flex items-center gap-1.5"><Icon name="arrowL" size={16} /> Trước</span>
               </Btn>
               {groupMode && groupSelected.size > 0 ? (
                 <button
                   onClick={applyGroupScores}
-                  className="flex-1 rounded-xl py-2 text-sm font-bold"
-                  style={{ background: '#10B981', color: '#fff' }}
+                  className="flex-1 rounded-md py-2 text-sm font-bold"
+                  style={{ background: C.emerald, color: '#fff' }}
                 >
-                  ✓ Áp dụng cho {groupSelected.size} học sinh đã chọn
+                  <span className="inline-flex items-center justify-center gap-1.5"><Icon name="check" size={16} /> Áp dụng cho {groupSelected.size} học sinh đã chọn</span>
                 </button>
               ) : (
                 <Btn
-                  kind="gold"
+                  kind="solid"
                   size="lg"
                   className="flex-1"
                   onClick={() => requestNav(() => {
@@ -1036,12 +1047,35 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                     setCur(Math.min(cls.students.length - 1, cur + 1))
                   })}
                 >
-                  Học sinh tiếp theo →
+                  <span className="inline-flex items-center justify-center gap-2">Học sinh tiếp theo <Icon name="arrowR" size={18} /></span>
                 </Btn>
               )}
             </div>
           </div>
         </Card>
+      )}
+
+      {/* Mép các thẻ còn lại trong bộ: nhìn là biết lớp còn bao nhiêu em chưa tới lượt. */}
+      {st && cls.students.length - cur - 1 > 0 && (
+        <div aria-hidden="true" className="-mt-3">
+          {Array.from({ length: Math.min(3, cls.students.length - cur - 1) }, (_, i) => (
+            <div
+              key={i}
+              className="h-1.5"
+              style={{
+                marginInline: 8 * (i + 1),
+                background: C.card,
+                border: `1.5px solid ${C.line}`,
+                borderTop: 'none',
+              }}
+            />
+          ))}
+        </div>
+      )}
+      {st && cls.students.length - cur - 1 > 0 && (
+        <div className="text-center text-xs" style={{ color: C.muted }}>
+          Còn {cls.students.length - cur - 1} thẻ nữa trong bộ
+        </div>
       )}
 
       {/* Xác nhận trước khi lưu & chuyển sang học sinh khác — xem lại 1 lần

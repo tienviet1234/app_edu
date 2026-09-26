@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { produce } from 'immer'
 import { Btn } from '@/components/atoms/Btn'
-import { C } from '@/constants/colors'
+import { C, TAB_COLORS } from '@/constants/colors'
 import { ROLE_LABELS } from '@/types/auth'
 import { ProfileModal } from '@/features/profile/ProfileModal'
 import { NotificationBell } from '@/components/molecules/NotificationBell'
@@ -469,30 +469,25 @@ export default function App() {
       <header
         className="sticky top-0 z-20"
         style={{
-          background: 'linear-gradient(160deg, #1E3A8A 0%, #172d77 100%)',
+          background: C.board,
           color: '#fff',
           paddingTop: 'env(safe-area-inset-top)',
-          boxShadow: 'var(--shadow-header)',
         }}
       >
         <div className="flex h-14 items-center gap-1.5 overflow-x-auto px-2 sm:gap-2.5 sm:px-4">
           {/* Logo */}
           <div className="flex items-center gap-2.5 shrink-0">
             <div
-              className="flex h-9 w-9 items-center justify-center rounded-xl text-xs font-black tracking-wider shrink-0"
-              style={{
-                background: C.gold,
-                color: '#1C0F00',
-                boxShadow: '0 2px 8px 0 rgb(245 158 11 / 0.35)',
-              }}
+              className="font-display flex h-9 w-10 items-center justify-center rounded-sm text-base font-extrabold shrink-0"
+              style={{ background: C.gold, color: C.ink }}
             >
               EDU
             </div>
             <div className="hidden sm:block">
-              <div className="text-xs uppercase tracking-widest" style={{ color: 'rgb(255 255 255 / 0.50)' }}>
+              <div className="text-xs" style={{ color: 'rgb(255 255 255 / 0.72)' }}>
                 Trung tâm Anh ngữ
               </div>
-              <div className="text-sm font-black leading-tight" style={{ color: '#fff' }}>
+              <div className="font-display text-base font-bold leading-tight" style={{ color: '#fff' }}>
                 Hệ thống quản lý chất lượng
               </div>
             </div>
@@ -501,8 +496,8 @@ export default function App() {
           <select
             value={currentClassIndex}
             onChange={(x) => setCurrentClass(Number(x.target.value))}
-            className="ml-auto min-w-0 flex-1 truncate rounded-xl px-2 py-2 text-xs font-bold sm:max-w-[220px] sm:flex-none sm:px-3 sm:text-sm"
-            style={{ background: 'rgb(255 255 255 / 0.12)', color: '#fff', border: '1px solid rgb(255 255 255 / 0.20)' }}
+            className="ml-auto min-h-11 min-w-0 flex-1 truncate rounded-md px-2 py-2 text-xs font-bold sm:max-w-[220px] sm:flex-none sm:px-3 sm:text-sm"
+            style={{ background: 'rgb(255 255 255 / 0.12)', color: '#fff', border: '1.5px solid rgb(255 255 255 / 0.28)' }}
           >
             {data.classes.map((c, i) => (
               <option key={c.id} value={i} style={{ color: '#000' }}>
@@ -514,8 +509,8 @@ export default function App() {
           {user?.role === 'student' ? (
             <button
               onClick={() => navigate('/app/join')}
-              className="shrink-0 rounded-xl px-2.5 py-2 text-sm font-bold transition-all hover:brightness-[0.92] active:scale-[0.97] sm:px-3"
-              style={{ background: C.gold, color: '#2A1F05', boxShadow: '0 1px 4px 0 rgb(245 158 11 / 0.30)' }}
+              className="min-h-11 shrink-0 rounded-md px-2.5 py-2 text-sm font-bold transition-all hover:brightness-[0.92] active:scale-[0.98] sm:px-3"
+              style={{ background: C.gold, color: C.ink }}
               title="Tham gia lớp"
             >
               +<span className="hidden sm:inline"> Tham gia lớp</span>
@@ -523,8 +518,8 @@ export default function App() {
           ) : (
             <button
               onClick={() => setTab('classes')}
-              className="shrink-0 rounded-xl px-2.5 py-2 text-sm font-bold transition-all hover:brightness-[0.92] active:scale-[0.97] sm:px-3"
-              style={{ background: C.gold, color: '#2A1F05', boxShadow: '0 1px 4px 0 rgb(245 158 11 / 0.30)' }}
+              className="min-h-11 shrink-0 rounded-md px-2.5 py-2 text-sm font-bold transition-all hover:brightness-[0.92] active:scale-[0.98] sm:px-3"
+              style={{ background: C.gold, color: C.ink }}
               title="Thêm lớp"
             >
               +<span className="hidden sm:inline"> Thêm lớp</span>
@@ -539,8 +534,8 @@ export default function App() {
           {user?.role === 'admin' && (
             <button
               onClick={() => navigate('/admin')}
-              className="shrink-0 rounded-xl px-2 py-1.5 text-xs font-bold transition-all hover:brightness-[0.92] sm:px-3"
-              style={{ background: C.gold, color: '#2A1F05' }}
+              className="min-h-11 shrink-0 rounded-md px-2 py-1.5 text-xs font-bold transition-all hover:brightness-[0.92] sm:px-3"
+              style={{ background: C.gold, color: C.ink }}
               title="Admin"
             >
               <span className="sm:hidden">⚙</span>
@@ -550,8 +545,8 @@ export default function App() {
 
           {user && (
             <div
-              className="flex shrink-0 items-center gap-2 rounded-xl px-2 py-1.5 sm:px-3"
-              style={{ background: 'rgb(255 255 255 / 0.10)', border: '1px solid rgb(255 255 255 / 0.12)' }}
+              className="flex shrink-0 items-center gap-2 rounded-md px-2 py-1.5 sm:px-3"
+              style={{ background: 'rgb(255 255 255 / 0.10)', border: '1.5px solid rgb(255 255 255 / 0.22)' }}
             >
               <button
                 onClick={() => setProfileOpen(true)}
@@ -561,7 +556,7 @@ export default function App() {
                 <div className="text-xs font-bold leading-tight">
                   {user.avatar ? `${user.avatar} ` : ''}{user.name}
                 </div>
-                <div className="text-xs" style={{ color: 'rgb(255 255 255 / 0.55)' }}>
+                <div className="text-xs" style={{ color: 'rgb(255 255 255 / 0.72)' }}>
                   {ROLE_LABELS[user.role]}
                 </div>
               </button>
@@ -575,9 +570,9 @@ export default function App() {
               <div className="hidden sm:block" style={{ width: 1, height: 24, background: 'rgb(255 255 255 / 0.15)' }} />
               <button
                 onClick={() => logout()}
-                className="rounded-lg border px-2 py-1 text-xs font-semibold transition-all hover:brightness-125 active:scale-[0.94] sm:px-2"
+                className="min-h-11 rounded-md border px-3 py-1 text-xs font-semibold transition-all hover:brightness-125 active:scale-[0.96]"
                 style={{
-                  color: 'rgb(255 255 255 / 0.75)',
+                  color: 'rgb(255 255 255 / 0.9)',
                   background: 'rgb(255 255 255 / 0.08)',
                   borderColor: 'rgb(255 255 255 / 0.20)',
                 }}
@@ -588,6 +583,10 @@ export default function App() {
               </button>
             </div>
           )}
+        </div>
+        {/* Băng 4 màu nhãn: dấu hiệu nhận diện của bộ thẻ, chạy dọc mép dưới thanh trên */}
+        <div aria-hidden="true" className="flex h-1">
+          {TAB_COLORS.map((c) => <span key={c} className="flex-1" style={{ background: c }} />)}
         </div>
       </header>
 

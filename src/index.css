@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=Baloo+2:wght@600;700;800&display=swap');
 
 @layer base {
   *,
@@ -19,20 +19,20 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     font-family: 'Be Vietnam Pro', 'Segoe UI', system-ui, sans-serif;
-    background: #F1F5F9;
-    color: #0F172A;
+    background: #EEF1F8;
+    color: #14182B;
   }
 
   input, select, textarea, button {
     font-family: inherit;
   }
 
-  /* Focus ring — indigo to match brand */
+  /* Focus ring — cobalt, khớp băng nhãn chính */
   input:focus,
   select:focus,
   textarea:focus,
   button:focus-visible {
-    outline: 2px solid #2563EB;
+    outline: 2px solid #2447D6;
     outline-offset: 2px;
   }
 
@@ -40,7 +40,7 @@
   input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):focus,
   select:focus,
   textarea:focus {
-    box-shadow: 0 0 0 3px rgb(37 99 235 / 0.12);
+    box-shadow: 0 0 0 3px rgb(36 71 214 / 0.14);
   }
 
   /* Smooth scrollbars */
@@ -52,22 +52,27 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: #CBD5E1;
+    background: #C3CADB;
     border-radius: 3px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #94A3B8;
+    background: #8C96AE;
   }
 
   /* Tabular numerals for score displays */
   .tabular { font-variant-numeric: tabular-nums; }
 
+  /* Chữ hiển thị: tên học sinh, con số lớn */
+  .font-display { font-family: var(--font-display); letter-spacing: 0; }
+
   /* --- Design tokens (redesign phase A) --- */
   :root {
-    --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06);
-    --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.10), 0 2px 4px -2px rgb(0 0 0 / 0.06);
-    --shadow-lg: 0 12px 24px -4px rgb(0 0 0 / 0.14), 0 4px 8px -4px rgb(0 0 0 / 0.08);
-    --shadow-header: 0 2px 16px 0 rgb(0 0 0 / 0.18);
+    /* Thẻ phẳng: độ nổi do viền đảm nhiệm, chỉ thẻ nổi bật (elevated) mới có bóng. */
+    --shadow-sm: none;
+    --shadow-md: none;
+    --shadow-lg: 0 8px 20px -10px rgb(20 24 43 / 0.28);
+    --shadow-header: none;
+    --font-display: 'Baloo 2', 'Be Vietnam Pro', system-ui, sans-serif;
     --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
     --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
     --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -121,7 +126,7 @@
 
   /* Skeleton shimmer */
   .skeleton {
-    background: linear-gradient(90deg, #E2E8F0 25%, #F1F5F9 50%, #E2E8F0 75%);
+    background: linear-gradient(90deg, #DDE2EF 25%, #EEF1F8 50%, #DDE2EF 75%);
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite;
     border-radius: 8px;
