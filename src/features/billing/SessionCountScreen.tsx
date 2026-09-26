@@ -36,7 +36,8 @@ interface TeacherDay {
 
 interface NoDateGroup {
   date: string
-  students: string[]
+  /** Học sinh học hôm đó; `no` khác buổi chính của dòng thì hiện chú thích. */
+  students: { name: string; no: number }[]
   teachers: string[]
 }
 
@@ -124,14 +125,25 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
     // em này có thể rơi vào ngày khác hẳn "Buổi 3" của em khác. Gộp lại theo
     // đúng số buổi, liệt kê rõ từng ngày khác nhau bên trong — tránh nhầm là
     // dữ liệu trùng/lỗi khi thấy cùng 1 số buổi xuất hiện ở nhiều ngày.
-    const noDateMap = new Map<number, Map<string, { students: Set<string>; teachers: Set<string> }>>()
-    all.forEach((r) => {
-      const byDateForNo = noDateMap.get(r.no) ?? new Map<string, { students: Set<string>; teachers: Set<string> }>()
-      const entry = byDateForNo.get(r.date) ?? { students: new Set<string>(), teachers: new Set<string>() }
-      entry.students.add(r.studentName)
-      entry.teachers.add(r.teacherName)
-      byDateForNo.set(r.date, entry)
-      noDateMap.set(r.no, byDateForNo)
+    //
+    // Dòng của mỗi ngày được xếp theo BUỔI PHỔ BIẾN NHẤT hôm đó (hòa thì lấy
+    // số nhỏ hơn). Em nào hôm đó học buổi khác số đó vẫn ghi chung vào cùng
+    // dòng, kèm chú thích số buổi riêng của em — không tách thành dòng mới.
+    const byDateAll = new Map<string, DetailRow[]>()
+    all.forEach((r) => byDateAll.set(r.date, [...(byDateAll.get(r.date) ?? []), r]))
+    const noDateMap = new Map<number, Map<string, { students: Map<string, number>; teachers: Set<string> }>>()
+    byDateAll.forEach((rows, date) => {
+      const freq = new Map<number, number>()
+      rows.forEach((r) => freq.set(r.no, (freq.get(r.no) ?? 0) + 1))
+      const mainNo = [...freq.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0][0]
+      const byDateForNo = noDateMap.get(mainNo) ?? new Map<string, { students: Map<string, number>; teachers: Set<string> }>()
+      const entry = { students: new Map<string, number>(), teachers: new Set<string>() }
+      rows.forEach((r) => {
+        entry.students.set(r.studentName, r.no)
+        entry.teachers.add(r.teacherName)
+      })
+      byDateForNo.set(date, entry)
+      noDateMap.set(mainNo, byDateForNo)
     })
     const noGroups: NoGroup[] = [...noDateMap.entries()]
       .map(([no, byDateForNo]) => ({
@@ -139,7 +151,9 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
         dates: [...byDateForNo.entries()]
           .map(([date, v]) => ({
             date,
-            students: [...v.students].sort((a, b) => a.localeCompare(b, 'vi')),
+            students: [...v.students.entries()]
+              .map(([name, sNo]) => ({ name, no: sNo }))
+              .sort((a, b) => a.name.localeCompare(b.name, 'vi')),
             teachers: [...v.teachers],
           }))
           .sort((a, b) => a.date.localeCompare(b.date)),
@@ -398,7 +412,7 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
       <Card className="p-3">
         <div className="mb-1.5 flex items-center justify-between">
           <div className="text-xs font-bold uppercase" style={{ color: C.muted }}>Tổng hợp theo Buổi</div>
-          <div className="text-xs" style={{ color: C.muted }}>Mỗi số buổi 1 dòng · số trong ngoặc là số em học hôm đó</div>
+          <div className="text-xs" style={{ color: C.muted }}>Xếp theo buổi phổ biến nhất mỗi ngày · em khác số buổi ghi chú kèm</div>
         </div>
         <div className="space-y-1.5">
           {byNo.length === 0 && <span className="text-sm" style={{ color: C.muted }}>Chưa có buổi nào.</span>}
@@ -407,7 +421,11 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
             // Mỗi số buổi chỉ 1 dòng: tổng số em (mỗi em tính 1 lần dù học
             // buổi này vào ngày nào) + các ngày khác nhau ghi chung trong
             // ngoặc — không tách thành nhiều dòng theo ngày.
-            const totalStudents = new Set(g.dates.flatMap((d) => d.students)).size
+            const totalStudents = new Set(g.dates.flatMap((d) => d.students.map((s) => s.name))).size
+            // Em học hôm đó nhưng số buổi riêng khác buổi chính của dòng này.
+            const others = g.dates.flatMap((d) =>
+              d.students.filter((s) => s.no !== g.no).map((s) => `${s.name} (Buổi ${s.no}, ${viDate(d.date)})`),
+            )
             return (
               <div key={g.no}>
                 <button
@@ -422,13 +440,19 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
                     {' · ngày: '}
                     {g.dates.map((d) => `${viDate(d.date)} (${d.students.length})`).join(' · ')}
                   </span>
+                  {others.length > 0 && (
+                    <span className="block text-xs" style={{ color: '#7A5A05' }}>
+                      Cùng ngày nhưng số buổi riêng khác: {others.join(' · ')}
+                    </span>
+                  )}
                 </button>
                 {isOpen && (
                   <div className="mt-1 space-y-0.5 pl-4 text-xs" style={{ color: C.muted }}>
                     {g.dates.map((d) => (
                       <div key={d.date}>
                         <b style={{ color: C.ink }}>{viDate(d.date)}</b>
-                        {d.teachers.length ? ` · GV: ${d.teachers.join(', ')}` : ''} — {d.students.join(', ')}
+                        {d.teachers.length ? ` · GV: ${d.teachers.join(', ')}` : ''} —{' '}
+                        {d.students.map((s) => (s.no !== g.no ? `${s.name} (Buổi ${s.no})` : s.name)).join(', ')}
                       </div>
                     ))}
                   </div>
