@@ -398,26 +398,36 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
       <Card className="p-3">
         <div className="mb-1.5 flex items-center justify-between">
           <div className="text-xs font-bold uppercase" style={{ color: C.muted }}>Tổng hợp theo Buổi</div>
-          <div className="text-xs" style={{ color: C.muted }}>Cùng 1 số buổi có thể rơi vào nhiều ngày khác nhau</div>
+          <div className="text-xs" style={{ color: C.muted }}>Mỗi số buổi 1 dòng · số trong ngoặc là số em học hôm đó</div>
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="space-y-1.5">
           {byNo.length === 0 && <span className="text-sm" style={{ color: C.muted }}>Chưa có buổi nào.</span>}
           {byNo.map((g) => {
             const isOpen = expandedNo === g.no
+            // Mỗi số buổi chỉ 1 dòng: tổng số em (mỗi em tính 1 lần dù học
+            // buổi này vào ngày nào) + các ngày khác nhau ghi chung trong
+            // ngoặc — không tách thành nhiều dòng theo ngày.
+            const totalStudents = new Set(g.dates.flatMap((d) => d.students)).size
             return (
-              <div key={g.no} className="w-full sm:w-auto">
+              <div key={g.no}>
                 <button
                   onClick={() => setExpandedNo(isOpen ? null : g.no)}
-                  className="w-full rounded-lg px-2 py-1 text-left text-xs font-semibold sm:w-auto"
+                  className="w-full rounded-lg px-3 py-2 text-left text-sm"
                   style={{ background: C.paper, border: `1px solid ${C.line}` }}
                 >
-                  {isOpen ? '▾' : '▸'} Buổi {g.no} — <b style={{ color: C.board2 }}>{g.dates.length} ngày khác nhau</b>
+                  <span className="font-bold">{isOpen ? '▾' : '▸'} Buổi {g.no}</span>
+                  {' — '}
+                  <b style={{ color: C.board2 }}>{totalStudents} em</b>
+                  <span style={{ color: C.muted }}>
+                    {' · ngày: '}
+                    {g.dates.map((d) => `${viDate(d.date)} (${d.students.length})`).join(' · ')}
+                  </span>
                 </button>
                 {isOpen && (
-                  <div className="mt-1 space-y-1 pl-4">
+                  <div className="mt-1 space-y-0.5 pl-4 text-xs" style={{ color: C.muted }}>
                     {g.dates.map((d) => (
-                      <div key={d.date} className="text-xs" style={{ color: C.muted }}>
-                        <b style={{ color: C.ink }}>{viDate(d.date)}</b> — {d.students.length} học sinh
+                      <div key={d.date}>
+                        <b style={{ color: C.ink }}>{viDate(d.date)}</b>
                         {d.teachers.length ? ` · GV: ${d.teachers.join(', ')}` : ''} — {d.students.join(', ')}
                       </div>
                     ))}
