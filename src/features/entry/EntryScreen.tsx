@@ -565,7 +565,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
               )}
               <button
                 onClick={() => setEditingWhen(false)}
-                className="rounded-xl px-3 py-1.5 text-sm font-bold"
+                className="min-h-11 rounded-xl px-3 text-sm font-bold"
                 style={{ background: C.emerald, color: '#fff' }}
               >
                 ✓ Xong
@@ -575,7 +575,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
             <button
               onClick={() => setEditingWhen(true)}
               title="Bấm để đổi Buổi/Ngày — đang khóa để tránh chạm nhầm"
-              className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold"
+              className="flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold"
               style={{ background: C.paper, color: C.board, border: `1px solid ${C.line}` }}
             >
               <span>🔒 Buổi {selectedNo} — {viDate(effectiveDate)}</span>
@@ -591,7 +591,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
           <button
             onClick={toggleGroupMode}
             title="Chọn nhóm học sinh có cùng điểm để áp dụng nhanh"
-            className="rounded-xl px-3 py-1.5 text-sm font-semibold"
+            className="min-h-11 rounded-xl px-3 text-sm font-semibold"
             style={{
               background: groupMode ? '#10B981' : C.paper,
               color: groupMode ? '#fff' : C.muted,
@@ -603,7 +603,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
           <button
             onClick={() => setShowSummary((v) => !v)}
             title="Xem điểm cả lớp trong ngày đang chọn, không cần xuất Excel"
-            className="rounded-xl px-3 py-1.5 text-sm font-semibold"
+            className="min-h-11 rounded-xl px-3 text-sm font-semibold"
             style={{
               background: showSummary ? C.board : C.paper,
               color: showSummary ? '#fff' : C.muted,
@@ -616,7 +616,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
             onClick={backfillAllScores}
             disabled={backfilling}
             title="Đẩy điểm đã nhập trước đây (còn kẹt trên máy này) lên server"
-            className="rounded-xl px-3 py-1.5 text-sm font-semibold"
+            className="min-h-11 rounded-xl px-3 text-sm font-semibold"
             style={{ background: C.paper, color: C.muted, border: `1px solid ${C.line}` }}
           >
             {backfilling ? `☁ Đang đồng bộ ${backfillProgress.done}/${backfillProgress.total}...` : '☁ Đồng bộ điểm cũ'}
@@ -743,7 +743,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
         )}
 
         {/* Student pills */}
-        <div className="mt-2 flex flex-wrap gap-1">
+        <div className="mt-2 flex flex-wrap gap-2">
           {cls.students.map((s, i) => {
             const ss = s.sessions.find((x) => x.no === selectedNo)
             const t = ss ? sessionScore(ss.entry, r2) : null
@@ -766,7 +766,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                     })
                   }
                 }}
-                className="relative rounded-lg px-2 py-1 text-xs font-semibold transition-all"
+                className="relative min-h-11 rounded-lg px-3 text-sm font-semibold transition-all"
                 style={{
                   background: active
                     ? C.board
@@ -806,14 +806,14 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <button
               onClick={selectAll}
-              className="rounded-lg px-2 py-1 text-xs font-semibold"
+              className="min-h-11 rounded-lg px-3 text-sm font-semibold"
               style={{ background: C.paper, border: `1px solid ${C.line}`, color: C.muted }}
             >
               Chọn tất cả
             </button>
             <button
               onClick={clearSelection}
-              className="rounded-lg px-2 py-1 text-xs font-semibold"
+              className="min-h-11 rounded-lg px-3 text-sm font-semibold"
               style={{ background: C.paper, border: `1px solid ${C.line}`, color: C.muted }}
             >
               Bỏ chọn
@@ -824,7 +824,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
             {groupSelected.size > 0 && st && (
               <button
                 onClick={applyGroupScores}
-                className="rounded-xl px-4 py-1.5 text-xs font-bold"
+                className="min-h-11 rounded-xl px-4 text-sm font-bold"
                 style={{ background: '#10B981', color: '#fff', marginLeft: 'auto' }}
               >
                 Áp dụng điểm của "{st.name}" → {groupSelected.size} học sinh đã chọn

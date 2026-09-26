@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { RubricComponent, SessionEntry } from '@/types'
 import { C } from '@/constants/colors'
 import { STARS_LABELS } from '@/constants/ranks'
@@ -17,7 +18,13 @@ interface CompEditorProps {
   onMaxCommit?: (raw: string) => void
 }
 
+// 4 mức hay dùng hiện sẵn; các mức lẻ còn lại nằm sau nút "Khác" để hàng nút
+// đủ to (44px) mà không bị chen chúc trên màn hình điện thoại.
+const MAIN_PRESETS = [0, 50, 80, 100]
+const MORE_PRESETS = [60, 70, 75, 90]
+
 export function CompEditor({ comp, e, mut, ratioTotals, maxDraft, onMaxInput, onMaxCommit }: CompEditorProps) {
+  const [showMorePresets, setShowMorePresets] = useState(false)
   const val = compScore(comp, e)
   const head = (
     <div className="mb-1.5 text-xs font-bold uppercase" style={{ color: C.muted }}>
@@ -32,7 +39,11 @@ export function CompEditor({ comp, e, mut, ratioTotals, maxDraft, onMaxInput, on
     const rawScore = e.scores?.[comp.key]
     const numScore = rawScore === '' || rawScore == null ? null : Number(rawScore)
     const pct = numScore !== null && comp.max > 0 ? Math.round((numScore / comp.max) * 100) : null
-    const PRESETS = [0, 50, 60, 70, 75, 80, 90, 100]
+    // Điểm hiện tại đang khớp 1 mức lẻ (VD 70%) thì tự mở "Khác" để thấy mức đang chọn.
+    const currentIsMorePreset = MORE_PRESETS.some((p) => numScore === Math.round((p / 100) * comp.max))
+    const visiblePresets = showMorePresets || currentIsMorePreset
+      ? [...MAIN_PRESETS, ...MORE_PRESETS].sort((a, b) => a - b)
+      : MAIN_PRESETS
     return (
       <div>
         <div className="mb-1.5 flex flex-wrap items-center gap-2">
@@ -56,15 +67,16 @@ export function CompEditor({ comp, e, mut, ratioTotals, maxDraft, onMaxInput, on
             </>
           )}
         </div>
-        <div className="mb-2 flex flex-wrap gap-1">
-          {PRESETS.map((p) => {
+        <div className="mb-2 flex flex-wrap gap-2">
+          {visiblePresets.map((p) => {
             const sv = Math.round((p / 100) * comp.max)
             const active = numScore === sv
             return (
               <button
                 key={p}
+                type="button"
                 onClick={() => mut((en) => { en.scores[comp.key] = sv })}
-                className="rounded-lg px-2 py-1 text-xs font-semibold"
+                className="min-h-11 min-w-11 rounded-lg px-3 text-sm font-semibold"
                 style={{
                   background: active ? C.board : C.paper,
                   color: active ? '#fff' : C.muted,
@@ -75,6 +87,16 @@ export function CompEditor({ comp, e, mut, ratioTotals, maxDraft, onMaxInput, on
               </button>
             )
           })}
+          {!(showMorePresets || currentIsMorePreset) && (
+            <button
+              type="button"
+              onClick={() => setShowMorePresets(true)}
+              className="min-h-11 min-w-11 rounded-lg px-3 text-sm font-semibold"
+              style={{ background: '#fff', color: C.board2, border: `1px dashed ${C.board2}88` }}
+            >
+              Khác
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <input
@@ -88,7 +110,7 @@ export function CompEditor({ comp, e, mut, ratioTotals, maxDraft, onMaxInput, on
                 en.scores[comp.key] = x.target.value
               })
             }
-            className="w-20 rounded-lg px-2 py-1 text-center text-lg font-bold"
+            className="h-11 w-20 rounded-lg px-2 text-center text-lg font-bold"
             style={{ border: `1px solid ${C.line}` }}
           />
           <span className="text-sm" style={{ color: C.muted }}>/</span>
@@ -101,7 +123,7 @@ export function CompEditor({ comp, e, mut, ratioTotals, maxDraft, onMaxInput, on
             onBlur={(x) => onMaxCommit?.(x.target.value)}
             onKeyDown={(x) => { if (x.key === 'Enter') x.currentTarget.blur() }}
             title="Đổi số câu tối đa của tiêu chí này"
-            className="w-12 rounded-lg px-1 py-1 text-center text-sm font-bold"
+            className="h-11 w-14 rounded-lg px-1 text-center text-sm font-bold"
             style={{ border: `1px solid ${C.board}66` }}
           />
           <span className="text-sm" style={{ color: C.muted }}>· nhập tay</span>
@@ -252,7 +274,7 @@ export function CompEditor({ comp, e, mut, ratioTotals, maxDraft, onMaxInput, on
                     value={m[p.id] ?? ''}
                     onFocus={(x) => x.target.select()}
                     onChange={(x) => setPart(p.id, x.target.value)}
-                    className="w-14 rounded-lg px-1 py-1 text-center font-bold"
+                    className="h-11 w-14 rounded-lg px-1 text-center font-bold"
                     style={{ border: `1px solid ${C.line}` }}
                   />
                 </div>

@@ -60,8 +60,9 @@ const STYLES: Record<BtnKind, React.CSSProperties> = {
 
 const SIZE_CLASS: Record<BtnSize, string> = {
   sm: 'px-2.5 py-1.5 text-xs',
-  md: 'px-3 py-2 text-sm',
-  lg: 'px-4 py-2.5 text-base',
+  // md/lg cao tối thiểu 44px (vùng chạm cho ngón tay); sm giữ nhỏ cho chỗ dày đặc trên màn hình lớn.
+  md: 'min-h-11 px-3 py-2 text-sm',
+  lg: 'min-h-11 px-4 py-2.5 text-base',
 }
 
 export function Btn({

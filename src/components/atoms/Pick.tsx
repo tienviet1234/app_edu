@@ -16,8 +16,10 @@ export function Pick({ on, onClick, children, tone = 'neutral', size = 'md' }: P
     <button
       onClick={onClick}
       className={
-        'rounded-xl font-semibold transition-all active:scale-[0.97] hover:brightness-[0.93] ' +
-        (size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-2 text-sm')
+        // min-h-11 = 44px: vùng chạm tối thiểu cho ngón tay — thầy cô chấm bằng
+        // 1 tay giữa giờ dạy, nút thấp hơn dễ chạm nhầm sang mức điểm bên cạnh.
+        'min-h-11 rounded-xl font-semibold transition-all active:scale-[0.97] hover:brightness-[0.93] ' +
+        (size === 'sm' ? 'px-3 text-xs' : 'px-3 text-sm')
       }
       style={{
         background: on ? color : '#fff',
