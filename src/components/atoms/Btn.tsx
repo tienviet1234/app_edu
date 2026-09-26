@@ -24,37 +24,31 @@ const STYLES: Record<BtnKind, React.CSSProperties> = {
     background: C.board,
     color: '#fff',
     border: `1px solid ${C.board}`,
-    boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.14), 0 1px 2px -1px rgb(0 0 0 / 0.10)',
   },
   ghost: {
     background: '#fff',
     color: C.ink,
     border: `1px solid ${C.line}`,
-    boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05)',
   },
   gold: {
     background: C.gold,
     color: '#1C0F00',
     border: `1px solid ${C.gold}`,
-    boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.14)',
   },
   danger: {
     background: '#FEF2F2',
     color: C.red,
     border: '1px solid #FECACA',
-    boxShadow: 'none',
   },
   success: {
     background: '#ECFDF5',
     color: '#059669',
     border: '1px solid #6EE7B7',
-    boxShadow: 'none',
   },
   'outline-primary': {
     background: 'transparent',
     color: C.board,
     border: `1px solid ${C.board}`,
-    boxShadow: 'none',
   },
 }
 
@@ -76,7 +70,7 @@ export function Btn({
       title={title}
       disabled={disabled || loading}
       className={
-        'rounded-xl font-semibold transition-all active:scale-[0.97] disabled:opacity-50 hover:brightness-[0.93] ' +
+        'rounded-md font-semibold transition-all active:scale-[0.98] disabled:opacity-50 hover:brightness-[0.93] ' +
         SIZE_CLASS[size] + ' ' + className
       }
       style={STYLES[kind]}

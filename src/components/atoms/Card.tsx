@@ -30,11 +30,11 @@ export function Card({
 }: CardProps) {
   return (
     <div
-      className={'rounded-2xl ' + (hoverable ? 'card-hover ' : '') + className}
+      className={'rounded-md ' + (hoverable ? 'card-hover ' : '') + className}
       style={{
         background: C.card,
-        border: `1px solid ${C.line}`,
-        borderTop: accentTop ? `3px solid ${accentTop}` : undefined,
+        border: `1.5px solid ${C.line}`,
+        borderTop: accentTop ? `4px solid ${accentTop}` : undefined,
         boxShadow: VARIANT_SHADOW[variant],
         ...style,
       }}
