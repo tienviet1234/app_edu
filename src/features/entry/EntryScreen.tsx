@@ -37,20 +37,25 @@ const cloneEntry = (e: SessionEntry): SessionEntry =>
 // trang không còn bị nhảy về Buổi 1/học sinh đầu tiên như trước.
 const viewStorageKey = (classId: string) => `entry-view:${classId}`
 
-function loadPersistedView(classId: string): { selectedNo?: number; cur?: number } {
+interface PersistedView {
+  noByStudent?: Record<string, number>
+  cur?: number
+}
+
+function loadPersistedView(classId: string): PersistedView {
   try {
     const raw = localStorage.getItem(viewStorageKey(classId))
-    return raw ? (JSON.parse(raw) as { selectedNo?: number; cur?: number }) : {}
+    return raw ? (JSON.parse(raw) as PersistedView) : {}
   } catch {
     return {}
   }
 }
 
-/** Số buổi lớn nhất đã có ít nhất 1 học sinh được điểm danh — dùng làm buổi
- *  mặc định khi mở màn lần đầu cho lớp này (chưa có gì lưu ở localStorage),
- *  thay vì luôn nhảy về Buổi 1 dù lớp đã học tới buổi 8, 9... */
-function latestGradedNo(cls: ClassData): number {
-  const nos = cls.students.flatMap((s) => s.sessions.map((ss) => ss.no))
+/** Buổi mặc định của 1 học sinh = số buổi lớn nhất em đó đã có (buổi gần nhất
+ *  đã chấm), hoặc Buổi 1 nếu chưa có buổi nào. Mỗi học sinh có chuỗi buổi
+ *  RIÊNG nên số buổi đang xem cũng phải riêng từng em — không dùng chung cả lớp. */
+function defaultNoFor(student: { sessions: { no: number }[] } | undefined): number {
+  const nos = student?.sessions.map((ss) => ss.no) ?? []
   return nos.length ? Math.max(...nos) : 1
 }
 
@@ -80,10 +85,12 @@ function findOrCreateSession(c: ClassData, studentId: string, no: number, dateFo
 
 export function EntryScreen({ cls, update, teacherName, initialTarget, onConsumeInitialTarget }: EntryScreenProps) {
   const r = getClassRubric(cls)
-  const [selectedNo, setSelectedNo] = useState(() => {
-    if (initialTarget) return initialTarget.no
-    const persisted = loadPersistedView(cls.id)
-    return persisted.selectedNo ?? latestGradedNo(cls)
+  // Số buổi đang xem của TỪNG học sinh (chỉ lưu những em đã được chọn buổi
+  // khác mặc định). Đổi buổi ở 1 em không được làm cả lớp nhảy theo.
+  const [noByStudent, setNoByStudent] = useState<Record<string, number>>(() => {
+    const persisted = loadPersistedView(cls.id).noByStudent ?? {}
+    if (initialTarget) return { ...persisted, [initialTarget.studentId]: initialTarget.no }
+    return persisted
   })
   const [draftDate, setDraftDate] = useState(todayISO())
   const [cur, setCur] = useState(() => {
@@ -96,15 +103,15 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
     return 0
   })
 
-  // Lưu lại "đang xem buổi mấy, học sinh nào" mỗi khi đổi — để F5 tải lại
-  // trang khôi phục đúng chỗ đang làm dở, không cần chọn lại từ đầu.
+  // Lưu lại "mỗi em đang xem buổi mấy, đang ở học sinh nào" mỗi khi đổi — để
+  // F5 tải lại trang khôi phục đúng chỗ đang làm dở, không cần chọn lại.
   useEffect(() => {
     try {
-      localStorage.setItem(viewStorageKey(cls.id), JSON.stringify({ selectedNo, cur }))
+      localStorage.setItem(viewStorageKey(cls.id), JSON.stringify({ noByStudent, cur }))
     } catch {
       // localStorage đầy/bị chặn — bỏ qua, không ảnh hưởng chức năng chính
     }
-  }, [cls.id, selectedNo, cur])
+  }, [cls.id, noByStudent, cur])
 
   // Chỉ áp dụng initialTarget MỘT LẦN lúc mở màn — sau đó xóa đi để lần mở
   // tiếp theo (không qua "Sửa điểm") không bị nhảy tới chỗ cũ.
@@ -145,6 +152,18 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   const [renameDraft, setRenameDraft] = useState('')
 
   const st = cls.students[cur]
+  /** Số buổi đang xem của 1 học sinh bất kỳ (riêng từng em). */
+  const noOf = (studentId: string): number => {
+    const stored = noByStudent[studentId]
+    if (stored != null) return stored
+    return defaultNoFor(cls.students.find((s) => s.id === studentId))
+  }
+  const selectedNo = st ? noOf(st.id) : 1
+  /** Đổi buổi đang xem CHỈ của học sinh hiện tại. */
+  const setSelectedNo = (no: number) => {
+    if (!st) return
+    setNoByStudent((prev) => ({ ...prev, [st.id]: no }))
+  }
   const session = st?.sessions.find((s) => s.no === selectedNo)
   const effectiveDate = session?.date ?? draftDate
   const e = session?.entry ?? emptyEntry()
@@ -226,7 +245,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   // sai tên. syncScore() vẫn lưu thật ở dưới nền, chỉ báo lỗi mới cần đợi.
   function announceSave(studentId: string) {
     const student = cls.students.find((s) => s.id === studentId)
-    const target = student?.sessions.find((s) => s.no === selectedNo)
+    const target = student?.sessions.find((s) => s.no === noOf(studentId))
     if (!student || !target) return
     if (isMongoid(target.id)) {
       toast.success(`✓ Đã lưu điểm Buổi ${target.no} của ${student.name}`)
@@ -238,7 +257,8 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   async function syncScore(studentId: string) {
     if (!isMongoid(cls.id) || !isMongoid(studentId)) return
     const student = cls.students.find((s) => s.id === studentId)
-    const target = student?.sessions.find((s) => s.no === selectedNo)
+    const targetNo = noOf(studentId)
+    const target = student?.sessions.find((s) => s.no === targetNo)
     if (!student || !target) return // chưa nhập gì cho học sinh này buổi này — không có gì để lưu
     const maxes = target.maxes ?? {}
     const comps = r.comps.map((c) => (maxes[c.key] != null ? rescaleComp(c, maxes[c.key]) : c))
@@ -257,7 +277,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
         sessionId = apiSession._id
         update((c) => {
           const stu = c.students.find((s) => s.id === studentId)
-          const ss = stu?.sessions.find((s) => s.no === selectedNo)
+          const ss = stu?.sessions.find((s) => s.no === targetNo)
           if (ss) ss.id = sessionId
         })
         logActivity('session.create', { className: cls.name, sessionNo: target.no, studentName: student.name }, 'ClassSession')
@@ -344,31 +364,15 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
 
   function setSessionMax(key: string, val: number) {
     if (!val || val < 1) return
-    // Chỉ cập nhật những buổi ĐÃ có sẵn — không tự tạo buổi (kèm điểm danh
-    // mặc định "Có mặt") cho học sinh chưa được chấm chỉ vì sửa "Số câu".
-    // Học sinh nào được tạo buổi sau sẽ tự kế thừa số này (xem
-    // findOrCreateSession — lấy maxes từ 1 học sinh khác cùng buổi).
-    let affected = 0
+    // Chỉ sửa buổi của HỌC SINH ĐANG XEM — mỗi em có buổi riêng (số buổi và
+    // ngày khác nhau), nên "Số câu" của Buổi 3 em này không liên quan gì tới
+    // "Buổi 3" của em khác như trước đây khi cả lớp dùng chung 1 số buổi.
     update((c) => {
-      c.students.forEach((s) => {
-        if (s.id === st?.id) return // học sinh đang xem xử lý riêng bên dưới (được phép tạo buổi)
-        const ss = s.sessions.find((x) => x.no === selectedNo)
-        if (!ss) return
-        ss.maxes = ss.maxes ?? {}
-        ss.maxes[key] = val
-        affected++
-      })
-      // Học sinh đang xem là người đang được chấm — tạo buổi cho em này nếu
-      // chưa có, vì giáo viên rõ ràng đang thao tác trên buổi của em đó.
-      if (st) {
-        const ss = findOrCreateSession(c, st.id, selectedNo, effectiveDate, teacherName)
-        ss.maxes = ss.maxes ?? {}
-        ss.maxes[key] = val
-      }
+      if (!st) return
+      const ss = findOrCreateSession(c, st.id, selectedNo, effectiveDate, teacherName)
+      ss.maxes = ss.maxes ?? {}
+      ss.maxes[key] = val
     })
-    if (affected > 0) {
-      toast.success(`Đã áp dụng "Số câu" cho ${affected} học sinh khác đã có Buổi ${selectedNo}`)
-    }
   }
 
   function commitSessionMax(key: string, raw: string) {
@@ -394,10 +398,10 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   })
 
   function presetClass() {
-    if (!confirm(`Đặt điểm mặc định (đạt tối đa) cho CẢ LỚP ở Buổi ${selectedNo}? Điểm đã nhập trước đó của từng em sẽ bị ghi đè.`)) return
+    if (!confirm('Đặt điểm mặc định (đạt tối đa) cho CẢ LỚP, ở buổi đang xem của từng em? Điểm đã nhập trước đó của buổi đó sẽ bị ghi đè.')) return
     update((c) => {
       c.students.forEach((s) => {
-        const ss = findOrCreateSession(c, s.id, selectedNo, effectiveDate, teacherName)
+        const ss = findOrCreateSession(c, s.id, noOf(s.id), effectiveDate, teacherName)
         FIELDS.forEach((k) => {
           if (!ss.entry[k]) (ss.entry as unknown as Record<string, unknown>)[k] = {}
         })
@@ -418,7 +422,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
         })
       })
     })
-    toast.success(`Đã đặt mặc định cho cả lớp — Buổi ${selectedNo}`)
+    toast.success('Đã đặt mặc định cho cả lớp — ở buổi đang xem của từng em')
   }
 
   // ── Group selection logic ──────────────────────────────────────────────────
@@ -450,7 +454,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
     const count = groupSelected.size
     update((c) => {
       groupSelected.forEach((sid) => {
-        findOrCreateSession(c, sid, selectedNo, effectiveDate, teacherName).entry = cloneEntry(srcEntry)
+        findOrCreateSession(c, sid, noOf(sid), effectiveDate, teacherName).entry = cloneEntry(srcEntry)
       })
     })
     setGroupSelected(new Set())
@@ -465,19 +469,20 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   // mục ấy, vì nếu vậy CẢ LỚP sẽ cùng thiếu, không riêng 1 người).
   const missingFlags = st ? detectMissingComps(cls, selectedNo, st.id, r2.comps) : []
   const done = cls.students.filter((s) => {
-    const ss = s.sessions.find((x) => x.no === selectedNo)
+    const ss = s.sessions.find((x) => x.no === noOf(s.id))
     return ss ? sessionScore(ss.entry, r2) !== null : false
   }).length
 
   const studentSessionCount = st?.sessions.length ?? 0
   const showReminder = studentSessionCount > 0 && studentSessionCount % cls.perMonth === 0
 
-  // Xem nhanh kết quả cả lớp cho đúng buổi số này (mỗi em có thể là ngày
-  // khác nhau) — không cần xuất Excel
+  // Xem nhanh kết quả cả lớp ở buổi đang xem của TỪNG em (mỗi em có số buổi
+  // và ngày riêng) — không cần xuất Excel
   const daySummary = cls.students.map((s) => {
-    const ss = s.sessions.find((x) => x.no === selectedNo)
+    const no = noOf(s.id)
+    const ss = s.sessions.find((x) => x.no === no)
     const t = ss ? sessionScore(ss.entry, r2) : null
-    return { student: s, session: ss, total: t }
+    return { student: s, no, session: ss, total: t }
   })
 
   return (
@@ -646,13 +651,14 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
               <thead>
                 <tr style={{ background: C.paper }}>
                   <th className="py-1.5 px-3 text-left font-semibold" style={{ color: C.muted }}>Học sinh</th>
+                  <th className="py-1.5 px-3 text-center font-semibold" style={{ color: C.muted }}>Buổi</th>
                   <th className="py-1.5 px-3 text-center font-semibold" style={{ color: C.muted }}>Ngày</th>
                   <th className="py-1.5 px-3 text-center font-semibold" style={{ color: C.muted }}>Điểm danh</th>
                   <th className="py-1.5 px-3 text-center font-semibold" style={{ color: C.muted }}>Tổng điểm</th>
                 </tr>
               </thead>
               <tbody>
-                {daySummary.map(({ student, session: ss, total: t }, i) => (
+                {daySummary.map(({ student, no, session: ss, total: t }, i) => (
                   <tr
                     key={student.id}
                     onClick={() => {
@@ -669,6 +675,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                     style={{ borderTop: `1px solid ${C.line}`, background: i === cur ? C.board + '0D' : undefined }}
                   >
                     <td className="py-1.5 px-3 font-semibold">{student.name}</td>
+                    <td className="py-1.5 px-3 text-center font-semibold" style={{ color: C.board }}>B{no}</td>
                     <td className="py-1.5 px-3 text-center" style={{ color: C.muted }}>
                       {ss ? viDate(ss.date) : '—'}
                     </td>
@@ -745,7 +752,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
         {/* Student pills */}
         <div className="mt-2 flex flex-wrap gap-2">
           {cls.students.map((s, i) => {
-            const ss = s.sessions.find((x) => x.no === selectedNo)
+            const ss = s.sessions.find((x) => x.no === noOf(s.id))
             const t = ss ? sessionScore(ss.entry, r2) : null
             const active = i === cur
             const inGroup = groupSelected.has(s.id)
