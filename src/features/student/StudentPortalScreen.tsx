@@ -46,7 +46,7 @@ export function StudentPortalScreen() {
 
   const { data: scoreData, isLoading: scoresLoading } = useQuery({
     queryKey: ['student-portal', 'scores', selectedId],
-    queryFn: () => scoreService.list({ classId: selectedId!, limit: '100', sort: 'createdAt', order: 'asc' }),
+    queryFn: () => scoreService.listAll({ classId: selectedId!, sort: 'createdAt', order: 'asc' }),
     enabled: !!selectedId,
   })
 

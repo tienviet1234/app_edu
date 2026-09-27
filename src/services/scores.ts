@@ -44,6 +44,20 @@ export const scoreService = {
       .get<{ data: { items: ApiScore[]; total: number } }>('/scores', { params })
       .then((r) => r.data.data),
 
+  /** Lấy TẤT CẢ điểm khớp bộ lọc — server cắt tối đa 100 dòng/trang nên phải
+   *  đi từng trang, nếu không phần ngoài 100 dòng đầu sẽ biến mất khỏi màn hình. */
+  listAll: async (params: Record<string, string>) => {
+    const items: ApiScore[] = []
+    let total = 0
+    for (let page = 1; page <= 100; page++) {
+      const r = await scoreService.list({ ...params, limit: '100', page: String(page) })
+      items.push(...r.items)
+      total = r.total
+      if (!r.items.length || items.length >= total) break
+    }
+    return { items, total }
+  },
+
   upsert: (body: UpsertScoreBody) =>
     api.post<{ data: ApiScore }>('/scores/upsert', body).then((r) => r.data.data),
 

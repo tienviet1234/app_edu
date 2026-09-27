@@ -62,7 +62,7 @@ export const learningService = {
   listLessons: (courseId: string) =>
     api
       .get<{ data: PagedData<ApiLesson> }>('/lessons', {
-        params: { courseId, limit: '200', sort: 'no', order: 'asc' },
+        params: { courseId, limit: '100', sort: 'no', order: 'asc' },
       })
       .then((r) => r.data.data),
 

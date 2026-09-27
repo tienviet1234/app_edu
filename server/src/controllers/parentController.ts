@@ -88,7 +88,6 @@ export async function getChildren(req: Request, res: Response): Promise<void> {
           'total attendance createdAt',
         )
           .sort({ createdAt: -1 })
-          .limit(10)
           .lean()
 
         const totals = scores.filter((s) => s.attendance !== 'excused' && s.attendance !== 'absent').map((s) => s.total)

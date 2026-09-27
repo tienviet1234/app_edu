@@ -59,7 +59,9 @@ export async function getAttendanceTrend(req: Request, res: Response): Promise<v
   const matchStage: Record<string, unknown> = {}
   if (classId && Types.ObjectId.isValid(classId)) matchStage.classId = new Types.ObjectId(classId)
 
-  // Group scores by session → count each attendance status
+  // Group scores by session → count each attendance status. KHÔNG cắt ở đây:
+  // mỗi học sinh có buổi riêng nên 1 lớp có (số em × số buổi) session — cắt
+  // sớm sẽ chỉ giữ vài em đầu tiên. Gộp theo "Buổi số N" rồi mới lấy N buổi cuối.
   const rows = await Score.aggregate([
     { $match: matchStage },
     {
@@ -70,37 +72,47 @@ export async function getAttendanceTrend(req: Request, res: Response): Promise<v
         excused:  { $sum: { $cond: [{ $eq: ['$attendance', 'excused']  }, 1, 0] } },
         absent:   { $sum: { $cond: [{ $eq: ['$attendance', 'absent']   }, 1, 0] } },
         total:    { $sum: 1 },
-        avgScore: { $avg: '$total' },
+        scoreSum: { $sum: { $ifNull: ['$total', 0] } },
       },
     },
-    { $sort: { _id: 1 } },
-    { $limit: Number(limit) },
   ])
 
-  // Fetch session dates for labels
   const sessionIds = rows.map((r) => r._id)
   const sessions = await ClassSession.find(
     { _id: { $in: sessionIds } },
-    { scheduledAt: 1, lessonNo: 1, title: 1 },
+    { scheduledAt: 1, lessonNo: 1 },
   ).lean()
   const sessionMap = new Map(sessions.map((s) => [String(s._id), s]))
 
-  const data = rows.map((r, i) => {
+  interface Bucket { no: number; date: string | null; present: number; late: number; excused: number; absent: number; total: number; scoreSum: number }
+  const byNo = new Map<number, Bucket>()
+  for (const r of rows) {
     const sess = sessionMap.get(String(r._id))
-    const attendRate = r.total > 0 ? Math.round(((r.present + r.late + r.excused) / r.total) * 100) : 0
-    return {
-      session: sess?.lessonNo ?? i + 1,
-      label: sess?.title ?? `Buổi ${i + 1}`,
-      date: sess?.scheduledAt ? (sess.scheduledAt as Date).toISOString().slice(0, 10) : null,
-      present: r.present,
-      late: r.late,
-      excused: r.excused,
-      absent: r.absent,
-      total: r.total,
-      attendRate,
-      avgScore: r.avgScore != null ? Math.round(r.avgScore * 10) / 10 : null,
-    }
-  })
+    const no = sess?.lessonNo ?? 0
+    const date = sess?.scheduledAt ? (sess.scheduledAt as Date).toISOString().slice(0, 10) : null
+    const b = byNo.get(no) ?? { no, date, present: 0, late: 0, excused: 0, absent: 0, total: 0, scoreSum: 0 }
+    b.present += r.present; b.late += r.late; b.excused += r.excused; b.absent += r.absent
+    b.total += r.total; b.scoreSum += r.scoreSum
+    if (date && (!b.date || date < b.date)) b.date = date
+    byNo.set(no, b)
+  }
+
+  const cap = Math.max(1, Math.min(200, Number(limit) || 20))
+  const data = [...byNo.values()]
+    .sort((x, y) => x.no - y.no)
+    .slice(-cap)
+    .map((b) => ({
+      session: b.no,
+      label: `Buổi ${b.no}`,
+      date: b.date,
+      present: b.present,
+      late: b.late,
+      excused: b.excused,
+      absent: b.absent,
+      total: b.total,
+      attendRate: b.total > 0 ? Math.round(((b.present + b.late + b.excused) / b.total) * 100) : 0,
+      avgScore: b.total > 0 ? Math.round((b.scoreSum / b.total) * 10) / 10 : null,
+    }))
 
   ok(res, data)
 }
@@ -116,9 +128,8 @@ export async function getScoreHeatmap(req: Request, res: Response): Promise<void
   const classOid = new Types.ObjectId(classId)
 
   const [sessions, scores] = await Promise.all([
-    ClassSession.find({ classId: classOid }, { scheduledAt: 1, lessonNo: 1, title: 1 })
+    ClassSession.find({ classId: classOid, migratedAt: { $exists: false } }, { scheduledAt: 1, lessonNo: 1, title: 1 })
       .sort({ scheduledAt: 1 })
-      .limit(40)
       .lean(),
     Score.find({ classId: classOid }, { sessionId: 1, studentId: 1, total: 1, attendance: 1 }).lean(),
   ])
@@ -133,21 +144,32 @@ export async function getScoreHeatmap(req: Request, res: Response): Promise<void
   const students = studentDocs.map((u) => ({ _id: String(u._id), name: u.name as string }))
     .sort((a, b) => a.name.localeCompare(b.name, 'vi'))
 
-  // Build cells: cells[studentId][sessionId] = total | null
+  // Mỗi học sinh có buổi riêng → gộp thành 1 cột cho mỗi "Buổi số N" (lấy ngày
+  // sớm nhất làm nhãn) để bảng không phình ra (số em × số buổi) cột.
+  const colBySession = new Map<string, string>() // sessionId → id đại diện của cột
+  const cols = new Map<number, { _id: string; no: number; date: string }>()
+  sessions.forEach((s, i) => {
+    const no = s.lessonNo ?? i + 1
+    const date = (s.scheduledAt as Date).toISOString().slice(0, 10)
+    const col = cols.get(no)
+    if (!col) cols.set(no, { _id: String(s._id), no, date })
+    else if (date < col.date) col.date = date
+    colBySession.set(String(s._id), cols.get(no)!._id)
+  })
+
+  // Build cells: cells[studentId][columnId] = total | null
   const cells: Record<string, Record<string, number | null>> = {}
   for (const s of scores) {
     const sid = String(s.studentId)
-    const sesId = String(s.sessionId)
+    const colId = colBySession.get(String(s.sessionId))
+    if (!colId) continue
     if (!cells[sid]) cells[sid] = {}
-    cells[sid][sesId] = s.attendance === 'absent' ? null : (s.total ?? 0)
+    cells[sid][colId] = s.attendance === 'absent' ? null : (s.total ?? 0)
   }
 
   ok(res, {
-    sessions: sessions.map((s, i) => ({
-      _id: String(s._id),
-      no: s.lessonNo ?? i + 1,
-      label: s.title ?? `B${i + 1}`,
-      date: (s.scheduledAt as Date).toISOString().slice(0, 10),
+    sessions: [...cols.values()].sort((x, y) => x.no - y.no).map((c) => ({
+      _id: c._id, no: c.no, label: `B${c.no}`, date: c.date,
     })),
     students,
     cells,
