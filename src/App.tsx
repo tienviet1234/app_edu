@@ -381,15 +381,41 @@ export default function App() {
   useEffect(() => {
     if (!cls) return
     const perStudentSessions = (apiSessions?.items ?? []).filter((s) => s.studentId)
+    const scoresBySession = new Map((apiScores?.items ?? []).map((s) => [s.sessionId, s]))
+    const toEntry = (score: NonNullable<ReturnType<typeof scoresBySession.get>>): SessionEntry => ({
+      attendance: score.attendance,
+      scores: score.scores,
+      tags: score.tags,
+      ticks: score.ticks,
+      choice: score.choice,
+      parts: score.parts,
+      skip: score.skip,
+      ev: score.ev as SessionEntry['ev'],
+      note: score.note ?? '',
+    })
+    const emptyJson = JSON.stringify(emptyEntry())
     const missing = perStudentSessions.filter(
       (as) => !cls.students.some((st) => st.sessions.some((s) => s.id === as._id)),
     )
-    if (!missing.length) return
-
-    const scoresBySession = new Map((apiScores?.items ?? []).map((s) => [s.sessionId, s]))
+    // Buổi đã có trên máy nhưng còn TRỐNG HOÀN TOÀN trong khi server có điểm —
+    // (VD tạo từ lần tải trước khi điểm chưa về kịp) điền lại từ server. Không
+    // đụng buổi máy này đã nhập gì, để không ghi đè dữ liệu đang làm dở.
+    const blank = perStudentSessions.filter((as) => {
+      if (!scoresBySession.has(as._id)) return false
+      return cls.students.some((st) =>
+        st.sessions.some((s) => s.id === as._id && JSON.stringify(s.entry) === emptyJson),
+      )
+    })
+    if (!missing.length && !blank.length) return
 
     setData(produce((d: AppData) => {
       const localCls = d.classes[currentClassIndex]
+      blank.forEach((as) => {
+        const score = scoresBySession.get(as._id)
+        const student = localCls.students.find((st) => st.id === as.studentId)
+        const local = student?.sessions.find((s) => s.id === as._id)
+        if (score && local) local.entry = toEntry(score)
+      })
       missing.forEach((as) => {
         const student = localCls.students.find((st) => st.id === as.studentId)
         if (!student) return
@@ -402,19 +428,7 @@ export default function App() {
           homework: '',
           createdByName: teacherName,
           recordedAt: as.createdAt,
-          entry: score
-            ? {
-                attendance: score.attendance,
-                scores: score.scores,
-                tags: score.tags,
-                ticks: score.ticks,
-                choice: score.choice,
-                parts: score.parts,
-                skip: score.skip,
-                ev: score.ev as SessionEntry['ev'],
-                note: score.note ?? '',
-              }
-            : emptyEntry(),
+          entry: score ? toEntry(score) : emptyEntry(),
         })
         student.sessions.sort((a, b) => a.no - b.no)
       })

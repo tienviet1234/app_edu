@@ -8,7 +8,19 @@ export const SCORE_KEYS = {
 export function useClassScores(classId: string) {
   return useQuery({
     queryKey: SCORE_KEYS.byClass(classId),
-    queryFn: () => scoreService.list({ classId, limit: '2000' }),
+    // Server tự cắt limit về tối đa 100 — phải lấy từng trang, nếu không điểm
+    // ngoài 100 dòng đầu không về máy và buổi hiện trống trơn.
+    queryFn: async () => {
+      const items: Awaited<ReturnType<typeof scoreService.list>>['items'] = []
+      let total = 0
+      for (let page = 1; page <= 100; page++) {
+        const r = await scoreService.list({ classId, limit: '100', page: String(page) })
+        items.push(...r.items)
+        total = r.total
+        if (!r.items.length || items.length >= total) break
+      }
+      return { items, total }
+    },
     enabled: !!classId,
   })
 }
