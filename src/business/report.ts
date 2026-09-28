@@ -33,18 +33,15 @@ export function detailBlocks(s: StudentStats, r: ReturnType<typeof getRubric>): 
         lines.push(`Đúng ${v.ok}/${v.total} ${ratioEv.unit ?? 'câu'} (${Math.round((v.ok / v.total) * 100)}%).`)
     }
     if (c.type === 'parts') {
-      const weak = (c.parts ?? []).filter(
-        (p) => (s.partAvg[`${c.key}.${p.id}`] ?? p.max) < p.max * 0.95,
-      )
-      const ok = (c.parts ?? []).filter(
-        (p) => (s.partAvg[`${c.key}.${p.id}`] ?? p.max) >= p.max * 0.95,
-      )
+      // partAvg là % (0–100) — buổi nào chưa có dữ liệu phần này thì coi như
+      // "đạt" (mặc định 100%), giữ đúng hành vi cũ (mặc định p.max = đạt).
+      const pctOf = (p: { id: string }) => s.partAvg[`${c.key}.${p.id}`] ?? 100
+      const weak = (c.parts ?? []).filter((p) => pctOf(p) < 95)
+      const ok = (c.parts ?? []).filter((p) => pctOf(p) >= 95)
       if (ok.length && c.key !== 'attitude')
         lines.push(`${ok.map((p) => p.label.toLowerCase()).join(', ')}: đạt.`)
       weak.forEach((p) =>
-        lines.push(
-          `${p.label}: ${round1(s.partAvg[`${c.key}.${p.id}`] || 0)}/${p.max} — cần ${p.fix}.`,
-        ),
+        lines.push(`${p.label}: ${round1(pctOf(p))}% — cần ${p.fix}.`),
       )
     }
     ;(c.evidence ?? [])

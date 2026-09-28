@@ -10,7 +10,7 @@ import { round1, daysAgoISO } from '@/utils/format'
 import { rankingOf, badgesOf } from '@/business/ranking'
 import { teachingDaysOf } from '@/business/stats'
 import { missionsOf, AVATARS, defaultAvatar } from '@/business/missions'
-import { sessionScore } from '@/business/scoring'
+import { sessionScore, sessionComps } from '@/business/scoring'
 import { Card } from '@/components/atoms/Card'
 import { RankBadge } from '@/components/atoms/RankBadge'
 import { ExpBar } from '@/components/atoms/ExpBar'
@@ -70,7 +70,8 @@ function CoinsHistory({ cls, studentId }: { cls: ClassData; studentId: string })
   const student = cls.students.find((s) => s.id === studentId)
   const rows = (student?.sessions ?? [])
     .map((s, i) => {
-      const score = sessionScore(s.entry, r) ?? null
+      // Đúng mức tối đa của buổi này (giáo viên có thể đã đổi "Số câu" riêng).
+      const score = sessionScore(s.entry, { ...r, comps: sessionComps(r, s) }) ?? null
       const coins = score !== null ? 5 + score + (score >= 90 ? 10 : 0) : null
       return { no: s.no ?? i + 1, score, coins }
     })
@@ -168,7 +169,7 @@ export function LeaderboardScreen({ cls, update, userId }: LeaderboardScreenProp
       return b && fn(b.s) > 0 ? { label, name: b.student.name, text: fmt(fn(b.s)) } : null
     }
     return [
-      ...r.comps.map((c) => pick((s) => s.catAvg[c.key], `Top ${c.label}`, (v) => `${round1(v)}/${c.max}`)),
+      ...r.comps.map((c) => pick((s) => s.catAvg[c.key], `Top ${c.label}`, (v) => `${round1(v)}%`)),
       pick((s) => s.attendScore, 'Top Chuyên cần', (v) => `${round1(v)}/10`),
       pick((s) => s.progress, 'Top Tiến bộ', (v) => `+${round1(v)} điểm`),
     ].filter(Boolean)

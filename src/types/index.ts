@@ -170,7 +170,11 @@ export interface StudentStats {
   totals: number[]
   avg: number
   monthTotal: number
+  /** % (0–100) đạt được của từng tiêu chí — điểm đạt / tối đa CỦA ĐÚNG những
+   *  buổi đã chấm mục đó, không phải điểm thô so với 1 mức tối đa cố định
+   *  (mỗi buổi có thể có "Số câu" override khác nhau). */
   catAvg: Record<string, number>
+  /** % (0–100) của từng phần nhỏ trong tiêu chí kiểu "parts", cùng ý nghĩa như catAvg. */
   partAvg: Record<string, number>
   evidence: Record<string, EvidenceItem[]>
   ratio: Record<string, { ok: number; total: number }>

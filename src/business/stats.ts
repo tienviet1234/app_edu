@@ -1,7 +1,7 @@
 import type { ClassData, Session, StudentStats, EvidenceItem } from '@/types'
 import { RANKS } from '@/constants'
 import { getClassRubric } from '@/constants/rubrics'
-import { attInfo, compScore, compErrors, sessionScore } from './scoring'
+import { attInfo, compScore, compHasData, compErrors, sessionScore, sessionComps } from './scoring'
 
 const mean = (a: number[]): number => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0)
 
@@ -43,8 +43,6 @@ export function statsOf(cls: ClassData, sessions: Session[]): StudentStats {
   const r = getClassRubric(cls)
   const list = sessions
   const totals: number[] = []
-  const cat: Record<string, number[]> = {}
-  r.comps.forEach((c) => (cat[c.key] = []))
   const partSum: Record<string, number> = {}
   const partN: Record<string, number> = {}
   const evRaw: Record<string, string[]> = {}
@@ -52,6 +50,18 @@ export function statsOf(cls: ClassData, sessions: Session[]): StudentStats {
   const errCount: Record<string, number> = {}
   const errMeta: Record<string, { id: string; label: string; weak?: string; fix?: string; comp: string }> = {}
   let present = 0, late = 0, excused = 0, absent = 0, exp = 0, streak = 0, best = 0, perfect = 0
+
+  // Điểm/tối đa CỦA TỪNG TIÊU CHÍ, cộng dồn riêng — không gộp chung thành 1
+  // số điểm trung bình như trước, vì mỗi buổi có thể có mức tối đa khác
+  // nhau (giáo viên đổi "Số câu" riêng cho buổi đó). catAvg cuối cùng là %
+  // (điểm đạt / tối đa CỦA ĐÚNG NHỮNG BUỔI ĐÃ CHẤM mục đó), không phải điểm
+  // thô so với 1 mức tối đa cố định — nên không còn lệ thuộc mức tối đa mặc
+  // định của rubric, luôn đúng dù buổi đó có bao nhiêu câu.
+  const catEarn: Record<string, number> = {}
+  const catMax: Record<string, number> = {}
+  r.comps.forEach((c) => { catEarn[c.key] = 0; catMax[c.key] = 0 })
+  const partEarn: Record<string, number> = {}
+  const partMax: Record<string, number> = {}
 
   list.forEach((s) => {
     const e = s.entry
@@ -63,12 +73,18 @@ export function statsOf(cls: ClassData, sessions: Session[]): StudentStats {
     if (a === 'present' || a === 'late') { streak++; best = Math.max(best, streak) }
     else if (a === 'absent') streak = 0
 
-    const t = sessionScore(e, r)
+    // Tiêu chí ĐÚNG của buổi này — áp "Số câu" riêng của buổi (nếu có), thay
+    // vì luôn dùng mức mặc định của rubric cho mọi buổi.
+    const comps = sessionComps(r, s)
+    const t = sessionScore(e, { ...r, comps })
     if (t === null) return
     totals.push(t)
     exp += t + 5 + (t >= 90 ? 10 : 0)
-    r.comps.forEach((c, ci) => {
-      cat[c.key].push(compScore(c, e))
+    comps.forEach((c, ci) => {
+      if (compHasData(c, e)) {
+        catEarn[c.key] += compScore(c, e)
+        catMax[c.key] += c.max
+      }
       compErrors(c, e).forEach((x) => {
         if (!x) return
         errCount[x.id] = (errCount[x.id] ?? 0) + 1
@@ -81,6 +97,8 @@ export function statsOf(cls: ClassData, sessions: Session[]): StudentStats {
           const k = `${c.key}.${p.id}`
           partSum[k] = (partSum[k] ?? 0) + (Number(m[p.id]) || 0)
           partN[k] = (partN[k] ?? 0) + 1
+          partEarn[k] = (partEarn[k] ?? 0) + (Number(m[p.id]) || 0)
+          partMax[k] = (partMax[k] ?? 0) + p.max
         })
       }
       ;(c.evidence ?? []).forEach((ev) => {
@@ -99,13 +117,17 @@ export function statsOf(cls: ClassData, sessions: Session[]): StudentStats {
       })
       void ci
     })
-    if (r.comps[0] && compScore(r.comps[0], e) >= r.comps[0].max) perfect++
+    if (comps[0] && compHasData(comps[0], e) && compScore(comps[0], e) >= comps[0].max) perfect++
   })
 
+  // catAvg/partAvg giờ là % (0–100), tính dồn (điểm đạt / tối đa) trên đúng
+  // những buổi ĐÃ chấm mục đó — không phải trung bình cộng điểm thô, để
+  // không còn phụ thuộc 1 mức tối đa cố định khi các buổi có "Số câu" khác
+  // nhau. Buổi nào chưa chấm mục đó thì không tính vào (không kéo % xuống oan).
   const catAvg: Record<string, number> = {}
-  Object.keys(cat).forEach((k) => (catAvg[k] = mean(cat[k])))
+  Object.keys(catEarn).forEach((k) => (catAvg[k] = catMax[k] > 0 ? (catEarn[k] / catMax[k]) * 100 : 0))
   const partAvg: Record<string, number> = {}
-  Object.keys(partSum).forEach((k) => (partAvg[k] = partSum[k] / partN[k]))
+  Object.keys(partSum).forEach((k) => (partAvg[k] = partMax[k] > 0 ? (partEarn[k] / partMax[k]) * 100 : 0))
   const evidence: Record<string, EvidenceItem[]> = {}
   Object.keys(evRaw).forEach((k) => (evidence[k] = mergeEvidence(evRaw[k])))
 
@@ -114,7 +136,11 @@ export function statsOf(cls: ClassData, sessions: Session[]): StudentStats {
       ? Math.max(0, (r.attendance.base ?? 10) - late * 2 - excused * 3 - absent * 5)
       : mean(list.map((s) => attInfo(s.entry.attendance).pts))
 
-  const monthTotal = r.comps.reduce((a, c) => a + catAvg[c.key], 0) + attendScore
+  // monthTotal vẫn giữ thang điểm /100 như trước (tổng mức tối đa MẶC ĐỊNH
+  // của rubric + chuyên cần) — quy đổi ngược từ % (catAvg) về điểm theo mức
+  // mặc định, để không đổi thang điểm hiển thị dù buổi nào đó có override
+  // "Số câu" riêng khác mức mặc định.
+  const monthTotal = r.comps.reduce((a, c) => a + (catAvg[c.key] / 100) * c.max, 0) + attendScore
   const avg = mean(totals)
   let progress = 0
   if (totals.length >= 4) {
@@ -147,8 +173,9 @@ export function statsOf(cls: ClassData, sessions: Session[]): StudentStats {
     absent,
     attended: present + late,
     counted: totals.length,
-    hwRate: hwComp ? (catAvg.hw / hwComp.max) * 100 : 0,
-    stars: atComp ? Math.max(0, Math.min(5, Math.round((catAvg.attitude / atComp.max) * 5))) : 0,
+    // catAvg giờ đã LÀ % (0–100) — không còn chia lại cho .max nữa.
+    hwRate: hwComp ? catAvg.hw : 0,
+    stars: atComp ? Math.max(0, Math.min(5, Math.round((catAvg.attitude / 100) * 5))) : 0,
     perfect,
     exp,
     level: 1 + Math.floor(exp / 150),

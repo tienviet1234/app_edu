@@ -5,7 +5,7 @@ import { C, scoreColor } from '@/constants/colors'
 import { RUBRICS, getClassRubric } from '@/constants/rubrics'
 import { round1, daysAgoISO } from '@/utils/format'
 import { rankingOf } from '@/business/ranking'
-import { sessionScore } from '@/business/scoring'
+import { sessionScore, sessionComps } from '@/business/scoring'
 import { teachingDaysOf } from '@/business/stats'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
@@ -32,7 +32,8 @@ function classTrend(cls: ClassData): Array<{ date: string; avg: number }> {
   const byDate = new Map<string, number[]>()
   cls.students.forEach((st) =>
     st.sessions.forEach((s) => {
-      const t = sessionScore(s.entry, r)
+      // Đúng mức tối đa của buổi này (giáo viên có thể đã đổi "Số câu" riêng).
+      const t = sessionScore(s.entry, { ...r, comps: sessionComps(r, s) })
       if (t === null) return
       const list = byDate.get(s.date) ?? []
       list.push(t)

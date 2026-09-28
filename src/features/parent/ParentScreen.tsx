@@ -55,9 +55,10 @@ export function ParentScreen({ cls }: ParentScreenProps) {
   const dropAlert = delta !== null && delta < -5
 
   const chart = s.totals.map((t, k) => ({ name: `B${p.from + k + 1}`, Điểm: t }))
+  // catAvg đã là % (0–100) sẵn — không chia lại cho c.max nữa.
   const bars = r.comps.map((c) => ({
     name: c.label.split(' ')[0],
-    pct: Math.round((s.catAvg[c.key] / c.max) * 100),
+    pct: Math.round(s.catAvg[c.key]),
   }))
 
   const apiClassId = isMongoid(cls.id) ? cls.id : ''
@@ -132,8 +133,8 @@ export function ParentScreen({ cls }: ParentScreenProps) {
           <Stat
             key={c.key}
             label={c.label}
-            value={`${round1(s.catAvg[c.key])}/${c.max}`}
-            color={s.catAvg[c.key] >= c.max * 0.9 ? C.board2 : s.catAvg[c.key] >= c.max * 0.7 ? C.ink : C.red}
+            value={`${round1(s.catAvg[c.key])}%`}
+            color={s.catAvg[c.key] >= 90 ? C.board2 : s.catAvg[c.key] >= 70 ? C.ink : C.red}
           />
         ))}
         <Stat

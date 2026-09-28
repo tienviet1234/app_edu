@@ -3,7 +3,7 @@ import type { AppData, ClassData } from '@/types'
 import { getClassRubric } from '@/constants/rubrics'
 import { statsOf } from '@/business/stats'
 import { rankingOf } from '@/business/ranking'
-import { sessionScore, compScore } from '@/business/scoring'
+import { sessionScore, compScore, sessionComps } from '@/business/scoring'
 import { round1, viDate, viDateTime } from '@/utils/format'
 
 export interface ExportPeriod {
@@ -23,7 +23,7 @@ export function exportScores(cls: ClassData, p: ExportPeriod): void {
   const headers = [
     'STT',
     'Học sinh',
-    ...r.comps.map((c) => c.label),
+    ...r.comps.map((c) => `${c.label} (%)`),
     'Chuyên cần',
     'Tổng điểm',
     'Xếp hạng',
@@ -42,7 +42,9 @@ export function exportScores(cls: ClassData, p: ExportPeriod): void {
       round1(s.monthTotal),
       place,
       s.streak,
-      `${Math.round(s.hwRate * 100)}%`,
+      // hwRate đã là % (0–100) sẵn — nhân lại *100 ở đây từng khiến cột này
+      // hiện tới hàng nghìn %.
+      `${Math.round(s.hwRate)}%`,
     ]
   })
 
@@ -138,14 +140,16 @@ export function exportFullBackupXlsx(data: AppData): void {
     let stt = 1
     cls.students.forEach((st) => {
       ;[...st.sessions].sort((a, b) => a.no - b.no).forEach((s) => {
-        const total = sessionScore(s.entry, r)
+        // Đúng mức tối đa của buổi này (giáo viên có thể đã đổi "Số câu" riêng).
+        const comps = sessionComps(r, s)
+        const total = sessionScore(s.entry, { ...r, comps })
         rows.push([
           stt++,
           st.name,
           s.no,
           s.date,
           ATTEND_LABEL_FULL[s.entry.attendance] ?? s.entry.attendance,
-          ...r.comps.map((c) => compScore(c, s.entry)),
+          ...comps.map((c) => compScore(c, s.entry)),
           total ?? '',
           s.entry.note ?? '',
         ])

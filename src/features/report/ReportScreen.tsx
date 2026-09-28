@@ -9,7 +9,7 @@ import { statsOf } from '@/business/stats'
 import { rankingOf } from '@/business/ranking'
 import { periodsOf, detailBlocks, buildComment } from '@/business/report'
 import { exportScores } from '@/utils/excel'
-import { sessionScore, compScore } from '@/business/scoring'
+import { sessionScore, compHasData, compPercent, sessionComps } from '@/business/scoring'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { Stat } from '@/components/atoms/Stat'
@@ -50,10 +50,13 @@ export function ReportScreen({ cls, update }: ReportScreenProps) {
 
     const sessionRows = student.sessions.map((sess, i) => {
       const e = sess.entry
-      const t = sessionScore(e, r)
+      // Dùng đúng mức tối đa CỦA BUỔI NÀY (giáo viên có thể đã đổi "Số câu"
+      // riêng cho buổi đó) — không phải mức mặc định của rubric.
+      const comps = sessionComps(r, sess)
+      const t = sessionScore(e, { ...r, comps })
       const attended = e.attendance !== 'absent'
       return {
-        no: sess.no, date: sess.date, attended, total: t, entry: e, sessIdx: i,
+        no: sess.no, date: sess.date, attended, total: t, entry: e, sessIdx: i, comps,
         recordedAt: sess.recordedAt, teacherName: sess.createdByName,
       }
     })
@@ -90,7 +93,7 @@ export function ReportScreen({ cls, update }: ReportScreenProps) {
   <div class="stat"><div class="stat-val">${round1(s.avg)}/100</div><div class="stat-lbl">Điểm trung bình</div></div>
   <div class="stat"><div class="stat-val">${s.attended}/${s.attended + s.absent}</div><div class="stat-lbl">Có mặt / Tổng</div></div>
   <div class="stat"><div class="stat-val">${s.streak}</div><div class="stat-lbl">Streak dài nhất</div></div>
-  ${r.comps.map((c) => `<div class="stat"><div class="stat-val">${round1(s.catAvg[c.key])}/${c.max}</div><div class="stat-lbl">${c.label}</div></div>`).join('')}
+  ${r.comps.map((c) => `<div class="stat"><div class="stat-val">${round1(s.catAvg[c.key])}%</div><div class="stat-lbl">${c.label}</div></div>`).join('')}
 </div>
 
 <h2>CHI TIẾT TỪNG BUỔI</h2>
@@ -102,16 +105,16 @@ ${r.comps.map((c) => `<th>${c.label}</th>`).join('')}
 ${student.sessions[0]?.homework !== undefined ? '<th>BTVN</th>' : ''}
 </tr></thead>
 <tbody>
-${sessionRows.map(({ no, date, attended, total, entry, sessIdx: _, recordedAt, teacherName }) => {
+${sessionRows.map(({ no, date, attended, total, entry, comps, recordedAt, teacherName }) => {
   const attendLabel = entry?.attendance === 'present' ? 'P' : entry?.attendance === 'late' ? 'Muộn' : entry?.attendance === 'excused' ? 'Phép' : entry?.attendance === 'absent' ? 'Vắng' : '—'
   return `<tr class="${!attended ? 'absent' : ''}">
 <td>${sessionLabel(no, cls.perMonth)}</td>
 <td>${viDate(date)}</td>
 <td>${recordedAt ? viDateTime(recordedAt).split(' ')[1] : '—'}</td>
 <td class="num">${attendLabel}</td>
-${r.comps.map((c) => {
-  if (!entry || !attended) return '<td class="num">—</td>'
-  return `<td class="num">${compScore(c, entry)}/${c.max}</td>`
+${comps.map((c) => {
+  if (!entry || !attended || !compHasData(c, entry)) return '<td class="num">—</td>'
+  return `<td class="num">${compPercent(c, entry)}%</td>`
 }).join('')}
 <td class="num bold">${total !== null && total !== undefined ? `${total}/100` : '—'}</td>
 <td>${teacherName || '—'}</td>
@@ -181,7 +184,7 @@ ${r.comps.map((c) => `<th>${c.label}</th>`).join('')}
 ${rows.map((row, i) => `<tr>
 <td>${i + 1}</td>
 <td class="bold">${row.st.name}</td>
-${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}</td>`).join('')}
+${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}%</td>`).join('')}
 <td class="num">${round1(row.s.attendScore)}</td>
 <td class="num bold">${round1(row.s.monthTotal)}</td>
 <td class="num">Top ${row.place}</td>
@@ -216,7 +219,7 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}</td>`).join
     p ? `Giai đoạn: buổi ${p.from + 1}–${p.to}` : `Toàn bộ ${st.sessions.length} buổi`,
     '',
     'ĐIỂM ĐÁNH GIÁ',
-    ...r.comps.map((c) => `• ${c.label}: ${round1(s.catAvg[c.key])}/${c.max}`),
+    ...r.comps.map((c) => `• ${c.label}: ${round1(s.catAvg[c.key])}%`),
     `• Chuyên cần: ${round1(s.attendScore)}/10`,
     `TỔNG ĐIỂM: ${round1(s.monthTotal)}/100 · Xếp hạng: Top ${place}/${cls.students.length}`,
     '',
@@ -232,11 +235,11 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}</td>`).join
     const fromSession = st.sessions[p.from]
     const toSession = st.sessions[Math.min(p.to, st.sessions.length) - 1] ?? fromSession
     const strengths = r.comps
-      .filter((c) => s.catAvg[c.key] >= c.max * 0.9)
-      .map((c) => `${c.label}: ${round1(s.catAvg[c.key])}/${c.max}`)
+      .filter((c) => s.catAvg[c.key] >= 90)
+      .map((c) => `${c.label}: ${round1(s.catAvg[c.key])}%`)
     const improvements = r.comps
-      .filter((c) => s.catAvg[c.key] < c.max * 0.7)
-      .map((c) => `${c.label}: ${round1(s.catAvg[c.key])}/${c.max}`)
+      .filter((c) => s.catAvg[c.key] < 70)
+      .map((c) => `${c.label}: ${round1(s.catAvg[c.key])}%`)
     try {
       await reportService.upsert({
         classId: cls.id,
@@ -372,7 +375,10 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}</td>`).join
               <tbody>
                 {st.sessions.map((sess) => {
                   const e = sess.entry
-                  const t = sessionScore(e, r)
+                  // Mức tối đa CỦA ĐÚNG BUỔI NÀY — buổi có thể đã được đổi
+                  // "Số câu" riêng, khác mức mặc định của rubric.
+                  const comps = sessionComps(r, sess)
+                  const t = sessionScore(e, { ...r, comps })
                   const attendLabel: Record<string, string> = {
                     present: 'P', late: 'Muộn', excused: 'Phép', absent: 'Vắng',
                   }
@@ -387,9 +393,9 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}</td>`).join
                       <td className="py-2 px-3 text-center">
                         {attendLabel[e.attendance] ?? '—'}
                       </td>
-                      {r.comps.map((c) => (
+                      {comps.map((c) => (
                         <td key={c.key} className="py-2 px-3 text-right tabular-nums">
-                          {!absent ? `${compScore(c, e)}/${c.max}` : '—'}
+                          {!absent && compHasData(c, e) ? `${compPercent(c, e)}%` : '—'}
                         </td>
                       ))}
                       <td className="py-2 px-3 text-right font-bold tabular-nums">
@@ -425,8 +431,8 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}</td>`).join
                 <Stat
                   key={c.key}
                   label={c.label}
-                  value={`${round1(s.catAvg[c.key])}/${c.max}`}
-                  color={s.catAvg[c.key] >= c.max * 0.95 ? C.board2 : s.catAvg[c.key] >= c.max * 0.7 ? C.ink : C.red}
+                  value={`${round1(s.catAvg[c.key])}%`}
+                  color={s.catAvg[c.key] >= 95 ? C.board2 : s.catAvg[c.key] >= 70 ? C.ink : C.red}
                 />
               ))}
               <Stat
@@ -528,8 +534,8 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}</td>`).join
                 <>
                   <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
                     {r.comps.map((c) => (
-                      <Stat key={c.key} label={c.label} value={`${round1(full.catAvg[c.key])}/${c.max}`}
-                        color={full.catAvg[c.key] >= c.max * 0.95 ? C.board2 : full.catAvg[c.key] >= c.max * 0.7 ? C.ink : C.red}
+                      <Stat key={c.key} label={c.label} value={`${round1(full.catAvg[c.key])}%`}
+                        color={full.catAvg[c.key] >= 95 ? C.board2 : full.catAvg[c.key] >= 70 ? C.ink : C.red}
                       />
                     ))}
                     <Stat label="Điểm trung bình" value={`${round1(full.avg)}/100`} color={C.board2} />

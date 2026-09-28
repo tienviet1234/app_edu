@@ -3,7 +3,7 @@ import { produce } from 'immer'
 import type { AppData, ClassData } from '@/types'
 import { C } from '@/constants/colors'
 import { RUBRICS, getClassRubric, autoLevel } from '@/constants/rubrics'
-import { sessionScore } from '@/business/scoring'
+import { sessionScore, sessionComps } from '@/business/scoring'
 import { uid } from '@/utils/uid'
 import { round1, viDate } from '@/utils/format'
 import { rankingOf } from '@/business/ranking'
@@ -652,7 +652,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                             </thead>
                             <tbody>
                               {stu.sessions.map((ss) => {
-                                const t = sessionScore(ss.entry, r)
+                                const t = sessionScore(ss.entry, { ...r, comps: sessionComps(r, ss) })
                                 const attendLabel: Record<string, string> = {
                                   present: 'Có mặt', late: 'Muộn', excused: 'Phép', absent: 'Vắng',
                                 }

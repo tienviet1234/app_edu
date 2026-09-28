@@ -46,6 +46,20 @@ export function rescaleComp(comp: RubricComponent, newMax: number): RubricCompon
   return { ...comp, max: newMax }
 }
 
+/** Tiêu chí ĐÚNG với 1 buổi cụ thể — áp "Số câu" override của buổi đó
+ *  (`sess.maxes`) nếu giáo viên đã đổi mức chấm riêng cho buổi này (VD hôm
+ *  đó Mini Test chỉ có 15 câu thay vì 20 câu mặc định của rubric). Trước
+ *  đây các màn thống kê/báo cáo/xuất Excel đều tính điểm theo mức MẶC ĐỊNH
+ *  của rubric bất kể buổi đó có override hay không — khiến điểm đã nhập
+ *  theo mức riêng của buổi (VD 80% của 15 câu = 12 điểm) bị so/cộng nhầm
+ *  với mức mặc định (12/20 thay vì đúng ra là 12/15), có buổi cộng dồn còn
+ *  vượt quá mức tối đa hiển thị (VD "48/20"). Luôn dùng hàm này khi cần
+ *  điểm/tối đa của 1 buổi đã lưu — không tự đọc thẳng `r.comps`. */
+export function sessionComps(r: { comps: RubricComponent[] }, sess: { maxes?: Record<string, number> }): RubricComponent[] {
+  const maxes = sess.maxes ?? {}
+  return r.comps.map((c) => (maxes[c.key] != null ? rescaleComp(c, maxes[c.key]) : c))
+}
+
 export function compScore(comp: RubricComponent, e: SessionEntry): number {
   switch (comp.type) {
     case 'score':
@@ -69,6 +83,13 @@ export function compScore(comp: RubricComponent, e: SessionEntry): number {
     default:
       return 0
   }
+}
+
+/** % (0–100) đạt được của 1 tiêu chí trong 1 buổi — luôn dùng `comp` đã qua
+ *  `sessionComps()` (đúng mức tối đa của buổi đó) để không lệch nếu buổi có
+ *  "Số câu" khác mức mặc định. */
+export function compPercent(comp: RubricComponent, e: SessionEntry): number {
+  return comp.max > 0 ? Math.round((compScore(comp, e) / comp.max) * 100) : 0
 }
 
 export function compHasData(comp: RubricComponent, e: SessionEntry): boolean {
