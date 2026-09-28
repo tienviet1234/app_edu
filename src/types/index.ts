@@ -170,6 +170,10 @@ export interface StudentStats {
   totals: number[]
   avg: number
   monthTotal: number
+  /** Tổng mức tối đa THẬT của monthTotal — theo rubric lớp này (đã áp tiêu
+   *  chí ẩn/thêm/đổi max riêng cho lớp), KHÔNG LUÔN LÀ 100. Luôn hiển thị
+   *  monthTotal kèm mẫu số này, không hardcode "/100". */
+  monthMax: number
   /** % (0–100) đạt được của từng tiêu chí — điểm đạt / tối đa CỦA ĐÚNG những
    *  buổi đã chấm mục đó, không phải điểm thô so với 1 mức tối đa cố định
    *  (mỗi buổi có thể có "Số câu" override khác nhau). */

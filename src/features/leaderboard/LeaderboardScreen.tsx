@@ -120,7 +120,13 @@ function PodiumColumn({ entry }: { entry: RankingEntry }) {
       <div className="mt-1.5 max-w-full truncate text-sm font-bold" style={{ color: C.ink }}>
         {entry.student.name}
       </div>
-      <div className="text-lg font-black tabular-nums" style={{ color: scoreColor(entry.s.monthTotal) }}>
+      {/* Tô màu theo % (monthTotal/monthMax) — lớp có tùy chỉnh thêm/bớt
+       *  tiêu chí thì monthMax không phải lúc nào cũng là 100, so trực tiếp
+       *  điểm tuyệt đối với ngưỡng 80/65 của scoreColor sẽ sai màu. */}
+      <div
+        className="text-lg font-black tabular-nums"
+        style={{ color: scoreColor(entry.s.monthMax > 0 ? (entry.s.monthTotal / entry.s.monthMax) * 100 : null) }}
+      >
         {round1(entry.s.monthTotal)}
       </div>
       <div

@@ -230,7 +230,7 @@ ${r.comps.map((c) => `<td class="num">${fracPct(row.s.catPts[c.key])}</td>`).joi
     'ĐIỂM ĐÁNH GIÁ',
     ...r.comps.map((c) => `• ${c.label}: ${fracPct(s.catPts[c.key])}`),
     `• Chuyên cần: ${round1(s.attendScore)}/10`,
-    `TỔNG ĐIỂM: ${round1(s.monthTotal)}/100 · Xếp hạng: Top ${place}/${cls.students.length}`,
+    `TỔNG ĐIỂM: ${round1(s.monthTotal)}/${round1(s.monthMax)} · Xếp hạng: Top ${place}/${cls.students.length}`,
     '',
     'CHI TIẾT NHẬN XÉT',
     ...blocks.flatMap((b) => [`${b.icon} ${b.title}`, ...b.lines.map((l) => `  - ${l}`), '']),
@@ -451,7 +451,7 @@ ${r.comps.map((c) => `<td class="num">${fracPct(row.s.catPts[c.key])}</td>`).joi
               />
               <Stat
                 label="TỔNG ĐIỂM"
-                value={`${round1(s.monthTotal)}/100`}
+                value={`${round1(s.monthTotal)}/${round1(s.monthMax)}`}
                 color={C.board2}
                 sub={`Top ${place}/${cls.students.length} · Lv.${s.level}`}
               />

@@ -138,7 +138,7 @@ export function compErrors(comp: RubricComponent, e: SessionEntry): Tag[] {
 
 // Điểm chuyên cần tối đa (luôn là mức "Có mặt") — dùng làm mốc quy đổi %
 // khi 1 buổi không áp dụng đủ mọi tiêu chí (VD hôm đó không có Mini Test).
-const ATTEND_MAX = Math.max(...ATTEND.map((a) => a.pts))
+export const ATTEND_MAX = Math.max(...ATTEND.map((a) => a.pts))
 
 /** Tổng điểm 1 buổi, quy về thang 100 dựa trên NHỮNG TIÊU CHÍ THỰC SỰ ĐÃ
  *  CHẤM — không phải luôn cộng cả những tiêu chí giáo viên chưa chạm tới.

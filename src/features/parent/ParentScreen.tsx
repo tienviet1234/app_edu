@@ -144,7 +144,7 @@ export function ParentScreen({ cls }: ParentScreenProps) {
         />
         <Stat
           label="Tổng điểm"
-          value={`${round1(s.monthTotal)}/100`}
+          value={`${round1(s.monthTotal)}/${round1(s.monthMax)}`}
           color={C.board2}
           sub={
             delta !== null

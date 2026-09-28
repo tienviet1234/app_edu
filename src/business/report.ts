@@ -74,10 +74,14 @@ export function detailBlocks(s: StudentStats, r: ReturnType<typeof getRubric>): 
 export function buildComment(name: string, s: StudentStats, r: ReturnType<typeof getRubric>): string {
   void r
   const L: string[] = []
+  // So theo % (monthTotal/monthMax) chứ không so số tuyệt đối với 90/75 —
+  // lớp có tùy chỉnh thêm/bớt tiêu chí thì monthMax không phải lúc nào cũng
+  // là 100, so trực tiếp số tuyệt đối sẽ nhận xét sai cho những lớp đó.
+  const pct = s.monthMax > 0 ? (s.monthTotal / s.monthMax) * 100 : 0
   L.push(
-    s.monthTotal >= 90
+    pct >= 90
       ? `${name} có kết quả học tập tốt và duy trì đều đặn.`
-      : s.monthTotal >= 75
+      : pct >= 75
         ? `${name} học khá ổn định, vẫn còn một vài điểm cần chỉnh.`
         : `${name} cần cố gắng thêm để theo kịp tiến độ lớp.`,
   )

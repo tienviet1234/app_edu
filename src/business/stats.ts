@@ -1,7 +1,7 @@
 import type { ClassData, Session, StudentStats, EvidenceItem } from '@/types'
 import { RANKS } from '@/constants'
 import { getClassRubric } from '@/constants/rubrics'
-import { attInfo, compScore, compHasData, compErrors, sessionScore, sessionComps } from './scoring'
+import { attInfo, compScore, compHasData, compErrors, sessionScore, sessionComps, ATTEND_MAX } from './scoring'
 
 const mean = (a: number[]): number => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0)
 
@@ -141,11 +141,15 @@ export function statsOf(cls: ClassData, sessions: Session[]): StudentStats {
     r.attendance.mode === 'deduct'
       ? Math.max(0, (r.attendance.base ?? 10) - late * 2 - excused * 3 - absent * 5)
       : mean(list.map((s) => attInfo(s.entry.attendance).pts))
+  const attendMax = r.attendance.mode === 'deduct' ? (r.attendance.base ?? 10) : ATTEND_MAX
 
-  // monthTotal vẫn giữ thang điểm /100 như trước (tổng mức tối đa MẶC ĐỊNH
-  // của rubric + chuyên cần) — quy đổi ngược từ % (catAvg) về điểm theo mức
-  // mặc định, để không đổi thang điểm hiển thị dù buổi nào đó có override
-  // "Số câu" riêng khác mức mặc định.
+  // TỔNG ĐIỂM quy đổi ngược từ % (catAvg) về điểm theo mức MẶC ĐỊNH của
+  // rubric — để không đổi thang điểm khi 1 buổi nào đó có override "Số câu"
+  // riêng khác mức mặc định. monthMax là tổng mức tối đa THẬT của rubric lớp
+  // này (đã áp comp ẩn/thêm/đổi max do admin tùy chỉnh riêng cho lớp) — KHÔNG
+  // LUÔN LÀ 100: lớp ẩn bớt/thêm tiêu chí hoặc đổi max 1 tiêu chí sẽ có tổng
+  // khác 100, nên không được hiển thị cứng "/100" ở màn hình.
+  const monthMax = r.comps.reduce((a, c) => a + c.max, 0) + attendMax
   const monthTotal = r.comps.reduce((a, c) => a + (catAvg[c.key] / 100) * c.max, 0) + attendScore
   const avg = mean(totals)
   let progress = 0
@@ -165,6 +169,7 @@ export function statsOf(cls: ClassData, sessions: Session[]): StudentStats {
     totals,
     avg,
     monthTotal,
+    monthMax,
     catAvg,
     partAvg,
     catPts,
