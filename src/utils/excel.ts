@@ -23,7 +23,7 @@ export function exportScores(cls: ClassData, p: ExportPeriod): void {
   const headers = [
     'STT',
     'Học sinh',
-    ...r.comps.map((c) => `${c.label} (%)`),
+    ...r.comps.map((c) => c.label),
     'Chuyên cần',
     'Tổng điểm',
     'Xếp hạng',
@@ -37,7 +37,9 @@ export function exportScores(cls: ClassData, p: ExportPeriod): void {
     return [
       i + 1,
       st.name,
-      ...r.comps.map((c) => round1(s.catAvg[c.key])),
+      // "bao nhiêu trên bao nhiêu" — tổng điểm đạt/tối đa THẬT của kỳ này
+      // (cộng đúng theo mức của từng buổi, không phải % hay điểm thô).
+      ...r.comps.map((c) => (s.catPts[c.key].max > 0 ? `${round1(s.catPts[c.key].earned)}/${round1(s.catPts[c.key].max)}` : '')),
       round1(s.attendScore),
       round1(s.monthTotal),
       place,

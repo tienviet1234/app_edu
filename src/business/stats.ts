@@ -128,6 +128,12 @@ export function statsOf(cls: ClassData, sessions: Session[]): StudentStats {
   Object.keys(catEarn).forEach((k) => (catAvg[k] = catMax[k] > 0 ? (catEarn[k] / catMax[k]) * 100 : 0))
   const partAvg: Record<string, number> = {}
   Object.keys(partSum).forEach((k) => (partAvg[k] = partMax[k] > 0 ? (partEarn[k] / partMax[k]) * 100 : 0))
+  // Điểm/tối đa THẬT (đã cộng dồn đúng theo mức của từng buổi) — hiển thị
+  // dạng "bao nhiêu trên bao nhiêu" cho rõ, thay vì chỉ đưa ra 1 con số %.
+  const catPts: Record<string, { earned: number; max: number }> = {}
+  Object.keys(catEarn).forEach((k) => (catPts[k] = { earned: catEarn[k], max: catMax[k] }))
+  const partPts: Record<string, { earned: number; max: number }> = {}
+  Object.keys(partSum).forEach((k) => (partPts[k] = { earned: partEarn[k] ?? 0, max: partMax[k] ?? 0 }))
   const evidence: Record<string, EvidenceItem[]> = {}
   Object.keys(evRaw).forEach((k) => (evidence[k] = mergeEvidence(evRaw[k])))
 
@@ -161,6 +167,8 @@ export function statsOf(cls: ClassData, sessions: Session[]): StudentStats {
     monthTotal,
     catAvg,
     partAvg,
+    catPts,
+    partPts,
     evidence,
     ratio,
     errors,

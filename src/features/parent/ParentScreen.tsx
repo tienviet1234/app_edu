@@ -133,7 +133,7 @@ export function ParentScreen({ cls }: ParentScreenProps) {
           <Stat
             key={c.key}
             label={c.label}
-            value={`${round1(s.catAvg[c.key])}%`}
+            value={s.catPts[c.key].max > 0 ? `${round1(s.catPts[c.key].earned)}/${round1(s.catPts[c.key].max)}` : '—'}
             color={s.catAvg[c.key] >= 90 ? C.board2 : s.catAvg[c.key] >= 70 ? C.ink : C.red}
           />
         ))}

@@ -9,7 +9,16 @@ import { statsOf } from '@/business/stats'
 import { rankingOf } from '@/business/ranking'
 import { periodsOf, detailBlocks, buildComment } from '@/business/report'
 import { exportScores } from '@/utils/excel'
-import { sessionScore, compHasData, compPercent, sessionComps } from '@/business/scoring'
+import { sessionScore, compHasData, compScore, sessionComps } from '@/business/scoring'
+
+/** "bao nhiêu trên bao nhiêu", kèm % trong ngoặc cho dễ so sánh giữa các em
+ *  — dùng cho số liệu GỘP NHIỀU BUỔI (mỗi buổi có thể có mức tối đa khác
+ *  nhau nên tổng/max thật ở đây có thể không tròn số, đúng bản chất). */
+function fracPct(pts: { earned: number; max: number }): string {
+  if (pts.max <= 0) return '—'
+  const pct = Math.round((pts.earned / pts.max) * 100)
+  return `${round1(pts.earned)}/${round1(pts.max)} (${pct}%)`
+}
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { Stat } from '@/components/atoms/Stat'
@@ -93,7 +102,7 @@ export function ReportScreen({ cls, update }: ReportScreenProps) {
   <div class="stat"><div class="stat-val">${round1(s.avg)}/100</div><div class="stat-lbl">Điểm trung bình</div></div>
   <div class="stat"><div class="stat-val">${s.attended}/${s.attended + s.absent}</div><div class="stat-lbl">Có mặt / Tổng</div></div>
   <div class="stat"><div class="stat-val">${s.streak}</div><div class="stat-lbl">Streak dài nhất</div></div>
-  ${r.comps.map((c) => `<div class="stat"><div class="stat-val">${round1(s.catAvg[c.key])}%</div><div class="stat-lbl">${c.label}</div></div>`).join('')}
+  ${r.comps.map((c) => `<div class="stat"><div class="stat-val">${fracPct(s.catPts[c.key])}</div><div class="stat-lbl">${c.label}</div></div>`).join('')}
 </div>
 
 <h2>CHI TIẾT TỪNG BUỔI</h2>
@@ -114,7 +123,7 @@ ${sessionRows.map(({ no, date, attended, total, entry, comps, recordedAt, teache
 <td class="num">${attendLabel}</td>
 ${comps.map((c) => {
   if (!entry || !attended || !compHasData(c, entry)) return '<td class="num">—</td>'
-  return `<td class="num">${compPercent(c, entry)}%</td>`
+  return `<td class="num">${compScore(c, entry)}/${c.max}</td>`
 }).join('')}
 <td class="num bold">${total !== null && total !== undefined ? `${total}/100` : '—'}</td>
 <td>${teacherName || '—'}</td>
@@ -184,7 +193,7 @@ ${r.comps.map((c) => `<th>${c.label}</th>`).join('')}
 ${rows.map((row, i) => `<tr>
 <td>${i + 1}</td>
 <td class="bold">${row.st.name}</td>
-${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}%</td>`).join('')}
+${r.comps.map((c) => `<td class="num">${fracPct(row.s.catPts[c.key])}</td>`).join('')}
 <td class="num">${round1(row.s.attendScore)}</td>
 <td class="num bold">${round1(row.s.monthTotal)}</td>
 <td class="num">Top ${row.place}</td>
@@ -219,7 +228,7 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}%</td>`).joi
     p ? `Giai đoạn: buổi ${p.from + 1}–${p.to}` : `Toàn bộ ${st.sessions.length} buổi`,
     '',
     'ĐIỂM ĐÁNH GIÁ',
-    ...r.comps.map((c) => `• ${c.label}: ${round1(s.catAvg[c.key])}%`),
+    ...r.comps.map((c) => `• ${c.label}: ${fracPct(s.catPts[c.key])}`),
     `• Chuyên cần: ${round1(s.attendScore)}/10`,
     `TỔNG ĐIỂM: ${round1(s.monthTotal)}/100 · Xếp hạng: Top ${place}/${cls.students.length}`,
     '',
@@ -236,10 +245,10 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}%</td>`).joi
     const toSession = st.sessions[Math.min(p.to, st.sessions.length) - 1] ?? fromSession
     const strengths = r.comps
       .filter((c) => s.catAvg[c.key] >= 90)
-      .map((c) => `${c.label}: ${round1(s.catAvg[c.key])}%`)
+      .map((c) => `${c.label}: ${fracPct(s.catPts[c.key])}`)
     const improvements = r.comps
       .filter((c) => s.catAvg[c.key] < 70)
-      .map((c) => `${c.label}: ${round1(s.catAvg[c.key])}%`)
+      .map((c) => `${c.label}: ${fracPct(s.catPts[c.key])}`)
     try {
       await reportService.upsert({
         classId: cls.id,
@@ -395,7 +404,7 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}%</td>`).joi
                       </td>
                       {comps.map((c) => (
                         <td key={c.key} className="py-2 px-3 text-right tabular-nums">
-                          {!absent && compHasData(c, e) ? `${compPercent(c, e)}%` : '—'}
+                          {!absent && compHasData(c, e) ? `${compScore(c, e)}/${c.max}` : '—'}
                         </td>
                       ))}
                       <td className="py-2 px-3 text-right font-bold tabular-nums">
@@ -431,7 +440,7 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}%</td>`).joi
                 <Stat
                   key={c.key}
                   label={c.label}
-                  value={`${round1(s.catAvg[c.key])}%`}
+                  value={fracPct(s.catPts[c.key])}
                   color={s.catAvg[c.key] >= 95 ? C.board2 : s.catAvg[c.key] >= 70 ? C.ink : C.red}
                 />
               ))}
@@ -534,7 +543,7 @@ ${r.comps.map((c) => `<td class="num">${round1(row.s.catAvg[c.key])}%</td>`).joi
                 <>
                   <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
                     {r.comps.map((c) => (
-                      <Stat key={c.key} label={c.label} value={`${round1(full.catAvg[c.key])}%`}
+                      <Stat key={c.key} label={c.label} value={fracPct(full.catPts[c.key])}
                         color={full.catAvg[c.key] >= 95 ? C.board2 : full.catAvg[c.key] >= 70 ? C.ink : C.red}
                       />
                     ))}

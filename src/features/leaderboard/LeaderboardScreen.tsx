@@ -164,14 +164,19 @@ export function LeaderboardScreen({ cls, update, userId }: LeaderboardScreenProp
   if (prev) prev.forEach((x) => (pp[x.student.id] = x.place))
 
   const tops = useMemo(() => {
-    const pick = (fn: (s: (typeof now)[0]['s']) => number, label: string, fmt: (v: number) => string) => {
+    // Xếp theo fn (VD % của tiêu chí) nhưng hiển thị bằng text(s) — để có thể
+    // in "bao nhiêu trên bao nhiêu" (catPts) thay vì chỉ 1 con số %.
+    const pick = (fn: (s: (typeof now)[0]['s']) => number, label: string, text: (s: (typeof now)[0]['s']) => string) => {
       const b = [...now].sort((a, z) => fn(z.s) - fn(a.s))[0]
-      return b && fn(b.s) > 0 ? { label, name: b.student.name, text: fmt(fn(b.s)) } : null
+      return b && fn(b.s) > 0 ? { label, name: b.student.name, text: text(b.s) } : null
     }
     return [
-      ...r.comps.map((c) => pick((s) => s.catAvg[c.key], `Top ${c.label}`, (v) => `${round1(v)}%`)),
-      pick((s) => s.attendScore, 'Top Chuyên cần', (v) => `${round1(v)}/10`),
-      pick((s) => s.progress, 'Top Tiến bộ', (v) => `+${round1(v)} điểm`),
+      ...r.comps.map((c) => pick((s) => s.catAvg[c.key], `Top ${c.label}`, (s) => {
+        const pts = s.catPts[c.key]
+        return pts.max > 0 ? `${round1(pts.earned)}/${round1(pts.max)}` : '—'
+      })),
+      pick((s) => s.attendScore, 'Top Chuyên cần', (s) => `${round1(s.attendScore)}/10`),
+      pick((s) => s.progress, 'Top Tiến bộ', (s) => `+${round1(s.progress)} điểm`),
     ].filter(Boolean)
   }, [now, r.comps])
 

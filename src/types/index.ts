@@ -176,6 +176,11 @@ export interface StudentStats {
   catAvg: Record<string, number>
   /** % (0–100) của từng phần nhỏ trong tiêu chí kiểu "parts", cùng ý nghĩa như catAvg. */
   partAvg: Record<string, number>
+  /** Điểm đạt/tối đa THẬT của từng tiêu chí (đã cộng đúng theo mức của từng
+   *  buổi) — dùng hiển thị "bao nhiêu trên bao nhiêu" thay vì chỉ đưa số %. */
+  catPts: Record<string, { earned: number; max: number }>
+  /** Cùng ý nghĩa như catPts, cho từng phần nhỏ trong tiêu chí kiểu "parts". */
+  partPts: Record<string, { earned: number; max: number }>
   evidence: Record<string, EvidenceItem[]>
   ratio: Record<string, { ok: number; total: number }>
   errors: ErrorEntry[]

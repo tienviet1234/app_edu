@@ -40,9 +40,14 @@ export function detailBlocks(s: StudentStats, r: ReturnType<typeof getRubric>): 
       const ok = (c.parts ?? []).filter((p) => pctOf(p) >= 95)
       if (ok.length && c.key !== 'attitude')
         lines.push(`${ok.map((p) => p.label.toLowerCase()).join(', ')}: đạt.`)
-      weak.forEach((p) =>
-        lines.push(`${p.label}: ${round1(pctOf(p))}% — cần ${p.fix}.`),
-      )
+      // "bao nhiêu trên bao nhiêu" — điểm đạt/tối đa THẬT (cộng đúng theo mức
+      // của từng buổi); buổi chưa có dữ liệu phần này thì partPts.max = 0,
+      // không có gì để chia nên hiện điểm tối đa mặc định là "đạt".
+      weak.forEach((p) => {
+        const pts = s.partPts[`${c.key}.${p.id}`]
+        const text = pts && pts.max > 0 ? `${round1(pts.earned)}/${round1(pts.max)}` : `0/${p.max}`
+        lines.push(`${p.label}: ${text} — cần ${p.fix}.`)
+      })
     }
     ;(c.evidence ?? [])
       .filter((x) => x.type !== 'ratio')
