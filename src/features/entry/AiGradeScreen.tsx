@@ -229,6 +229,16 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
                         ⚠ AI không chắc chắn hoàn toàn — kiểm tra kỹ trước khi lưu.
                       </div>
                     )}
+                    <div
+                      className="text-xs rounded-lg px-2 py-1 inline-block"
+                      style={row.ai.fromExistingGrade
+                        ? { background: C.emerald + '1f', color: '#0F5132' }
+                        : { background: C.blue + '1f', color: '#1E3A8A' }}
+                    >
+                      {row.ai.fromExistingGrade
+                        ? '✓ Đọc lại điểm cô đã chấm sẵn trên bài — đáng tin hơn'
+                        : 'ℹ AI tự chấm từ đầu (bài chưa thấy dấu chấm điểm) — nên xem kỹ hơn'}
+                    </div>
                     <div className="text-xs" style={{ color: C.muted }}>AI đọc tên: “{row.ai.studentName || '(không thấy)'}”</div>
 
                     <select

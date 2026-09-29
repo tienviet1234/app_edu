@@ -7,6 +7,7 @@ export interface AiGradeResult {
   errors: string[]
   lowConfidence: boolean
   unreadable: boolean
+  fromExistingGrade: boolean
 }
 
 export const aiGradingService = {
