@@ -23,6 +23,7 @@ import { scoreRouter } from './routes/scoreRoutes.js'
 import { assignmentRouter } from './routes/assignmentRoutes.js'
 import { submissionRouter } from './routes/submissionRoutes.js'
 import { cronRouter } from './routes/cronRoutes.js'
+import { aiRouter } from './routes/aiRoutes.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { notFound } from './utils/response.js'
 
@@ -60,6 +61,16 @@ app.use('/api/cron', rateLimit({
   message: { success: false, message: 'Quá nhiều yêu cầu.' },
 }))
 
+// AI chấm điểm — mỗi lần gọi tốn phí thật (gọi API Anthropic), giới hạn
+// chặt hơn hẳn các route khác để tránh bị gọi tràn lan làm phát sinh phí.
+app.use('/api/ai', rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Đã chấm quá nhiều ảnh trong 1 giờ. Thử lại sau.' },
+}))
+
 app.get('/api/health', (_req, res) => {
   res.json({ success: true, data: { status: 'ok' } })
 })
@@ -86,6 +97,7 @@ app.use('/api/submissions', submissionRouter)
 app.use('/api/users', userRouter)
 app.use('/api/push', pushRouter)
 app.use('/api/cron', cronRouter)
+app.use('/api/ai', aiRouter)
 
 app.use((_req, res) => {
   notFound(res, 'Route not found.')

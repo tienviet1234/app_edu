@@ -56,4 +56,8 @@ export const env = {
 
   // Cron — secret dùng để xác thực GitHub Actions gọi /api/cron/*
   CRON_SECRET: process.env.CRON_SECRET ?? '',
+
+  // Anthropic — chấm điểm/đọc tên học sinh bằng AI (ảnh bài kiểm tra giấy).
+  // Rỗng = tính năng AI tắt, API trả lỗi rõ ràng thay vì crash.
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? '',
 } as const
