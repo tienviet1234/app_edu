@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { C } from '@/constants/colors'
+import { Icon, TAB_ICON } from '@/components/atoms/Icon'
 import { useUnreadCount } from '@/hooks/useNotifications'
 
 export interface BottomNavTab {
@@ -34,8 +35,8 @@ export function BottomNav({ primaryTabs, overflowTabs, activeTab, onTabChange }:
       <nav
         className="fixed inset-x-0 bottom-0 z-30 flex sm:hidden"
         style={{
-          background: '#fff',
-          borderTop: `1px solid ${C.line}`,
+          background: C.card,
+          borderTop: `1.5px solid ${C.line}`,
           paddingBottom: 'env(safe-area-inset-bottom)',
         }}
       >
@@ -46,14 +47,14 @@ export function BottomNav({ primaryTabs, overflowTabs, activeTab, onTabChange }:
             <button
               key={t.key}
               onClick={() => onTabChange(t.key)}
-              className="relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-semibold"
+              className="relative flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px] font-semibold"
               style={{
                 color: active ? C.board : C.muted,
-                borderTop: active ? `2px solid ${C.gold}` : '2px solid transparent',
+                borderTop: active ? `4px solid ${C.board2}` : '4px solid transparent',
               }}
             >
-              <span className="relative text-lg leading-none">
-                {t.icon}
+              <span className="relative leading-none">
+                <Icon name={TAB_ICON[t.key] ?? 'list'} size={22} />
                 {showBadge && (
                   <span
                     className="absolute -right-1.5 -top-1 h-2 w-2 rounded-full"
@@ -69,14 +70,14 @@ export function BottomNav({ primaryTabs, overflowTabs, activeTab, onTabChange }:
         {hasOverflow && (
           <button
             onClick={() => setSheetOpen(true)}
-            className="relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-semibold"
+            className="relative flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px] font-semibold"
             style={{
               color: overflowActive ? C.board : C.muted,
-              borderTop: overflowActive ? `2px solid ${C.gold}` : '2px solid transparent',
+              borderTop: overflowActive ? `4px solid ${C.board2}` : '4px solid transparent',
             }}
           >
-            <span className="relative text-lg leading-none">
-              ☰
+            <span className="relative leading-none">
+              <Icon name="menu" size={22} />
               {notifInOverflow && notifCount > 0 && (
                 <span
                   className="absolute -right-1.5 -top-1 h-2 w-2 rounded-full"
@@ -93,8 +94,8 @@ export function BottomNav({ primaryTabs, overflowTabs, activeTab, onTabChange }:
         <div className="fixed inset-0 z-40 sm:hidden" onClick={() => setSheetOpen(false)}>
           <div className="absolute inset-0" style={{ background: 'rgb(0 0 0 / 0.4)' }} />
           <div
-            className="absolute inset-x-0 bottom-0 animate-slide-up rounded-t-2xl p-3"
-            style={{ background: '#fff', paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+            className="absolute inset-x-0 bottom-0 animate-slide-up rounded-t-md p-3"
+            style={{ background: C.card, borderTop: `4px solid ${C.board2}`, paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mx-auto mb-2 h-1 w-10 rounded-full" style={{ background: C.line }} />
@@ -106,11 +107,11 @@ export function BottomNav({ primaryTabs, overflowTabs, activeTab, onTabChange }:
                   <button
                     key={t.key}
                     onClick={() => selectOverflow(t.key)}
-                    className="relative flex flex-col items-center gap-1 rounded-xl py-3 text-xs font-semibold"
+                    className="relative flex min-h-16 flex-col items-center justify-center gap-1 rounded-md py-3 text-xs font-semibold"
                     style={{ background: active ? C.board2 + '12' : C.paper, color: active ? C.board : C.muted }}
                   >
-                    <span className="relative text-xl leading-none">
-                      {t.icon}
+                    <span className="relative leading-none">
+                      <Icon name={TAB_ICON[t.key] ?? 'list'} size={22} />
                       {showBadge && (
                         <span
                           className="absolute -right-1.5 -top-1 h-2 w-2 rounded-full"

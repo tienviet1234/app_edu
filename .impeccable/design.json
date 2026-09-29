@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-26T05:00:00Z",
+  "title": "Design System: Bộ thẻ lớp học",
+  "extensions": {
+    "colorMeta": {
+      "cobalt": { "role": "primary", "displayName": "Cobalt", "canonical": "#2447D6" },
+      "desk": { "role": "neutral", "displayName": "Mặt bàn", "canonical": "#EEF1F8" },
+      "tomato": { "role": "accent", "displayName": "Cà chua", "canonical": "#E8503A" },
+      "sunflower": { "role": "accent", "displayName": "Hướng dương", "canonical": "#F5B700" },
+      "grass": { "role": "accent", "displayName": "Cỏ", "canonical": "#178A4C" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Baloo 2", "purpose": "Tên học sinh và con số điểm lớn." },
+      "body": { "displayName": "Be Vietnam Pro", "purpose": "Mọi chữ còn lại." }
+    },
+    "shadows": [
+      { "name": "flat", "value": "none", "purpose": "Độ nổi do viền 1.5px đảm nhiệm, không bóng mềm." },
+      { "name": "elevated", "value": "0 8px 20px -10px rgb(20 24 43 / 0.28)", "purpose": "Chỉ thẻ nổi bật." }
+    ],
+    "motion": [
+      { "name": "press", "value": "transform 150ms cubic-bezier(0.4, 0, 0.2, 1)", "purpose": "Nhấn nút: co nhẹ 0.98." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Hành động chính (Học sinh tiếp theo, Lưu).",
+      "html": "<button class=\"ds-btn\">Học sinh tiếp theo</button>",
+      "css": ".ds-btn{min-height:44px;padding:8px 12px;border-radius:6px;border:1px solid #1E2F8F;background:#1E2F8F;color:#fff;font:600 14px 'Be Vietnam Pro',system-ui,sans-serif;cursor:pointer}.ds-btn:hover{filter:brightness(.93)}.ds-btn:active{transform:scale(.98)}.ds-btn:focus-visible{outline:2px solid #2447D6;outline-offset:2px}"
+    },
+    {
+      "name": "Pick",
+      "kind": "chip",
+      "refersTo": "button-pick",
+      "description": "Chọn 1 mức (điểm danh, mức đạt).",
+      "html": "<button class=\"ds-pick\">Có mặt</button><button class=\"ds-pick ds-on\">Đạt</button>",
+      "css": ".ds-pick{min-height:44px;padding:0 12px;margin-right:8px;border-radius:6px;border:1.5px solid #D5DAE8;background:#fff;color:#5B6478;font:600 14px 'Be Vietnam Pro',system-ui,sans-serif;cursor:pointer}.ds-on{background:#178A4C;border-color:#178A4C;color:#fff}.ds-pick:focus-visible{outline:2px solid #2447D6;outline-offset:2px}"
+    },
+    {
+      "name": "Card với băng nhãn",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Thẻ trắng viền mảnh, băng nhãn màu ở đỉnh.",
+      "html": "<div class=\"ds-card\"><b>Nguyễn Minh Khôi</b><p>Chuyên cần</p></div>",
+      "css": ".ds-card{background:#fff;border:1.5px solid #D5DAE8;border-top:6px solid #2447D6;border-radius:6px;padding:12px;color:#14182B;font:500 14px 'Be Vietnam Pro',system-ui,sans-serif}"
+    },
+    {
+      "name": "Thẻ học sinh nhỏ",
+      "kind": "custom",
+      "refersTo": "student-tab",
+      "description": "Dải thẻ cả lớp; đang xem tô cobalt và có góc gấp vàng.",
+      "html": "<span class=\"ds-st\">An</span><span class=\"ds-st ds-cur\">Bình</span>",
+      "css": ".ds-st{position:relative;display:inline-flex;align-items:center;min-height:44px;padding:0 12px;margin-right:8px;border-radius:2px;border:1.5px solid #D5DAE8;background:#fff;color:#5B6478;font:600 14px 'Be Vietnam Pro',system-ui,sans-serif}.ds-cur{background:#2447D6;border-color:#2447D6;color:#fff}.ds-cur::after{content:'';position:absolute;right:0;top:0;width:12px;height:12px;background:#F5B700;clip-path:polygon(0 0,100% 0,100% 100%)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Lớp học là một bộ thẻ từ vựng",
+    "overview": "Mỗi học sinh là một tấm thẻ; chấm xong thì lật sang thẻ tiếp theo. Nền bàn xanh xám, thẻ trắng vuông vức, viền mảnh, băng nhãn 4 màu phân loại tiêu chí.",
+    "keyCharacteristics": ["Phẳng, viền thay bóng", "Băng nhãn 4 màu có nghĩa", "Trạng thái là dấu hiệu", "Vùng chạm 44px"],
+    "rules": [
+      { "name": "Màu là nghĩa", "body": "Màu chỉ dùng để phân loại hoặc báo mức điểm, không trang trí.", "section": "colors" },
+      { "name": "Viền, không bóng", "body": "Độ nổi do viền 1.5px đảm nhiệm; bóng chỉ cho thẻ nổi bật.", "section": "elevation" }
+    ],
+    "dos": ["Dùng băng nhãn màu để phân loại", "Giữ vùng chạm ≥ 44px", "Thể hiện trạng thái bằng dấu song song với màu"],
+    "donts": ["Không dùng emoji làm biểu tượng", "Không dùng chuyển màu làm nền", "Không dùng đỏ gắt cho thông tin học sinh/phụ huynh thấy"]
+  }
+}
