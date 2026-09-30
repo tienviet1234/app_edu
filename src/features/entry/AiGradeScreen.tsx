@@ -67,6 +67,10 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
   // quét cả xấp bài CÙNG 1 đề). Không bắt buộc, giúp AI so khớp chính xác
   // hơn với bài CHƯA được chấm tay sẵn, thay vì tự đoán đáp án đúng.
   const [answerKey, setAnswerKey] = useState('')
+  // Lớp áp dụng — không bắt buộc. Nếu chọn, chỉ tìm tên trong đúng lớp đó,
+  // giảm rủi ro trùng tên giữa các lớp khác nhau. Để trống thì tìm khắp mọi
+  // lớp như trước (giáo viên không cần biết trước là lớp nào).
+  const [targetClassId, setTargetClassId] = useState('')
 
   const patch = (id: string, fn: (r: Row) => void) =>
     setRows((prev) => prev.map((r) => (r.id === id ? produce(r, fn) : r)))
@@ -93,7 +97,9 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
     const keyUsed = answerKey.trim()
     try {
       const ai = await aiGradingService.gradePhoto(row.file, keyUsed || undefined)
-      const matches = ai.studentName ? matchStudentsByName(data.classes, ai.studentName) : []
+      const matches = ai.studentName
+        ? matchStudentsByName(data.classes, ai.studentName, targetClassId || undefined)
+        : []
       patch(row.id, (r) => {
         r.ai = ai
         r.matches = matches
@@ -190,6 +196,18 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
     c.students.map((s) => ({ classIndex: ci, className: c.name, studentId: s.id, studentName: s.name })),
   )
 
+  // Sắp xếp LẠI CHỈ ĐỂ HIỂN THỊ (không đổi thứ tự lưu trong `rows`) — bài rõ
+  // ràng lên trước để duyệt nhanh, bài khó đọc/không đọc được dồn xuống dưới
+  // để giáo viên để ý kỹ hơn. Chỉ biết được độ khó đọc SAU KHI đã chấm, nên
+  // không thể sắp trước khi chấm — bài chưa chấm giữ nguyên vị trí giữa.
+  function rowPriority(r: Row): number {
+    if (r.status === 'pending' || r.status === 'grading') return 1
+    if (r.status === 'error') return 3
+    if (r.ai?.lowConfidence) return 2
+    return 0
+  }
+  const displayRows = [...rows].sort((a, b) => rowPriority(a) - rowPriority(b))
+
   return (
     <div className="space-y-3">
       <Card className="p-4 space-y-2">
@@ -199,6 +217,24 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
           đếm điểm, bạn xem lại rồi mới lưu. Nhận diện được cả khoanh tròn, tick, tô đậm, nối câu lẫn điền vào
           chỗ trống. Chỉ dùng được cho tiêu chí dạng điểm số (VD Mini Test, Nghe) — bài tập viết tay dạng chữa
           lỗi/BTVN vẫn phải chấm tay ở Nhập điểm như cũ.
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-semibold" style={{ color: C.ink }}>
+            Lớp áp dụng (không bắt buộc)
+          </label>
+          <select
+            value={targetClassId}
+            onChange={(e) => setTargetClassId(e.target.value)}
+            className="w-full rounded-xl px-3 py-2 text-sm"
+            style={{ border: `1px solid ${C.line}` }}
+          >
+            <option value="">— Tự tìm khắp mọi lớp (mặc định) —</option>
+            {data.classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <div className="mt-1 text-xs" style={{ color: C.muted }}>
+            Nếu biết chắc cả xấp ảnh đang chấm là cùng 1 lớp, chọn đúng lớp đó — giảm rủi ro trùng tên giữa các
+            lớp khác nhau. Để trống thì AI vẫn tự tìm khắp mọi lớp như trước.
+          </div>
         </div>
         <div className="space-y-1.5">
           <label className="mb-1 block text-xs font-semibold" style={{ color: C.ink }}>
@@ -232,7 +268,7 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
         </div>
       </Card>
 
-      {rows.map((row) => {
+      {displayRows.map((row) => {
         const cls = row.classIndex >= 0 ? data.classes[row.classIndex] : null
         const comps = cls ? scoreComps(cls) : []
         return (

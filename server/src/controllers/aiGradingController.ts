@@ -1,8 +1,10 @@
 import type { Request, Response } from 'express'
 import multer from 'multer'
 import { gradeTestPhoto, solveTestPhoto } from '../services/aiGradingService.js'
+import { Notification } from '../models/Notification.js'
 import { ok, badRequest } from '../utils/response.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
+import type { AuthRequest } from '../middleware/auth.js'
 
 // Multer: lưu tạm trong memory (không ghi ổ đĩa, không upload lên đâu cả),
 // giới hạn 8MB — chỉ để OCR/chấm, không cần ảnh gốc chất lượng cao.
@@ -30,6 +32,21 @@ export const gradePhoto = asyncHandler(async (req: Request, res: Response) => {
 
   try {
     const result = await gradeTestPhoto(file.buffer, file.mimetype, answerKey)
+    // Chữ quá xấu/ảnh quá mờ, AI không đọc được gì — không chỉ hiện tạm trên
+    // màn hình đang mở, mà còn gửi thông báo thật vào chuông 🔔 của giáo
+    // viên, để họ biết dù không còn đang mở đúng màn "Chấm bằng AI" lúc đó.
+    if (result.unreadable) {
+      const authReq = req as AuthRequest
+      if (authReq.userId) {
+        await Notification.create({
+          recipientId: authReq.userId,
+          title: 'AI không đọc được 1 ảnh bài kiểm tra',
+          body: `Ảnh "${file.originalname || 'bài chấm'}" quá mờ hoặc chữ quá khó đọc — AI không chấm được. Vào "Chấm bằng AI" để xem lại và chấm tay ảnh này.`,
+          type: 'system',
+          createdBy: authReq.userId,
+        }).catch((err) => console.error('Lỗi tạo thông báo AI không đọc được ảnh:', err))
+      }
+    }
     ok(res, result)
   } catch (err) {
     if (err instanceof Error && err.message === 'AI_NOT_CONFIGURED') {

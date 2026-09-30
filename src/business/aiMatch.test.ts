@@ -41,4 +41,17 @@ describe('matchStudentsByName', () => {
   it('tên rỗng trả về mảng rỗng', () => {
     expect(matchStudentsByName(classes, '')).toEqual([])
   })
+
+  it('restrictToClassId chỉ tìm trong đúng 1 lớp, classIndex vẫn đúng vị trí thật', () => {
+    // "Nguyễn Minh Anh"/"Nguyễn Minh Ánh" trùng nhau khi bỏ dấu, thuộc 2 lớp
+    // khác nhau — giới hạn về lớp c2 thì chỉ được đúng em ở lớp c2.
+    const m = matchStudentsByName(classes, 'nguyen minh anh', 'c2')
+    expect(m).toHaveLength(1)
+    expect(m[0].className).toBe('Lớp 9')
+    expect(m[0].classIndex).toBe(1) // đúng vị trí thật trong mảng classes, không bị lệch về 0
+  })
+
+  it('restrictToClassId không khớp lớp nào thì trả về rỗng dù tên có tồn tại ở lớp khác', () => {
+    expect(matchStudentsByName(classes, 'Lê Gia Huy', 'c1')).toEqual([])
+  })
 })
