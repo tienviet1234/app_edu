@@ -2,8 +2,6 @@ import type { Request, Response } from 'express'
 import { Types } from 'mongoose'
 import { Debt } from '../models/Debt.js'
 import { Class } from '../models/Class.js'
-import { User } from '../models/User.js'
-import { ParentProfile } from '../models/ParentProfile.js'
 import { Notification } from '../models/Notification.js'
 import { sendPushToUser } from '../services/pushService.js'
 import { ok, created, badRequest, forbidden, notFound } from '../utils/response.js'
@@ -18,35 +16,27 @@ async function assertTeacherOwnsClass(authReq: AuthRequest, classId: string): Pr
   return !!cls?.teacherId && String(cls.teacherId) === String(authReq.userId)
 }
 
-/** Phụ huynh/học sinh chỉ được xem/trả nợ của CHÍNH học sinh đó (con mình,
- *  hoặc chính mình). Teacher/admin không bị giới hạn. */
+/** Chỉ admin/giáo viên/CHÍNH học sinh đó được xem/trả nợ — tính năng này
+ *  KHÔNG cho phụ huynh tham gia (khác hệ thống "Bài tập" nộp ảnh/video vốn
+ *  đã có sẵn, theo đúng yêu cầu chỉ admin/giáo viên/học sinh). */
 async function assertCanAccessStudent(authReq: AuthRequest, studentId: string): Promise<boolean> {
   const role = authReq.user?.role
   if (role === 'admin' || role === 'teacher') return true
   if (role === 'student') return String(authReq.userId) === String(studentId)
-  if (role === 'parent') {
-    const parent = await User.findById(authReq.userId, 'childIds').lean()
-    return (parent?.childIds ?? []).some((id) => String(id) === String(studentId))
-  }
   return false
 }
 
-/** Báo cho học sinh + phụ huynh liên kết biết vừa có nợ mới — cùng mẫu với
- *  reminderService.sendRemindersFor (notification + push, không chặn request
- *  chính nếu lỗi). */
+/** Báo cho HỌC SINH biết vừa có nợ mới — không gửi cho phụ huynh (khác
+ *  reminderService.sendRemindersFor của hệ thống "Bài tập", theo đúng yêu
+ *  cầu tính năng này không liên quan phụ huynh). */
 async function notifyNewDebt(studentId: string, classId: string, title: string, body: string): Promise<void> {
   try {
-    const [cls, parents] = await Promise.all([
-      Class.findById(classId, 'centerId').lean(),
-      ParentProfile.find({ studentIds: studentId }).select('userId').lean(),
-    ])
-    const recipientIds = new Set<string>([String(studentId), ...parents.map((p) => String(p.userId))])
-    const docs = [...recipientIds].map((uid) => ({
-      centerId: cls?.centerId, recipientId: uid, title, body, type: 'announcement' as const,
+    const cls = await Class.findById(classId, 'centerId').lean()
+    await Notification.create({
+      centerId: cls?.centerId, recipientId: studentId, title, body, type: 'announcement',
       data: { kind: 'debt-created' },
-    }))
-    await Notification.insertMany(docs)
-    recipientIds.forEach((uid) => void sendPushToUser(uid, { title, body, tag: 'debt-created', url: '/app' }))
+    })
+    void sendPushToUser(studentId, { title, body, tag: 'debt-created', url: '/app' })
   } catch (err) {
     console.error('Lỗi gửi thông báo nợ bài tập:', err)
   }
