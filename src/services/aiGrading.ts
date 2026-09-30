@@ -11,12 +11,12 @@ export interface AiGradeResult {
   needsManualGrading: boolean
   manualGradingReason: string
   nameConfidence: 'high' | 'low'
+  questions: Array<{ no: string; studentAnswer: string; correct: boolean; uncertain: boolean }>
   ambiguousItems: Array<{ description: string; suggestions: string[] }>
 }
 
 export interface AiSolveResult {
-  answerKey: string
-  uncertainNotes: string[]
+  lines: Array<{ text: string; uncertain: boolean; note: string }>
   lowConfidence: boolean
   unreadable: boolean
 }

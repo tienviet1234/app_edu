@@ -95,6 +95,13 @@ export interface AiGradeResult {
    *  đọc/không chắc chắn. Dùng để quyết định có cần giáo viên tự chọn lại
    *  học sinh hay chỉ cần xác nhận 1 cái khi đã khớp đúng 1 em. */
   nameConfidence: 'high' | 'low'
+  /** Chi tiết TỪNG CÂU — chỉ có khi fromExistingGrade=false (tự chấm, AI biết
+   *  rõ từng câu). Giáo viên sửa lại studentAnswer/correct trực tiếp trên
+   *  từng dòng khi chữ quá xấu đọc sai — rawScore/rawMax được TÍNH LẠI ngay
+   *  từ danh sách này ở tầng gọi (đếm số correct=true), không cần gõ lại số
+   *  tổng tay. Rỗng nếu fromExistingGrade=true (chỉ có điểm tổng viết sẵn,
+   *  không tách được từng câu). */
+  questions: Array<{ no: string; studentAnswer: string; correct: boolean; uncertain: boolean }>
 }
 
 const SYSTEM_PROMPT = `Bạn đang giúp một trung tâm Anh ngữ tại Việt Nam chấm bài kiểm tra giấy từ ảnh chụp.
@@ -124,13 +131,20 @@ Nhiệm vụ:
 
 7. Đánh giá xem bài này có NÊN ĐỂ GIÁO VIÊN TỰ CHẤM TAY HOÀN TOÀN thay vì dùng điểm AI hay không — mức nghiêm trọng HƠN lowConfidence. CHỈ áp dụng khi fromExistingGrade=false (bài chưa có ai chấm sẵn): nếu chữ viết/đáp án của học sinh (không chỉ riêng tên) quá xấu, nguệch ngoạc, nhiều chỗ không thể phân biệt được đang chọn đáp án nào — đặt needsManualGrading=true và manualGradingReason là 1 câu ngắn gọn tiếng Việt giải thích cụ thể (VD "Chữ viết tay nguệch ngoạc, nhiều câu không rõ khoanh vào đáp án nào"). Nếu bài đủ rõ để tự chấm bình thường (kể cả khi có vài chỗ lẻ tẻ phải đưa vào ambiguousItems), đặt needsManualGrading=false và manualGradingReason rỗng. Nếu fromExistingGrade=true (chỉ đọc lại số có sẵn) thì hầu như luôn để needsManualGrading=false, trừ khi chính con số điểm giáo viên ghi sẵn cũng không đọc nổi.
 
-8. Với TỪNG chỗ cụ thể bạn không chắc chắn (tên, 1 câu, 1 con số điểm...) — liệt kê vào ambiguousItems, mỗi mục gồm:
-   - description: nói rõ Ở ĐÂU và NGHI NGỜ GÌ, để giáo viên xem đúng chỗ đó thay vì đọc lại từ đầu (VD "Tên học sinh: chữ đầu không rõ là 'Đ' hay 'D'", "Câu 5: khoanh đè lên 2 đáp án B và C").
-   - suggestions: LIỆT KÊ SẴN các khả năng bạn nghĩ tới (tối đa 4), để giáo viên bấm chọn nhanh thay vì tự gõ lại — VD nghi ngờ giữa "will"/"is" thì suggestions=["will","is"]; nghi ngờ đáp án B hay C thì suggestions=["B","C"]. Nếu thật sự không đoán được phương án nào hợp lý, để suggestions rỗng — đừng bịa ra phương án không có căn cứ.
-   Tối đa 6 mục ambiguousItems. Nếu không có gì đáng ngờ, để rỗng — đừng liệt kê những chỗ bạn thật sự đã đọc rõ.
+8. CHỈ KHI fromExistingGrade=false (tự chấm từ đầu) — liệt kê CHI TIẾT TỪNG CÂU vào mảng questions, để giáo viên xem/sửa lại đúng từng câu thay vì chỉ 1 con số tổng:
+   - no: số thứ tự câu, theo ĐÚNG cách đánh số của đề (VD "1", "I.3").
+   - studentAnswer: đáp án bạn đọc được học sinh chọn/viết cho câu đó (VD "B", "is read"). Nếu chữ quá xấu không đọc nổi, để "?" — đừng đoán bừa.
+   - correct: true nếu đúng theo đáp án đúng của đề (so theo "ĐÁP ÁN ĐÚNG" bên dưới nếu giáo viên có cung cấp, không thì theo kiến thức tiếng Anh), false nếu sai hoặc không xác định được (studentAnswer="?").
+   - uncertain: true nếu bạn không chắc chắn đọc đúng chữ viết tay ở câu này (kể cả khi vẫn đoán ra được studentAnswer) — giáo viên sẽ được nhắc xem lại đúng các câu này.
+   Liệt kê ĐẦY ĐỦ mọi câu của bài, không chỉ câu nghi ngờ. Nếu fromExistingGrade=true, để questions rỗng (không tách được từng câu từ điểm tổng viết sẵn).
+
+9. Với TỪNG chỗ TỔNG QUÁT bạn không chắc chắn mà KHÔNG gắn với 1 câu cụ thể trong questions (VD tên học sinh, hoặc 2 con số điểm viết ở 2 góc trang mâu thuẫn nhau) — liệt kê vào ambiguousItems, mỗi mục gồm:
+   - description: nói rõ Ở ĐÂU và NGHI NGỜ GÌ, để giáo viên xem đúng chỗ đó thay vì đọc lại từ đầu (VD "Tên học sinh: chữ đầu không rõ là 'Đ' hay 'D'").
+   - suggestions: LIỆT KÊ SẴN các khả năng bạn nghĩ tới (tối đa 4), để giáo viên bấm chọn nhanh thay vì tự gõ lại. Nếu thật sự không đoán được phương án nào hợp lý, để suggestions rỗng — đừng bịa ra phương án không có căn cứ.
+   Tối đa 6 mục ambiguousItems. Đừng lặp lại nghi ngờ về TỪNG CÂU ở đây nữa — cái đó đã có uncertain trong questions rồi.
 
 CHỈ trả về JSON hợp lệ theo đúng schema sau, không thêm chữ nào khác ngoài JSON:
-{"studentName": string, "rawScore": number, "rawMax": number, "errors": string[], "lowConfidence": boolean, "unreadable": boolean, "fromExistingGrade": boolean, "needsManualGrading": boolean, "manualGradingReason": string, "nameConfidence": "high"|"low", "ambiguousItems": [{"description": string, "suggestions": string[]}]}`
+{"studentName": string, "rawScore": number, "rawMax": number, "errors": string[], "lowConfidence": boolean, "unreadable": boolean, "fromExistingGrade": boolean, "needsManualGrading": boolean, "manualGradingReason": string, "nameConfidence": "high"|"low", "questions": [{"no": string, "studentAnswer": string, "correct": boolean, "uncertain": boolean}], "ambiguousItems": [{"description": string, "suggestions": string[]}]}`
 
 /** Gửi 1 ảnh bài kiểm tra giấy cho AI đọc tên + chấm điểm. Không lưu ảnh lại
  *  ở đâu cả — chỉ dùng cho đúng 1 lần gọi này rồi bỏ, giảm tối đa dữ liệu
@@ -163,14 +177,17 @@ export async function gradeTestPhoto(
 
   const msg = await anthropic.messages.create({
     model: 'claude-sonnet-5',
-    max_tokens: 1024,
+    // Nâng từ 1024 — giờ liệt kê CHI TIẾT TỪNG CÂU (mảng questions) khi tự
+    // chấm, dài hơn hẳn kiểu cũ chỉ trả 1 con số tổng; đề 30-40 câu dễ vượt
+    // 1024 token nếu giữ mức cũ.
+    max_tokens: 2048,
     // TẮT "extended thinking" — model này mặc định tự suy luận dài trước khi
     // trả lời, và phần suy luận đó CŨNG tính vào max_tokens. Với đề bài
     // nhiều bước (bước 1: tìm dấu chấm sẵn, bước 2: so đáp án mẫu...), model
-    // từng suy luận NGỐN HẾT SẠCH 1024 token, không còn chỗ viết JSON trả
-    // lời — kết quả rỗng, bị coi là "không đọc được" dù ảnh hoàn toàn rõ.
-    // Việc chấm điểm này không cần suy luận dài dòng, tắt hẳn cho chắc và
-    // rẻ hơn (thinking token tính phí như output bình thường).
+    // từng suy luận NGỐN HẾT SẠCH token, không còn chỗ viết JSON trả lời —
+    // kết quả rỗng, bị coi là "không đọc được" dù ảnh hoàn toàn rõ. Việc
+    // chấm điểm này không cần suy luận dài dòng, tắt hẳn cho chắc và rẻ hơn
+    // (thinking token tính phí như output bình thường).
     thinking: { type: 'disabled' },
     // system prompt CỐ ĐỊNH, gọi lặp lại y hệt cho mọi ảnh trong 1 lượt chấm
     // — đánh dấu cache để những lần gọi sau (trong ~5 phút) chỉ tính phí đọc
@@ -215,6 +232,17 @@ export async function gradeTestPhoto(
     needsManualGrading: !!parsed.needsManualGrading,
     manualGradingReason: typeof parsed.manualGradingReason === 'string' ? parsed.manualGradingReason.trim().slice(0, 200) : '',
     nameConfidence: parsed.nameConfidence === 'high' ? 'high' : 'low',
+    questions: Array.isArray(parsed.questions)
+      ? parsed.questions.slice(0, 60).map((q) => {
+          const item = q as { no?: unknown; studentAnswer?: unknown; correct?: unknown; uncertain?: unknown }
+          return {
+            no: String(item?.no ?? '').trim(),
+            studentAnswer: String(item?.studentAnswer ?? '').trim(),
+            correct: !!item?.correct,
+            uncertain: !!item?.uncertain,
+          }
+        }).filter((q) => q.no)
+      : [],
     ambiguousItems: Array.isArray(parsed.ambiguousItems)
       ? parsed.ambiguousItems.slice(0, 6).map((it) => {
           const item = it as { description?: unknown; suggestions?: unknown }
@@ -228,13 +256,10 @@ export async function gradeTestPhoto(
 }
 
 export interface AiSolveResult {
-  /** Đáp án đúng AI tự giải, dạng chữ tự do dễ đọc (VD "1-B 2-C 3-A..."),
-   *  giáo viên XEM LẠI VÀ SỬA ĐƯỢC trước khi dùng — đây là bản NHÁP AI tự
-   *  giải, không phải đáp án chính thức đã được xác nhận. */
-  answerKey: string
-  /** Có câu nào AI không chắc chắn về đáp án đúng (câu khó/hiếm, đề mơ hồ,
-   *  ảnh mờ không đọc rõ đề...) — giáo viên nên xem kỹ các câu đó. */
-  uncertainNotes: string[]
+  /** Đáp án đúng AI tự giải, MỖI DÒNG 1 PHẦN TỬ (tiêu đề phần hoặc 1 câu) —
+   *  giáo viên SỬA/XÁC NHẬN/XOÁ ĐƯỢC TỪNG DÒNG trước khi dùng, đây là bản
+   *  NHÁP AI tự giải, không phải đáp án chính thức đã được xác nhận. */
+  lines: Array<{ text: string; uncertain: boolean; note: string }>
   lowConfidence: boolean
   unreadable: boolean
 }
@@ -244,17 +269,16 @@ Nhiệm vụ:
 1. Đọc toàn bộ đề, xác định từng câu hỏi và số thứ tự của nó.
 2. Nếu đề đã có sẵn đáp án đúng (in sẵn, hoặc giáo viên đã ghi đáp án lên đề) — đọc lại chính xác đáp án đó, không tự giải lại.
 3. Nếu đề CHƯA có đáp án — tự giải từng câu bằng kiến thức tiếng Anh, chọn đáp án đúng nhất.
-4. TRÌNH BÀY đáp án SAO CHO GIÁO VIÊN DỄ ĐỐI CHIẾU NGƯỢC LẠI VỚI ĐỀ GỐC — đây là yêu cầu quan trọng, không chỉ liệt kê đáp án là xong:
-   - Nếu đề chia thành nhiều phần có tiêu đề riêng (I, II, III... hoặc Part 1, Part 2...), GIỮ NGUYÊN đúng tiêu đề đó làm dòng riêng phân cách giữa các phần (VD dòng "I. Find the words..." y hệt cách đề ghi, dù rút gọn bớt cũng phải nhận ra được là phần nào), rồi mới tới đáp án của phần đó.
-   - MỖI CÂU 1 DÒNG RIÊNG (không dồn nhiều câu trên 1 dòng dài) — dễ dò theo từng dòng khi cầm đề gốc so sánh.
-   - Đáp án viết theo đúng dạng của câu đó: trắc nghiệm ghi "3. C" hoặc "3-C"; điền từ ghi "3. is read"; đúng/sai ghi "3. Đúng" hoặc "3. Sai"; nối câu ghi "3. a-ii".
-   - Giữ đúng số thứ tự VÀ đúng cách đánh số của đề gốc (I.1, I.2... hay 1, 2, 3... tùy đề đánh số kiểu gì thì theo đúng kiểu đó) — không tự đổi cách đánh số.
-5. Với câu nào bạn KHÔNG chắc chắn (ngữ pháp mơ hồ, có thể có nhiều đáp án hợp lý, chữ đề mờ không đọc rõ) — vẫn đưa ra đáp án bạn cho là đúng nhất, nhưng liệt kê số câu đó vào uncertainNotes kèm lý do ngắn gọn, để giáo viên xem lại đúng những câu đó.
+4. TRẢ VỀ mảng lines — MỖI PHẦN TỬ LÀ 1 DÒNG, để giáo viên dễ đối chiếu ngược lại với đề gốc VÀ sửa/xoá được từng dòng riêng:
+   - Nếu đề chia thành nhiều phần có tiêu đề riêng (I, II, III... hoặc Part 1, Part 2...), tạo 1 dòng riêng GIỮ NGUYÊN đúng tiêu đề đó làm phân cách giữa các phần (VD text="I. Find the words...", y hệt cách đề ghi dù rút gọn bớt cũng phải nhận ra được là phần nào), đặt uncertain=false cho dòng tiêu đề.
+   - MỖI CÂU 1 PHẦN TỬ RIÊNG (không dồn nhiều câu vào 1 dòng) — dễ dò theo từng dòng khi cầm đề gốc so sánh.
+   - text của mỗi câu viết theo đúng dạng của câu đó, GIỮ đúng số thứ tự VÀ đúng cách đánh số của đề gốc: trắc nghiệm ghi "3. C" hoặc "3-C"; điền từ ghi "3. is read"; đúng/sai ghi "3. Đúng" hoặc "3. Sai"; nối câu ghi "3. a-ii" (I.1, I.2... hay 1, 2, 3... tùy đề đánh số kiểu gì thì theo đúng kiểu đó, không tự đổi cách đánh số).
+5. Với câu nào bạn KHÔNG chắc chắn (ngữ pháp mơ hồ, có thể có nhiều đáp án hợp lý, chữ đề mờ không đọc rõ) — vẫn đưa ra đáp án bạn cho là đúng nhất trong text, nhưng đặt uncertain=true và note là 1 câu ngắn gọn giải thích lý do nghi ngờ, để giáo viên xem lại đúng dòng đó. Dòng chắc chắn thì uncertain=false, note rỗng.
 6. Nếu ảnh không phải đề kiểm tra, hoặc mờ tới mức không đọc được đề gì cả, đặt unreadable=true.
 7. Nếu ảnh chụp thiếu góc/mờ một phần nhưng vẫn đọc được phần lớn đề, đặt lowConfidence=true và vẫn cố gắng giải hết phần đọc được.
 
 CHỈ trả về JSON hợp lệ theo đúng schema sau, không thêm chữ nào khác ngoài JSON:
-{"answerKey": string, "uncertainNotes": string[], "lowConfidence": boolean, "unreadable": boolean}`
+{"lines": [{"text": string, "uncertain": boolean, "note": string}], "lowConfidence": boolean, "unreadable": boolean}`
 
 /** Gửi 1 ảnh ĐỀ MẪU (không phải bài học sinh) cho AI tự giải ra đáp án đúng
  *  — dùng để tạo đáp án 1 lần cho cả xấp bài, thay vì để AI tự giải lại độc
@@ -300,8 +324,16 @@ export async function solveTestPhoto(imageBuffer: Buffer, mimeType: string): Pro
   }
 
   return {
-    answerKey: String(parsed.answerKey ?? '').trim(),
-    uncertainNotes: Array.isArray(parsed.uncertainNotes) ? parsed.uncertainNotes.map(String).slice(0, 10) : [],
+    lines: Array.isArray(parsed.lines)
+      ? parsed.lines.slice(0, 120).map((l) => {
+          const item = l as { text?: unknown; uncertain?: unknown; note?: unknown }
+          return {
+            text: String(item?.text ?? '').trim(),
+            uncertain: !!item?.uncertain,
+            note: typeof item?.note === 'string' ? item.note.trim() : '',
+          }
+        }).filter((l) => l.text)
+      : [],
     lowConfidence: !!parsed.lowConfidence,
     unreadable: !!parsed.unreadable,
   }

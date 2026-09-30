@@ -68,6 +68,11 @@ interface Row {
   // cái đó gắn với học sinh, dùng lại mãi; cái này gắn với 1 lần chấm cụ
   // thể) — lưu vào ô "note" của điểm khi bấm Lưu điểm.
   myNote: string
+  // Chi tiết từng câu AI tự chấm (rỗng nếu AI chỉ đọc lại điểm tổng có sẵn,
+  // xem fromExistingGrade) — giáo viên SỬA TRỰC TIẾP đáp án/đúng-sai của
+  // từng câu ngay tại đây khi chữ quá xấu AI đọc sai, rawScore/rawMax phía
+  // trên TỰ TÍNH LẠI theo danh sách này, không cần gõ lại số tổng tay.
+  questions: Array<{ no: string; studentAnswer: string; correct: boolean; uncertain: boolean }>
 }
 
 function newRow(file: File): Row {
@@ -80,7 +85,7 @@ function newRow(file: File): Row {
     matches: [], studentId: '', classIndex: -1, date: todayISO(), compKey: '',
     rawScore: 0, rawMax: 0, usedAnswerKey: false, checking: false, isPdf,
     noteDraft: '', savingNote: false, myNote: '',
-    confirmManualOverride: false, showPicker: false,
+    confirmManualOverride: false, showPicker: false, questions: [],
   }
 }
 
@@ -203,6 +208,25 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
     })
   }
 
+  /** Giáo viên sửa lại 1 câu cụ thể (đáp án đọc sai vì chữ xấu, hoặc chấm
+   *  nhầm đúng/sai) — rawScore/rawMax TỰ TÍNH LẠI ngay theo toàn bộ danh
+   *  sách câu, hiện luôn cho giáo viên thấy điểm mới mà không cần tự cộng tay. */
+  function updateQuestion(row: Row, index: number, fn: (q: Row['questions'][number]) => void) {
+    patch(row.id, (r) => {
+      fn(r.questions[index])
+      r.rawScore = r.questions.filter((q) => q.correct).length
+      r.rawMax = r.questions.length
+    })
+  }
+
+  function removeQuestion(row: Row, index: number) {
+    patch(row.id, (r) => {
+      r.questions.splice(index, 1)
+      r.rawScore = r.questions.filter((q) => q.correct).length
+      r.rawMax = r.questions.length
+    })
+  }
+
   async function saveHandwritingNote(row: Row) {
     if (!row.studentId || !isMongoid(row.studentId)) {
       toast.error('Học sinh này chưa đồng bộ lên server — mở lại app rồi thử lại.')
@@ -234,8 +258,13 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
       patch(row.id, (r) => {
         r.ai = ai
         r.matches = matches
-        r.rawScore = ai.rawScore
-        r.rawMax = ai.rawMax
+        r.questions = ai.questions
+        // Có danh sách từng câu thì tính rawScore/rawMax từ đó (khớp đúng cái
+        // giáo viên đang thấy/sửa được), không thì dùng số tổng AI trả (VD
+        // trường hợp fromExistingGrade=true chỉ có điểm viết sẵn, không tách
+        // được từng câu).
+        r.rawScore = ai.questions.length ? ai.questions.filter((q) => q.correct).length : ai.rawScore
+        r.rawMax = ai.questions.length ? ai.questions.length : ai.rawMax
         r.usedAnswerKey = !!keyUsed
         r.status = ai.unreadable ? 'error' : 'read'
         if (ai.unreadable) r.error = 'AI không đọc được ảnh này rõ ràng — thử chụp lại.'
@@ -620,6 +649,49 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
                         <div className="mt-1 text-xs" style={{ color: C.muted }}>
                           Dùng làm gợi ý cho AI ở nút "Chấm kỹ hơn" các lần sau của đúng em này — không lưu ảnh
                           nào cả, chỉ vài dòng chữ.
+                        </div>
+                      </div>
+                    )}
+
+                    {row.questions.length > 0 && (
+                      <div className="space-y-1 rounded-lg p-2" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+                        <div className="text-xs font-semibold" style={{ color: C.ink }}>
+                          Từng câu — sửa đáp án hoặc bấm Đúng/Sai nếu AI đọc nhầm (điểm bên dưới tự tính lại):
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {row.questions.map((q, qi) => (
+                            <div
+                              key={qi}
+                              className="flex items-center gap-1 rounded-lg px-1.5 py-1 text-xs"
+                              style={q.uncertain
+                                ? { background: C.gold + '1f', border: `1px solid ${C.gold}55` }
+                                : { background: '#fff', border: `1px solid ${C.line}` }}
+                              title={q.uncertain ? 'AI không chắc chắn đọc đúng chữ viết ở câu này' : undefined}
+                            >
+                              <span className="font-semibold" style={{ color: C.muted }}>{q.no}.</span>
+                              <input
+                                type="text" value={q.studentAnswer}
+                                onChange={(e) => updateQuestion(row, qi, (x) => { x.studentAnswer = e.target.value })}
+                                className="w-14 rounded px-1 py-0.5 text-xs"
+                                style={{ border: `1px solid ${C.line}` }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => updateQuestion(row, qi, (x) => { x.correct = !x.correct; x.uncertain = false })}
+                                className="rounded px-1.5 py-0.5 text-xs font-semibold"
+                                style={q.correct ? { background: C.emerald + '28', color: '#0F5132' } : { background: '#FEE2E2', color: '#991B1B' }}
+                              >
+                                {q.correct ? '✓ Đúng' : '✗ Sai'}
+                              </button>
+                              <button
+                                type="button" title="Xoá câu này (không tính vào tổng)"
+                                onClick={() => removeQuestion(row, qi)}
+                                className="text-xs" style={{ color: C.muted }}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     )}
