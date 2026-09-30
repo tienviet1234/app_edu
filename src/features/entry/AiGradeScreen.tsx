@@ -9,6 +9,7 @@ import { uid } from '@/utils/uid'
 import { emptyEntry } from '@/business/seed'
 import { sessionScore } from '@/business/scoring'
 import { matchStudentsByName, normalizeViName, type StudentMatch } from '@/business/aiMatch'
+import { matchAiErrorTags } from '@/business/aiErrorTags'
 import { aiGradingService, type AiGradeResult } from '@/services/aiGrading'
 import { AiSolveBox } from './AiSolveBox'
 import { sessionService } from '@/services/sessions'
@@ -444,6 +445,19 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
         entry.note = entry.note ? `${entry.note}; ${row.myNote.trim()}` : row.myNote.trim()
       } else if (isNew && row.ai?.errors.length) {
         entry.note = row.ai.errors.join(', ')
+      }
+
+      // Lỗi AI phát hiện khi chấm ảnh — đối chiếu với tag có sẵn của ĐÚNG
+      // tiêu chí đang chấm (chỉ Mini Test/Listening có hệ tag lỗi kiểu này),
+      // gộp thêm vào tag đã có của buổi (không ghi đè) — để "lỗi lặp lại" ở
+      // Báo cáo/nhận xét tự động cũng tính luôn lỗi AI thấy, không chỉ lỗi
+      // giáo viên tự chọn tay ở Nhập điểm.
+      if (row.ai?.errors.length) {
+        const matched = matchAiErrorTags(row.ai.errors, row.compKey)
+        if (matched.length) {
+          const existing = entry.tags[row.compKey] ?? []
+          entry.tags = { ...entry.tags, [row.compKey]: [...new Set([...existing, ...matched])] }
+        }
       }
 
       const r = getClassRubric(cls)
