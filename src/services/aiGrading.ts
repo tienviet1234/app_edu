@@ -12,7 +12,7 @@ export interface AiGradeResult {
   manualGradingReason: string
   nameConfidence: 'high' | 'low'
   questions: Array<{ no: string; studentAnswer: string; correct: boolean; uncertain: boolean }>
-  ambiguousItems: Array<{ description: string; suggestions: string[] }>
+  ambiguousItems: Array<{ description: string; suggestions: string[]; position: { x: number; y: number } }>
 }
 
 export interface AiSolveResult {

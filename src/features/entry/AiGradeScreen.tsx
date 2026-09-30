@@ -73,6 +73,9 @@ interface Row {
   // từng câu ngay tại đây khi chữ quá xấu AI đọc sai, rawScore/rawMax phía
   // trên TỰ TÍNH LẠI theo danh sách này, không cần gõ lại số tổng tay.
   questions: Array<{ no: string; studentAnswer: string; correct: boolean; uncertain: boolean }>
+  // Đang hiện ảnh gốc kèm ghim ghi chú tại đúng khu vực AI nghi ngờ hay không
+  // — mặc định ẩn (ảnh to chiếm nhiều chỗ), bấm nút mới hiện ra.
+  showAnnotated: boolean
 }
 
 function newRow(file: File): Row {
@@ -85,7 +88,7 @@ function newRow(file: File): Row {
     matches: [], studentId: '', classIndex: -1, date: todayISO(), compKey: '',
     rawScore: 0, rawMax: 0, usedAnswerKey: false, checking: false, isPdf,
     noteDraft: '', savingNote: false, myNote: '',
-    confirmManualOverride: false, showPicker: false, questions: [],
+    confirmManualOverride: false, showPicker: false, questions: [], showAnnotated: false,
   }
 }
 
@@ -101,9 +104,10 @@ function scoreComps(cls: ClassData) {
  *  xong thì ghi lại thành công (không tự sửa điểm — chỉ lưu lại làm bằng
  *  chứng/ghi chú, giáo viên vẫn tự quyết định điểm cuối ở ô Điểm bên trên). */
 function AmbiguousItemRow({
-  item, onConfirm,
+  item, index, onConfirm,
 }: {
   item: { description: string; suggestions: string[] }
+  index: number
   onConfirm: (answer: string) => void
 }) {
   const [draft, setDraft] = useState('')
@@ -118,7 +122,15 @@ function AmbiguousItemRow({
   }
   return (
     <li className="space-y-1">
-      <div>• {item.description}</div>
+      <div>
+        <span
+          className="mr-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold"
+          style={{ background: C.gold, color: '#1C0F00' }}
+        >
+          {index + 1}
+        </span>
+        {item.description}
+      </div>
       <div className="flex flex-wrap items-center gap-1.5">
         {item.suggestions.map((s, i) => (
           <button
@@ -146,6 +158,51 @@ function AmbiguousItemRow({
         </button>
       </div>
     </li>
+  )
+}
+
+/** Hiện ảnh gốc kèm GHIM GHI CHÚ tại đúng khu vực AI đang nghi ngờ (đánh số
+ *  khớp với danh sách bên dưới) — vị trí ghim là ƯỚC LƯỢNG (AI không định vị
+ *  pixel chính xác), không thay thế được việc đọc mô tả bằng chữ, chỉ giúp
+ *  nhìn nhanh ra đúng khu vực cần xem kỹ hơn trên ảnh gốc. Chỉ dùng cho ẢNH
+ *  (PDF không ghim được vì có thể nhiều trang, không có 1 khung ảnh duy nhất). */
+function AnnotatedImage({
+  src, items,
+}: {
+  src: string
+  items: Array<{ description: string; position: { x: number; y: number } }>
+}) {
+  return (
+    <div className="relative w-full overflow-hidden rounded-lg" style={{ border: `1px solid ${C.line}` }}>
+      <img src={src} alt="" className="block w-full select-none" />
+      {items.map((it, i) => {
+        const flip = it.position.x > 60
+        return (
+          <div
+            key={i}
+            className="absolute flex items-center gap-1"
+            style={{
+              left: `${it.position.x}%`, top: `${it.position.y}%`,
+              transform: `translate(${flip ? '-100%' : '0%'}, -50%)`,
+              flexDirection: flip ? 'row-reverse' : 'row',
+            }}
+          >
+            <span
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+              style={{ background: C.gold, color: '#1C0F00', border: '2px solid #fff', boxShadow: '0 1px 3px rgba(0,0,0,.4)' }}
+            >
+              {i + 1}
+            </span>
+            <span
+              className="max-w-[140px] rounded px-1.5 py-0.5 text-[10px] leading-tight"
+              style={{ background: 'rgba(255,255,255,.95)', color: '#7A5A05', border: `1px solid ${C.gold}` }}
+            >
+              {it.description}
+            </span>
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
@@ -270,6 +327,7 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
         if (ai.unreadable) r.error = 'AI không đọc được ảnh này rõ ràng — thử chụp lại.'
         r.showPicker = false
         r.confirmManualOverride = false
+        r.showAnnotated = false
         applyMatch(r, matches.length === 1 ? matches[0] : undefined)
       })
     } catch (err) {
@@ -559,10 +617,30 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
                     )}
                     {row.ai.ambiguousItems.length > 0 && (
                       <div className="text-xs rounded-lg px-2 py-2" style={{ background: C.gold + '14', color: '#7A5A05', border: `1px solid ${C.gold}40` }}>
-                        <b>Đúng chỗ cần bạn xem lại — bấm phương án đúng hoặc tự gõ:</b>
-                        <ul className="mt-1 space-y-2">
+                        <div className="mb-1 flex items-center justify-between gap-2">
+                          <b>Đúng chỗ cần bạn xem lại — bấm phương án đúng hoặc tự gõ:</b>
+                          {!row.isPdf && (
+                            <button
+                              type="button"
+                              className="shrink-0 rounded-lg px-2 py-1 text-xs font-semibold"
+                              style={{ background: '#fff', border: `1px solid ${C.gold}`, color: '#7A5A05' }}
+                              onClick={() => patch(row.id, (r) => { r.showAnnotated = !r.showAnnotated })}
+                            >
+                              {row.showAnnotated ? '✕ Ẩn ảnh ghim ghi chú' : '📍 Xem ảnh ghim ghi chú'}
+                            </button>
+                          )}
+                        </div>
+                        {row.showAnnotated && !row.isPdf && (
+                          <div className="mb-2 space-y-1">
+                            <AnnotatedImage src={row.previewUrl} items={row.ai.ambiguousItems} />
+                            <div className="text-[10px]" style={{ color: C.muted }}>
+                              Vị trí ghim là ƯỚC LƯỢNG, có thể lệch đôi chút — đọc mô tả bằng chữ bên dưới để chắc chắn.
+                            </div>
+                          </div>
+                        )}
+                        <ul className="space-y-2">
                           {row.ai.ambiguousItems.map((it, i) => (
-                            <AmbiguousItemRow key={i} item={it} onConfirm={(ans) => confirmAmbiguousItem(row, it.description, ans)} />
+                            <AmbiguousItemRow key={i} item={it} index={i} onConfirm={(ans) => confirmAmbiguousItem(row, it.description, ans)} />
                           ))}
                         </ul>
                       </div>

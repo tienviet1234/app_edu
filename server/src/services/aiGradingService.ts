@@ -76,7 +76,15 @@ export interface AiGradeResult {
    *  phương án AI đoán được (suggestions) để giáo viên bấm chọn nhanh, thay
    *  vì phải tự gõ lại từ đầu — nếu không phương án nào đúng, giáo viên tự
    *  gõ câu trả lời thật vào. Rỗng nếu không có chỗ nào đáng ngờ. */
-  ambiguousItems: Array<{ description: string; suggestions: string[] }>
+  ambiguousItems: Array<{
+    description: string
+    suggestions: string[]
+    /** Vị trí ƯỚC LƯỢNG (không cần chính xác tuyệt đối) của chỗ nghi ngờ đó
+     *  TRÊN ẢNH — x/y tính theo % chiều rộng/cao ảnh (0-100, góc trên-trái là
+     *  0,0). Dùng để ghim ghi chú gần đúng khu vực lên ảnh gốc cho giáo viên
+     *  dễ nhìn ra chỗ cần xem kỹ, không thay thế được description bằng chữ. */
+    position: { x: number; y: number }
+  }>
   /** true = điểm này AI ĐỌC LẠI từ điểm/dấu giáo viên đã chấm sẵn trên bài
    *  (đáng tin hơn — chỉ là chép lại số có sẵn). false = AI TỰ CHẤM từ đầu
    *  (kém chắc chắn hơn — AI vừa phải đọc chữ vừa phải tự biết đáp án đúng).
@@ -141,10 +149,11 @@ Nhiệm vụ:
 9. Với TỪNG chỗ TỔNG QUÁT bạn không chắc chắn mà KHÔNG gắn với 1 câu cụ thể trong questions (VD tên học sinh, hoặc 2 con số điểm viết ở 2 góc trang mâu thuẫn nhau) — liệt kê vào ambiguousItems, mỗi mục gồm:
    - description: nói rõ Ở ĐÂU và NGHI NGỜ GÌ, để giáo viên xem đúng chỗ đó thay vì đọc lại từ đầu (VD "Tên học sinh: chữ đầu không rõ là 'Đ' hay 'D'").
    - suggestions: LIỆT KÊ SẴN các khả năng bạn nghĩ tới (tối đa 4), để giáo viên bấm chọn nhanh thay vì tự gõ lại. Nếu thật sự không đoán được phương án nào hợp lý, để suggestions rỗng — đừng bịa ra phương án không có căn cứ.
+   - position: ƯỚC LƯỢNG gần đúng vị trí của chỗ đó trên ảnh — {"x": số 0-100 tính từ mép trái sang phải, "y": số 0-100 tính từ mép trên xuống dưới}. KHÔNG cần chính xác tuyệt đối từng pixel, chỉ cần đúng khu vực để giáo viên nhìn ảnh gốc biết nhìn vào đâu (VD góc trên bên trái ≈ {"x":10,"y":10}; giữa trang ≈ {"x":50,"y":50}; cuối trang bên phải ≈ {"x":85,"y":90}).
    Tối đa 6 mục ambiguousItems. Đừng lặp lại nghi ngờ về TỪNG CÂU ở đây nữa — cái đó đã có uncertain trong questions rồi.
 
 CHỈ trả về JSON hợp lệ theo đúng schema sau, không thêm chữ nào khác ngoài JSON:
-{"studentName": string, "rawScore": number, "rawMax": number, "errors": string[], "lowConfidence": boolean, "unreadable": boolean, "fromExistingGrade": boolean, "needsManualGrading": boolean, "manualGradingReason": string, "nameConfidence": "high"|"low", "questions": [{"no": string, "studentAnswer": string, "correct": boolean, "uncertain": boolean}], "ambiguousItems": [{"description": string, "suggestions": string[]}]}`
+{"studentName": string, "rawScore": number, "rawMax": number, "errors": string[], "lowConfidence": boolean, "unreadable": boolean, "fromExistingGrade": boolean, "needsManualGrading": boolean, "manualGradingReason": string, "nameConfidence": "high"|"low", "questions": [{"no": string, "studentAnswer": string, "correct": boolean, "uncertain": boolean}], "ambiguousItems": [{"description": string, "suggestions": string[], "position": {"x": number, "y": number}}]}`
 
 /** Gửi 1 ảnh bài kiểm tra giấy cho AI đọc tên + chấm điểm. Không lưu ảnh lại
  *  ở đâu cả — chỉ dùng cho đúng 1 lần gọi này rồi bỏ, giảm tối đa dữ liệu
@@ -245,10 +254,15 @@ export async function gradeTestPhoto(
       : [],
     ambiguousItems: Array.isArray(parsed.ambiguousItems)
       ? parsed.ambiguousItems.slice(0, 6).map((it) => {
-          const item = it as { description?: unknown; suggestions?: unknown }
+          const item = it as { description?: unknown; suggestions?: unknown; position?: unknown }
+          const pos = item?.position as { x?: unknown; y?: unknown } | undefined
+          const clamp = (n: unknown) => Math.min(100, Math.max(0, Number(n)))
+          const x = pos && Number.isFinite(Number(pos.x)) ? clamp(pos.x) : 50
+          const y = pos && Number.isFinite(Number(pos.y)) ? clamp(pos.y) : 50
           return {
             description: String(item?.description ?? '').trim(),
             suggestions: Array.isArray(item?.suggestions) ? item.suggestions.map(String).slice(0, 4) : [],
+            position: { x, y },
           }
         }).filter((it) => it.description)
       : [],
