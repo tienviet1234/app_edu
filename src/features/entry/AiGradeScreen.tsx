@@ -115,8 +115,16 @@ function AmbiguousItemRow({
 
   if (confirmed) {
     return (
-      <li style={{ color: C.emerald }}>
-        ✓ {item.description} — đã ghi: “{confirmed}”
+      <li className="flex items-center justify-between gap-2" style={{ color: C.emerald }}>
+        <span>✓ {item.description} — đã ghi: “{confirmed}”</span>
+        <button
+          type="button"
+          className="shrink-0 text-xs underline"
+          style={{ color: C.muted }}
+          onClick={() => { setDraft(confirmed); setConfirmed('') }}
+        >
+          ✎ Sửa lại
+        </button>
       </li>
     )
   }
@@ -257,11 +265,16 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
 
   /** Giáo viên xác nhận 1 chỗ AI đang nghi ngờ (bấm chọn phương án AI gợi ý,
    *  hoặc tự gõ) — ghi lại vào ô "Ghi chú của bạn" làm bằng chứng, KHÔNG tự
-   *  sửa điểm (điểm vẫn do giáo viên tự quyết định ở ô Điểm bên trên). */
+   *  sửa điểm (điểm vẫn do giáo viên tự quyết định ở ô Điểm bên trên). Xác
+   *  nhận LẠI cho cùng 1 chỗ (sau khi bấm "✎ Sửa lại") THAY THẾ dòng cũ,
+   *  không cộng dồn thành 2 dòng trùng nhau cho cùng 1 chỗ nghi ngờ. */
   function confirmAmbiguousItem(row: Row, description: string, answer: string) {
-    const line = `${description.split(':')[0]}: ${answer}`
+    const label = description.split(':')[0]
+    const line = `${label}: ${answer}`
     patch(row.id, (r) => {
-      r.myNote = r.myNote ? `${r.myNote}; ${line}` : line
+      const parts = r.myNote ? r.myNote.split('; ').filter((p) => !p.startsWith(`${label}:`)) : []
+      parts.push(line)
+      r.myNote = parts.join('; ')
     })
   }
 
