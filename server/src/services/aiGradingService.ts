@@ -133,6 +133,14 @@ export async function gradeTestPhoto(
   const msg = await anthropic.messages.create({
     model: 'claude-sonnet-5',
     max_tokens: 1024,
+    // TẮT "extended thinking" — model này mặc định tự suy luận dài trước khi
+    // trả lời, và phần suy luận đó CŨNG tính vào max_tokens. Với đề bài
+    // nhiều bước (bước 1: tìm dấu chấm sẵn, bước 2: so đáp án mẫu...), model
+    // từng suy luận NGỐN HẾT SẠCH 1024 token, không còn chỗ viết JSON trả
+    // lời — kết quả rỗng, bị coi là "không đọc được" dù ảnh hoàn toàn rõ.
+    // Việc chấm điểm này không cần suy luận dài dòng, tắt hẳn cho chắc và
+    // rẻ hơn (thinking token tính phí như output bình thường).
+    thinking: { type: 'disabled' },
     // system prompt CỐ ĐỊNH, gọi lặp lại y hệt cho mọi ảnh trong 1 lượt chấm
     // — đánh dấu cache để những lần gọi sau (trong ~5 phút) chỉ tính phí đọc
     // cache (rẻ hơn nhiều lần), thay vì tính lại phí input đầy đủ mỗi lần.
@@ -150,6 +158,10 @@ export async function gradeTestPhoto(
 
   const textBlock = msg.content.find((b) => b.type === 'text')
   const raw = textBlock && 'text' in textBlock ? textBlock.text : ''
+  if (process.env.AI_DEBUG === '1') {
+    console.error('[AI_DEBUG] stop_reason=', msg.stop_reason, 'usage=', JSON.stringify(msg.usage))
+    console.error('[AI_DEBUG] raw text:', raw)
+  }
   // Model đôi khi bọc JSON trong ```json ... ``` dù đã dặn — bóc ra trước khi parse.
   const jsonMatch = raw.match(/\{[\s\S]*\}/)
   if (!jsonMatch) throw new Error('AI_BAD_RESPONSE')
@@ -210,6 +222,9 @@ export async function solveTestPhoto(imageBuffer: Buffer, mimeType: string): Pro
   const msg = await anthropic.messages.create({
     model: 'claude-sonnet-5',
     max_tokens: 1536,
+    // Tắt "extended thinking" — cùng lý do như gradeTestPhoto ở trên: suy
+    // luận dài ngốn hết max_tokens, không còn chỗ viết JSON trả lời.
+    thinking: { type: 'disabled' },
     system: [{ type: 'text', text: SOLVE_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
     messages: [
       {
