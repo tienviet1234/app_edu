@@ -82,6 +82,19 @@ export interface AiGradeResult {
    *  (kém chắc chắn hơn — AI vừa phải đọc chữ vừa phải tự biết đáp án đúng).
    *  Hiện rõ cho giáo viên biết để cân nhắc mức độ cần xem lại. */
   fromExistingGrade: boolean
+  /** MỨC NGHIÊM TRỌNG HƠN lowConfidence — true nghĩa là AI cho rằng KHÔNG NÊN
+   *  dùng điểm AI gợi ý, giáo viên nên tách bài này ra và tự chấm tay hoàn
+   *  toàn (chữ viết quá xấu/nguệch ngoạc). Chỉ có ý nghĩa khi fromExistingGrade
+   *  =false (bài chưa chấm sẵn) — bài đã có dấu chấm sẵn thì hầu như không cần. */
+  needsManualGrading: boolean
+  /** Lý do ngắn gọn khi needsManualGrading=true — hiện cho giáo viên biết vì
+   *  sao, rỗng nếu needsManualGrading=false. */
+  manualGradingReason: string
+  /** Độ tin cậy của TÊN đọc được — "high" nếu tên IN SẴN (không phải viết
+   *  tay) hoặc chữ viết tay rất rõ ràng dễ đọc; "low" nếu chữ viết tay khó
+   *  đọc/không chắc chắn. Dùng để quyết định có cần giáo viên tự chọn lại
+   *  học sinh hay chỉ cần xác nhận 1 cái khi đã khớp đúng 1 em. */
+  nameConfidence: 'high' | 'low'
 }
 
 const SYSTEM_PROMPT = `Bạn đang giúp một trung tâm Anh ngữ tại Việt Nam chấm bài kiểm tra giấy từ ảnh chụp.
@@ -107,13 +120,17 @@ Nhiệm vụ:
 
 5. Nếu chữ viết khó đọc, ảnh mờ, thiếu góc, đáp án/điểm số không rõ ràng (mờ, chồng lấn, số bị che), hoặc không chắc chắn về tên/điểm — đặt lowConfidence=true.
 
-6. Với TỪNG chỗ cụ thể bạn không chắc chắn (tên, 1 câu, 1 con số điểm...) — liệt kê vào ambiguousItems, mỗi mục gồm:
+6. Đánh giá ĐỘ CHẮC CHẮN của TÊN học sinh đọc được ở bước 1 — đặt nameConfidence="high" nếu tên được IN SẴN (chữ máy tính/font in trên đề, không phải viết tay), HOẶC chữ viết tay rất rõ ràng, ngay ngắn, không thể nhầm sang tên nào khác. Đặt nameConfidence="low" nếu tên viết tay khó đọc, nét chữ nguệch ngoạc, hoặc bạn phải đoán giữa vài cách đọc khác nhau.
+
+7. Đánh giá xem bài này có NÊN ĐỂ GIÁO VIÊN TỰ CHẤM TAY HOÀN TOÀN thay vì dùng điểm AI hay không — mức nghiêm trọng HƠN lowConfidence. CHỈ áp dụng khi fromExistingGrade=false (bài chưa có ai chấm sẵn): nếu chữ viết/đáp án của học sinh (không chỉ riêng tên) quá xấu, nguệch ngoạc, nhiều chỗ không thể phân biệt được đang chọn đáp án nào — đặt needsManualGrading=true và manualGradingReason là 1 câu ngắn gọn tiếng Việt giải thích cụ thể (VD "Chữ viết tay nguệch ngoạc, nhiều câu không rõ khoanh vào đáp án nào"). Nếu bài đủ rõ để tự chấm bình thường (kể cả khi có vài chỗ lẻ tẻ phải đưa vào ambiguousItems), đặt needsManualGrading=false và manualGradingReason rỗng. Nếu fromExistingGrade=true (chỉ đọc lại số có sẵn) thì hầu như luôn để needsManualGrading=false, trừ khi chính con số điểm giáo viên ghi sẵn cũng không đọc nổi.
+
+8. Với TỪNG chỗ cụ thể bạn không chắc chắn (tên, 1 câu, 1 con số điểm...) — liệt kê vào ambiguousItems, mỗi mục gồm:
    - description: nói rõ Ở ĐÂU và NGHI NGỜ GÌ, để giáo viên xem đúng chỗ đó thay vì đọc lại từ đầu (VD "Tên học sinh: chữ đầu không rõ là 'Đ' hay 'D'", "Câu 5: khoanh đè lên 2 đáp án B và C").
    - suggestions: LIỆT KÊ SẴN các khả năng bạn nghĩ tới (tối đa 4), để giáo viên bấm chọn nhanh thay vì tự gõ lại — VD nghi ngờ giữa "will"/"is" thì suggestions=["will","is"]; nghi ngờ đáp án B hay C thì suggestions=["B","C"]. Nếu thật sự không đoán được phương án nào hợp lý, để suggestions rỗng — đừng bịa ra phương án không có căn cứ.
    Tối đa 6 mục ambiguousItems. Nếu không có gì đáng ngờ, để rỗng — đừng liệt kê những chỗ bạn thật sự đã đọc rõ.
 
 CHỈ trả về JSON hợp lệ theo đúng schema sau, không thêm chữ nào khác ngoài JSON:
-{"studentName": string, "rawScore": number, "rawMax": number, "errors": string[], "lowConfidence": boolean, "unreadable": boolean, "fromExistingGrade": boolean, "ambiguousItems": [{"description": string, "suggestions": string[]}]}`
+{"studentName": string, "rawScore": number, "rawMax": number, "errors": string[], "lowConfidence": boolean, "unreadable": boolean, "fromExistingGrade": boolean, "needsManualGrading": boolean, "manualGradingReason": string, "nameConfidence": "high"|"low", "ambiguousItems": [{"description": string, "suggestions": string[]}]}`
 
 /** Gửi 1 ảnh bài kiểm tra giấy cho AI đọc tên + chấm điểm. Không lưu ảnh lại
  *  ở đâu cả — chỉ dùng cho đúng 1 lần gọi này rồi bỏ, giảm tối đa dữ liệu
@@ -195,6 +212,9 @@ export async function gradeTestPhoto(
     lowConfidence: !!parsed.lowConfidence,
     unreadable: !!parsed.unreadable,
     fromExistingGrade: !!parsed.fromExistingGrade,
+    needsManualGrading: !!parsed.needsManualGrading,
+    manualGradingReason: typeof parsed.manualGradingReason === 'string' ? parsed.manualGradingReason.trim().slice(0, 200) : '',
+    nameConfidence: parsed.nameConfidence === 'high' ? 'high' : 'low',
     ambiguousItems: Array.isArray(parsed.ambiguousItems)
       ? parsed.ambiguousItems.slice(0, 6).map((it) => {
           const item = it as { description?: unknown; suggestions?: unknown }

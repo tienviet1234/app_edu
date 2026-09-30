@@ -8,6 +8,9 @@ export interface AiGradeResult {
   lowConfidence: boolean
   unreadable: boolean
   fromExistingGrade: boolean
+  needsManualGrading: boolean
+  manualGradingReason: string
+  nameConfidence: 'high' | 'low'
   ambiguousItems: Array<{ description: string; suggestions: string[] }>
 }
 

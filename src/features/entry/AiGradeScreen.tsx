@@ -52,6 +52,14 @@ interface Row {
   secondCheck?: { rawScore: number; rawMax: number; studentName: string; agrees: boolean }
   // File PDF không hiện được bằng thẻ <img> — hiện icon thay vì ảnh xem trước.
   isPdf: boolean
+  // Bài AI khuyến nghị chấm tay (chữ quá xấu) — giáo viên phải chủ động tick
+  // xác nhận đã tự xem ảnh gốc thì mới bấm "Lưu điểm" được, tránh lỡ tay lưu
+  // điểm AI đoán vào 1 bài đáng ra phải tự chấm.
+  confirmManualOverride: boolean
+  // true = đang hiện dropdown chọn học sinh tay (mặc định false khi AI khớp
+  // chắc chắn đúng 1 em — lúc đó chỉ hiện banner xác nhận cho gọn, bấm "Đổi
+  // khác" mới mở dropdown ra).
+  showPicker: boolean
   // Bản nháp ô "Ghi chú nét chữ" của học sinh đã khớp — tách khỏi giá trị đã
   // lưu để gõ mượt (input có kiểm soát), chỉ ghi thật khi bấm Lưu.
   noteDraft: string
@@ -72,6 +80,7 @@ function newRow(file: File): Row {
     matches: [], studentId: '', classIndex: -1, date: todayISO(), compKey: '',
     rawScore: 0, rawMax: 0, usedAnswerKey: false, checking: false, isPdf,
     noteDraft: '', savingNote: false, myNote: '',
+    confirmManualOverride: false, showPicker: false,
   }
 }
 
@@ -230,6 +239,8 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
         r.usedAnswerKey = !!keyUsed
         r.status = ai.unreadable ? 'error' : 'read'
         if (ai.unreadable) r.error = 'AI không đọc được ảnh này rõ ràng — thử chụp lại.'
+        r.showPicker = false
+        r.confirmManualOverride = false
         applyMatch(r, matches.length === 1 ? matches[0] : undefined)
       })
     } catch (err) {
@@ -362,7 +373,8 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
   // không thể sắp trước khi chấm — bài chưa chấm giữ nguyên vị trí giữa.
   function rowPriority(r: Row): number {
     if (r.status === 'pending' || r.status === 'grading') return 1
-    if (r.status === 'error') return 3
+    if (r.status === 'error') return 4
+    if (r.ai && !r.ai.fromExistingGrade && r.ai.needsManualGrading) return 3
     if (r.ai?.lowConfidence) return 2
     return 0
   }
@@ -463,6 +475,13 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
       {displayRows.map((row) => {
         const cls = row.classIndex >= 0 ? data.classes[row.classIndex] : null
         const comps = cls ? scoreComps(cls) : []
+        // Bài chưa chấm sẵn + AI đánh giá chữ quá xấu để tự tin chấm — mức
+        // cảnh báo NẶNG hơn lowConfidence, bắt giáo viên tick xác nhận mới
+        // cho lưu, tránh lỡ tay dùng điểm AI đoán cho bài đáng ra phải tự chấm.
+        const needsManual = !!(row.ai && !row.ai.fromExistingGrade && row.ai.needsManualGrading)
+        // Khớp đúng 1 em VÀ tên đủ rõ (in sẵn hoặc chữ viết tay rất rõ) — chỉ
+        // cần giáo viên xác nhận 1 cái, không bắt tự chọn lại từ dropdown.
+        const autoMatched = row.matches.length === 1 && row.ai?.nameConfidence === 'high' && !row.showPicker
         return (
           <Card key={row.id} className="p-4">
             <div className="flex gap-3">
@@ -498,7 +517,13 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
 
                 {row.ai && row.status !== 'error' && (
                   <>
-                    {row.ai.lowConfidence && (
+                    {needsManual && (
+                      <div className="text-xs rounded-lg px-2 py-2 font-semibold" style={{ background: '#FEE2E2', color: '#991B1B', border: '1px solid #FCA5A5' }}>
+                        🖐️ AI đề nghị CHẤM TAY bài này — {row.ai.manualGradingReason || 'chữ viết khó đọc, không đủ tin cậy để tự chấm.'}
+                        {' '}Nên tách ảnh này ra, tự xem bản gốc và chấm ở màn Nhập điểm.
+                      </div>
+                    )}
+                    {row.ai.lowConfidence && !needsManual && (
                       <div className="text-xs rounded-lg px-2 py-1" style={{ background: C.gold + '28', color: '#7A5A05' }}>
                         ⚠ AI không chắc chắn hoàn toàn — kiểm tra kỹ trước khi lưu.
                       </div>
@@ -528,28 +553,50 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
                         ✓ Đã so theo đáp án mẫu bạn cung cấp
                       </div>
                     )}
-                    <div className="text-xs" style={{ color: C.muted }}>AI đọc tên: “{row.ai.studentName || '(không thấy)'}”</div>
+                    <div className="text-xs" style={{ color: C.muted }}>
+                      AI đọc tên: “{row.ai.studentName || '(không thấy)'}”
+                      {row.ai.nameConfidence === 'high' && ' — tên rõ ràng'}
+                    </div>
 
-                    <select
-                      className="w-full rounded-xl px-3 py-2 text-sm"
-                      style={{ border: `1px solid ${C.line}` }}
-                      value={row.studentId ? `${row.classIndex}:${row.studentId}` : ''}
-                      onChange={(e) => {
-                        const [ciStr, sid] = e.target.value.split(':')
-                        const ci = Number(ciStr)
-                        const m = { classIndex: ci, studentId: sid } as StudentMatch
-                        patch(row.id, (r) => applyMatch(r, e.target.value ? m : undefined))
-                      }}
-                    >
-                      <option value="">— Chọn học sinh —</option>
-                      {(row.matches.length ? row.matches.map((m) => ({ classIndex: m.classIndex, className: m.className, studentId: m.studentId, studentName: m.studentName })) : allStudents).map((m) => (
-                        <option key={`${m.classIndex}:${m.studentId}`} value={`${m.classIndex}:${m.studentId}`}>
-                          {m.studentName} — {m.className}
-                        </option>
-                      ))}
-                    </select>
-                    {row.matches.length > 1 && (
-                      <div className="text-xs" style={{ color: C.gold }}>Có {row.matches.length} em trùng tên — chọn đúng em.</div>
+                    {autoMatched ? (
+                      <div
+                        className="flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm"
+                        style={{ background: C.emerald + '14', border: `1px solid ${C.emerald}55`, color: '#0F5132' }}
+                      >
+                        <span>✓ Tự động khớp: <b>{row.matches[0].studentName}</b> — {row.matches[0].className}</span>
+                        <button
+                          type="button"
+                          className="shrink-0 text-xs underline"
+                          style={{ color: C.muted }}
+                          onClick={() => patch(row.id, (r) => { r.showPicker = true })}
+                        >
+                          Đổi khác
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <select
+                          className="w-full rounded-xl px-3 py-2 text-sm"
+                          style={{ border: `1px solid ${C.line}` }}
+                          value={row.studentId ? `${row.classIndex}:${row.studentId}` : ''}
+                          onChange={(e) => {
+                            const [ciStr, sid] = e.target.value.split(':')
+                            const ci = Number(ciStr)
+                            const m = { classIndex: ci, studentId: sid } as StudentMatch
+                            patch(row.id, (r) => applyMatch(r, e.target.value ? m : undefined))
+                          }}
+                        >
+                          <option value="">— Chọn học sinh —</option>
+                          {(row.matches.length ? row.matches.map((m) => ({ classIndex: m.classIndex, className: m.className, studentId: m.studentId, studentName: m.studentName })) : allStudents).map((m) => (
+                            <option key={`${m.classIndex}:${m.studentId}`} value={`${m.classIndex}:${m.studentId}`}>
+                              {m.studentName} — {m.className}
+                            </option>
+                          ))}
+                        </select>
+                        {row.matches.length > 1 && (
+                          <div className="text-xs" style={{ color: C.gold }}>Có {row.matches.length} em trùng tên — chọn đúng em.</div>
+                        )}
+                      </>
                     )}
 
                     {row.studentId && (
@@ -660,10 +707,21 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
                         )}
                       </div>
                     )}
-                    {(row.ai.lowConfidence || row.ai.ambiguousItems.length > 0) && !row.secondCheck && (
+                    {(row.ai.lowConfidence || needsManual || row.ai.ambiguousItems.length > 0) && !row.secondCheck && (
                       <Btn kind="ghost" size="sm" onClick={() => doubleCheck(row)} disabled={row.checking}>
                         {row.checking ? 'Đang chấm kỹ hơn...' : '🔍 Chấm kỹ hơn (gọi AI thêm 1 lần)'}
                       </Btn>
+                    )}
+                    {needsManual && (
+                      <label className="flex items-start gap-2 text-xs" style={{ color: '#991B1B' }}>
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={row.confirmManualOverride}
+                          onChange={(e) => patch(row.id, (r) => { r.confirmManualOverride = e.target.checked })}
+                        />
+                        <span>Tôi đã tự xem ảnh gốc và xác nhận điểm này đúng (bỏ qua khuyến nghị chấm tay).</span>
+                      </label>
                     )}
                   </>
                 )}
@@ -673,7 +731,7 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
                   <Btn
                     kind={row.status === 'saved' ? 'success' : 'solid'}
                     onClick={() => saveRow(row)}
-                    disabled={!row.studentId || !row.compKey}
+                    disabled={!row.studentId || !row.compKey || (needsManual && !row.confirmManualOverride)}
                   >
                     {row.status === 'saved' ? '✓ Đã lưu' : 'Lưu điểm'}
                   </Btn>
