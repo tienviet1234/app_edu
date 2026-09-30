@@ -289,6 +289,14 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
                         ⚠ AI không chắc chắn hoàn toàn — kiểm tra kỹ trước khi lưu.
                       </div>
                     )}
+                    {row.ai.ambiguousItems.length > 0 && (
+                      <div className="text-xs rounded-lg px-2 py-2" style={{ background: C.gold + '14', color: '#7A5A05', border: `1px solid ${C.gold}40` }}>
+                        <b>Đúng chỗ cần bạn xem lại:</b>
+                        <ul className="mt-0.5 space-y-0.5">
+                          {row.ai.ambiguousItems.map((it, i) => <li key={i}>• {it}</li>)}
+                        </ul>
+                      </div>
+                    )}
                     <div
                       className="text-xs rounded-lg px-2 py-1 inline-block"
                       style={row.ai.fromExistingGrade
