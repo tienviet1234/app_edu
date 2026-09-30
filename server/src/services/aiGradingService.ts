@@ -22,6 +22,13 @@ async function prepareImage(imageBuffer: Buffer): Promise<{ buffer: Buffer; medi
   const resized = await sharp(imageBuffer)
     .rotate() // tự xoay theo đúng chiều thật (EXIF) — ảnh chụp điện thoại hay bị lật khi đọc buffer thô
     .resize({ width: MAX_DIMENSION, height: MAX_DIMENSION, fit: 'inside', withoutEnlargement: true })
+    // Tăng độ tương phản (kéo dải sáng-tối cho đầy khung, giúp chữ mực nhạt/
+    // ảnh chụp thiếu sáng nổi rõ hơn so với nền giấy) và làm nét nhẹ (giúp
+    // đường nét chữ viết tay/khoanh tròn sắc hơn) — 2 bước xử lý ảnh chuẩn
+    // trong OCR, miễn phí (không tốn thêm phí gọi AI), không hại ảnh vốn đã
+    // rõ vì mức áp dụng nhẹ.
+    .normalize()
+    .sharpen({ sigma: 0.8 })
     .jpeg({ quality: 82 })
     .toBuffer()
   return { buffer: resized, mediaType: 'image/jpeg' }

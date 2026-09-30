@@ -8,7 +8,7 @@ import { isMongoid } from '@/utils/mongoid'
 import { uid } from '@/utils/uid'
 import { emptyEntry } from '@/business/seed'
 import { sessionScore } from '@/business/scoring'
-import { matchStudentsByName, type StudentMatch } from '@/business/aiMatch'
+import { matchStudentsByName, normalizeViName, type StudentMatch } from '@/business/aiMatch'
 import { aiGradingService, type AiGradeResult } from '@/services/aiGrading'
 import { AiSolveBox } from './AiSolveBox'
 import { sessionService } from '@/services/sessions'
@@ -43,13 +43,19 @@ interface Row {
   // true nếu lúc chấm ảnh này có kèm đáp án mẫu — hiện cho biết độ tin cậy,
   // không ảnh hưởng gì tới cách lưu điểm.
   usedAnswerKey: boolean
+  // "Chấm kỹ hơn" — gọi AI thêm 1 lần ĐỘC LẬP cho đúng ảnh này để đối chiếu.
+  // Không tự động, chỉ chạy khi giáo viên chủ động bấm (không phát sinh phí
+  // ngoài ý muốn). agrees=true nghĩa là 2 lần AI đọc ra kết quả gần giống
+  // nhau — đáng tin hơn; false nghĩa là 2 lần khác nhau — cần tự đọc kỹ.
+  checking: boolean
+  secondCheck?: { rawScore: number; rawMax: number; studentName: string; agrees: boolean }
 }
 
 function newRow(file: File): Row {
   return {
     id: uid(), file, previewUrl: URL.createObjectURL(file), status: 'pending',
     matches: [], studentId: '', classIndex: -1, date: todayISO(), compKey: '',
-    rawScore: 0, rawMax: 0, usedAnswerKey: false,
+    rawScore: 0, rawMax: 0, usedAnswerKey: false, checking: false,
   }
 }
 
@@ -115,6 +121,31 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
         (err as { response?: { status?: number; data?: { message?: string } } })?.response?.data?.message
         ?? 'Lỗi khi gọi AI — thử lại.'
       patch(row.id, (r) => { r.status = 'error'; r.error = msg })
+    }
+  }
+
+  /** "Chấm kỹ hơn" — gọi AI thêm 1 lần độc lập cho đúng ảnh này, so với kết
+   *  quả lần đầu. Chỉ chạy khi giáo viên chủ động bấm cho từng ảnh, không tự
+   *  động cho cả xấp — tránh phát sinh phí ngoài ý muốn. */
+  async function doubleCheck(row: Row) {
+    if (!row.ai) return
+    patch(row.id, (r) => { r.checking = true })
+    const keyUsed = answerKey.trim()
+    try {
+      const second = await aiGradingService.gradePhoto(row.file, keyUsed || undefined)
+      const pct1 = row.rawMax > 0 ? row.rawScore / row.rawMax : 0
+      const pct2 = second.rawMax > 0 ? second.rawScore / second.rawMax : 0
+      const sameName = normalizeViName(second.studentName) === normalizeViName(row.ai.studentName)
+      // Coi là "khớp nhau" nếu tên giống và điểm % chênh không quá 5 điểm —
+      // sai khác nhỏ do làm tròn thì vẫn tính là khớp, không báo động giả.
+      const agrees = sameName && Math.abs(pct1 - pct2) * 100 <= 5
+      patch(row.id, (r) => {
+        r.checking = false
+        r.secondCheck = { rawScore: second.rawScore, rawMax: second.rawMax, studentName: second.studentName, agrees }
+      })
+    } catch {
+      patch(row.id, (r) => { r.checking = false })
+      toast.error('Lỗi khi chấm kỹ hơn — thử lại.')
     }
   }
 
@@ -373,6 +404,24 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
 
                     {row.ai.errors.length > 0 && (
                       <div className="text-xs" style={{ color: C.muted }}>Lỗi AI thấy: {row.ai.errors.join(', ')}</div>
+                    )}
+
+                    {row.secondCheck && (
+                      <div
+                        className="text-xs rounded-lg px-2 py-1.5"
+                        style={row.secondCheck.agrees
+                          ? { background: C.emerald + '1f', color: '#0F5132' }
+                          : { background: '#FEE2E2', color: '#991B1B' }}
+                      >
+                        {row.secondCheck.agrees
+                          ? `✓ Đã chấm kỹ hơn — lần 2 cho kết quả khớp (${row.secondCheck.rawScore}/${row.secondCheck.rawMax}), đáng tin hơn.`
+                          : `⚠ Chấm kỹ hơn: lần 2 ra kết quả KHÁC — tên "${row.secondCheck.studentName || '(không thấy)'}", ${row.secondCheck.rawScore}/${row.secondCheck.rawMax}. 2 lần không khớp, bạn nên tự đọc lại ảnh gốc.`}
+                      </div>
+                    )}
+                    {(row.ai.lowConfidence || row.ai.ambiguousItems.length > 0) && !row.secondCheck && (
+                      <Btn kind="ghost" size="sm" onClick={() => doubleCheck(row)} disabled={row.checking}>
+                        {row.checking ? 'Đang chấm kỹ hơn...' : '🔍 Chấm kỹ hơn (gọi AI thêm 1 lần)'}
+                      </Btn>
                     )}
                   </>
                 )}
