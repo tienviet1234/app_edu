@@ -70,7 +70,12 @@ export interface AiGradeResult {
   /** AI không chắc chắn (chữ mờ, ảnh xấu, không thấy tên...) — giáo viên nên
    *  kiểm tra kỹ hơn bình thường trước khi lưu. */
   lowConfidence: boolean
-  /** AI không đọc được gì có ý nghĩa (ảnh mờ/lạc đề) — không có điểm để dùng. */
+  /** AI không đủ căn cứ để tính ra 1 ĐIỂM SỐ đáng tin — KHÔNG có nghĩa là
+   *  không đọc được GÌ CẢ. studentName/questions/ambiguousItems vẫn phải
+   *  được điền đầy đủ nhất có thể (xem bước 3 trong SYSTEM_PROMPT), để giáo
+   *  viên tự đối chiếu với đáp án mẫu và chấm tay thay vì phải đọc lại ảnh
+   *  từ đầu. Chỉ khi ảnh THỰC SỰ không thấy chữ nào (mờ hoàn toàn/lạc đề)
+   *  thì các field đó mới hợp lý để trống. */
   unreadable: boolean
   /** ĐÚNG CHỖ nghi ngờ, không phải cả ảnh chung chung. Mỗi mục có sẵn vài
    *  phương án AI đoán được (suggestions) để giáo viên bấm chọn nhanh, thay
@@ -129,7 +134,7 @@ Nhiệm vụ:
    - Nối bằng đường kẻ giữa 2 cột (dạng ghép câu/matching) — mỗi đường nối đúng tính 1 câu đúng.
    - Điền trực tiếp câu trả lời vào chỗ trống viết tay (fill-in-the-blank) — so khớp với đáp án đúng của đề nếu đề có ghi đáp án, hoặc dựa vào kiến thức tiếng Anh thông thường nếu đề không ghi đáp án.
    Nếu giáo viên đã CUNG CẤP SẴN đáp án đúng của đề (xem phần "ĐÁP ÁN ĐÚNG" bên dưới, nếu có) thì LUÔN dùng đáp án đó để so khớp — đây là nguồn đáng tin cậy nhất, không tự đoán theo kiến thức riêng nữa dù có chắc đến đâu.
-   Nếu không đủ căn cứ để tính điểm, đặt unreadable=true.
+   Nếu không đủ căn cứ để tính RA MỘT ĐIỂM SỐ đáng tin (chữ quá xấu, đáp án không rõ đúng/sai), đặt unreadable=true — NHƯNG VẪN PHẢI điền studentName và liệt kê ĐẦY ĐỦ questions với NGUYÊN VĂN chữ bạn đọc được ở mỗi câu (studentAnswer), dù không chắc đúng/sai (đặt correct=false, uncertain=true cho các câu đó) — giáo viên cần xem được TOÀN BỘ nội dung bạn đọc được để tự đối chiếu với đáp án mẫu và chấm tay, không phải đọc lại ảnh gốc từ đầu. Chỉ để questions rỗng khi ảnh THỰC SỰ không thấy chữ nào (mờ hoàn toàn/lạc đề/không phải bài kiểm tra).
 
 4. Liệt kê ngắn gọn các dạng lỗi sai lặp lại (VD "chia động từ", "giới từ", "chính tả") — tối đa 5 mục, bằng tiếng Việt. Nếu fromExistingGrade=true và không thấy ghi chú lỗi cụ thể trên bài, để errors rỗng — đừng tự bịa lỗi.
 

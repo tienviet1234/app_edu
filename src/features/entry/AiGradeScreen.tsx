@@ -342,8 +342,12 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
         r.rawScore = ai.questions.length ? ai.questions.filter((q) => q.correct).length : ai.rawScore
         r.rawMax = ai.questions.length ? ai.questions.length : ai.rawMax
         r.usedAnswerKey = !!keyUsed
-        r.status = ai.unreadable ? 'error' : 'read'
-        if (ai.unreadable) r.error = 'AI không đọc được ảnh này rõ ràng — thử chụp lại.'
+        // KHÔNG còn coi unreadable=true là "lỗi" (status='error') — AI vẫn
+        // điền nội dung đọc được nhiều nhất có thể (xem SYSTEM_PROMPT), giáo
+        // viên cần THẤY được nội dung đó để tự đối chiếu đáp án mẫu, không
+        // phải bị ẩn sau 1 dòng lỗi chung chung. 'error' giờ chỉ dành cho lỗi
+        // gọi API thật (xem catch bên dưới).
+        r.status = 'read'
         r.showPicker = false
         r.confirmManualOverride = false
         r.showAnnotated = false
@@ -495,7 +499,7 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
   function rowPriority(r: Row): number {
     if (r.status === 'pending' || r.status === 'grading') return 1
     if (r.status === 'error') return 4
-    if (r.ai && !r.ai.fromExistingGrade && r.ai.needsManualGrading) return 3
+    if (r.ai && !r.ai.fromExistingGrade && (r.ai.needsManualGrading || r.ai.unreadable)) return 3
     if (r.ai?.lowConfidence) return 2
     return 0
   }
@@ -596,10 +600,12 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
       {displayRows.map((row) => {
         const cls = row.classIndex >= 0 ? data.classes[row.classIndex] : null
         const comps = cls ? scoreComps(cls) : []
-        // Bài chưa chấm sẵn + AI đánh giá chữ quá xấu để tự tin chấm — mức
-        // cảnh báo NẶNG hơn lowConfidence, bắt giáo viên tick xác nhận mới
-        // cho lưu, tránh lỡ tay dùng điểm AI đoán cho bài đáng ra phải tự chấm.
-        const needsManual = !!(row.ai && !row.ai.fromExistingGrade && row.ai.needsManualGrading)
+        // Bài chưa chấm sẵn + (AI đánh giá chữ quá xấu HOẶC không đủ căn cứ ra
+        // điểm đáng tin) — mức cảnh báo NẶNG hơn lowConfidence, bắt giáo viên
+        // tick xác nhận mới cho lưu, tránh lỡ tay dùng điểm AI đoán cho bài
+        // đáng ra phải tự chấm. Nội dung AI đọc được (questions/ambiguousItems)
+        // vẫn hiện đầy đủ bên dưới dù rơi vào trường hợp này — không bị ẩn.
+        const needsManual = !!(row.ai && !row.ai.fromExistingGrade && (row.ai.needsManualGrading || row.ai.unreadable))
         // Khớp đúng 1 em VÀ tên đủ rõ (in sẵn hoặc chữ viết tay rất rõ) — chỉ
         // cần giáo viên xác nhận 1 cái, không bắt tự chọn lại từ dropdown.
         const autoMatched = row.matches.length === 1 && row.ai?.nameConfidence === 'high' && !row.showPicker
@@ -640,8 +646,17 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
                   <>
                     {needsManual && (
                       <div className="text-xs rounded-lg px-2 py-2 font-semibold" style={{ background: '#FEE2E2', color: '#991B1B', border: '1px solid #FCA5A5' }}>
-                        🖐️ AI đề nghị CHẤM TAY bài này — {row.ai.manualGradingReason || 'chữ viết khó đọc, không đủ tin cậy để tự chấm.'}
-                        {' '}Nên tách ảnh này ra, tự xem bản gốc và chấm ở màn Nhập điểm.
+                        {row.ai.unreadable ? (
+                          <>
+                            🖐️ AI KHÔNG đủ căn cứ để tính ra điểm đáng tin cho bài này — nhưng vẫn đọc được phần nào,
+                            xem "Từng câu" bên dưới để TỰ ĐỐI CHIẾU với đáp án mẫu và chấm tay.
+                          </>
+                        ) : (
+                          <>
+                            🖐️ AI đề nghị CHẤM TAY bài này — {row.ai.manualGradingReason || 'chữ viết khó đọc, không đủ tin cậy để tự chấm.'}
+                            {' '}Nên tách ảnh này ra, tự xem bản gốc và chấm ở màn Nhập điểm.
+                          </>
+                        )}
                       </div>
                     )}
                     {row.ai.lowConfidence && !needsManual && (
