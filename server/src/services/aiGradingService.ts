@@ -50,6 +50,7 @@ Nhiệm vụ:
    - Tô đậm/gạch chéo kín 1 ô hoặc 1 chữ cái (kiểu tô phiếu trắc nghiệm).
    - Nối bằng đường kẻ giữa 2 cột (dạng ghép câu/matching) — mỗi đường nối đúng tính 1 câu đúng.
    - Điền trực tiếp câu trả lời vào chỗ trống viết tay (fill-in-the-blank) — so khớp với đáp án đúng của đề nếu đề có ghi đáp án, hoặc dựa vào kiến thức tiếng Anh thông thường nếu đề không ghi đáp án.
+   Nếu giáo viên đã CUNG CẤP SẴN đáp án đúng của đề (xem phần "ĐÁP ÁN ĐÚNG" bên dưới, nếu có) thì LUÔN dùng đáp án đó để so khớp — đây là nguồn đáng tin cậy nhất, không tự đoán theo kiến thức riêng nữa dù có chắc đến đâu.
    Nếu không đủ căn cứ để tính điểm, đặt unreadable=true.
 
 4. Liệt kê ngắn gọn các dạng lỗi sai lặp lại (VD "chia động từ", "giới từ", "chính tả") — tối đa 5 mục, bằng tiếng Việt. Nếu fromExistingGrade=true và không thấy ghi chú lỗi cụ thể trên bài, để errors rỗng — đừng tự bịa lỗi.
@@ -61,12 +62,21 @@ CHỈ trả về JSON hợp lệ theo đúng schema sau, không thêm chữ nào
 
 /** Gửi 1 ảnh bài kiểm tra giấy cho AI đọc tên + chấm điểm. Không lưu ảnh lại
  *  ở đâu cả — chỉ dùng cho đúng 1 lần gọi này rồi bỏ, giảm tối đa dữ liệu
- *  ảnh trẻ em phải đi qua bên thứ ba. */
-export async function gradeTestPhoto(imageBuffer: Buffer, mimeType: string): Promise<AiGradeResult> {
+ *  ảnh trẻ em phải đi qua bên thứ ba.
+ *  `answerKey`: đáp án đúng của đề (giáo viên tự gõ, dạng chữ tự do — VD
+ *  "1-B 2-C 3-A..." hoặc liệt kê từng dòng) — nếu có, AI so khớp theo đáp án
+ *  này thay vì tự đoán, chính xác hơn hẳn với bài CHƯA được chấm tay sẵn. */
+export async function gradeTestPhoto(
+  imageBuffer: Buffer, mimeType: string, answerKey?: string,
+): Promise<AiGradeResult> {
   const anthropic = getClient()
   const media = (['image/jpeg', 'image/png', 'image/webp', 'image/gif'] as const).includes(mimeType as never)
     ? (mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif')
     : 'image/jpeg'
+
+  const instructionText = answerKey?.trim()
+    ? `Đọc tên học sinh và chấm điểm bài này.\n\nĐÁP ÁN ĐÚNG của đề (do giáo viên cung cấp — ưu tiên dùng để so khớp thay vì tự đoán):\n${answerKey.trim()}\n\nChỉ trả JSON theo đúng schema.`
+    : 'Đọc tên học sinh và chấm điểm bài này. Chỉ trả JSON theo đúng schema.'
 
   const msg = await anthropic.messages.create({
     model: 'claude-sonnet-5',
@@ -77,7 +87,7 @@ export async function gradeTestPhoto(imageBuffer: Buffer, mimeType: string): Pro
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: media, data: imageBuffer.toString('base64') } },
-          { type: 'text', text: 'Đọc tên học sinh và chấm điểm bài này. Chỉ trả JSON theo đúng schema.' },
+          { type: 'text', text: instructionText },
         ],
       },
     ],

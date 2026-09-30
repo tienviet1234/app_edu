@@ -39,13 +39,16 @@ interface Row {
   // của TỜ GIẤY đó, không phải điểm đã quy đổi theo rubric.
   rawScore: number
   rawMax: number
+  // true nếu lúc chấm ảnh này có kèm đáp án mẫu — hiện cho biết độ tin cậy,
+  // không ảnh hưởng gì tới cách lưu điểm.
+  usedAnswerKey: boolean
 }
 
 function newRow(file: File): Row {
   return {
     id: uid(), file, previewUrl: URL.createObjectURL(file), status: 'pending',
     matches: [], studentId: '', classIndex: -1, date: todayISO(), compKey: '',
-    rawScore: 0, rawMax: 0,
+    rawScore: 0, rawMax: 0, usedAnswerKey: false,
   }
 }
 
@@ -59,6 +62,10 @@ function scoreComps(cls: ClassData) {
 export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
   const [rows, setRows] = useState<Row[]>([])
   const [running, setRunning] = useState(false)
+  // Đáp án đúng của đề — áp dụng chung cho cả lượt chấm (giáo viên thường
+  // quét cả xấp bài CÙNG 1 đề). Không bắt buộc, giúp AI so khớp chính xác
+  // hơn với bài CHƯA được chấm tay sẵn, thay vì tự đoán đáp án đúng.
+  const [answerKey, setAnswerKey] = useState('')
 
   const patch = (id: string, fn: (r: Row) => void) =>
     setRows((prev) => prev.map((r) => (r.id === id ? produce(r, fn) : r)))
@@ -82,14 +89,16 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
 
   async function gradeOne(row: Row) {
     patch(row.id, (r) => { r.status = 'grading'; r.error = undefined })
+    const keyUsed = answerKey.trim()
     try {
-      const ai = await aiGradingService.gradePhoto(row.file)
+      const ai = await aiGradingService.gradePhoto(row.file, keyUsed || undefined)
       const matches = ai.studentName ? matchStudentsByName(data.classes, ai.studentName) : []
       patch(row.id, (r) => {
         r.ai = ai
         r.matches = matches
         r.rawScore = ai.rawScore
         r.rawMax = ai.rawMax
+        r.usedAnswerKey = !!keyUsed
         r.status = ai.unreadable ? 'error' : 'read'
         if (ai.unreadable) r.error = 'AI không đọc được ảnh này rõ ràng — thử chụp lại.'
         applyMatch(r, matches.length === 1 ? matches[0] : undefined)
@@ -190,6 +199,19 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
           chỗ trống. Chỉ dùng được cho tiêu chí dạng điểm số (VD Mini Test, Nghe) — bài tập viết tay dạng chữa
           lỗi/BTVN vẫn phải chấm tay ở Nhập điểm như cũ.
         </div>
+        <div>
+          <label className="mb-1 block text-xs font-semibold" style={{ color: C.ink }}>
+            Đáp án đúng của đề (không bắt buộc)
+          </label>
+          <textarea
+            value={answerKey}
+            onChange={(e) => setAnswerKey(e.target.value)}
+            placeholder={'VD: 1-B 2-C 3-A 4-D... hoặc liệt kê từng dòng.\nCó thì AI so khớp theo đúng đáp án này — chính xác hơn hẳn với bài CHƯA được chấm tay sẵn. Áp dụng chung cho cả xấp ảnh đang chấm (cùng 1 đề).'}
+            rows={2}
+            className="w-full rounded-xl px-3 py-2 text-sm"
+            style={{ border: `1px solid ${C.line}` }}
+          />
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <label className="cursor-pointer">
             <input
@@ -239,6 +261,11 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
                         ? '✓ Đọc lại điểm cô đã chấm sẵn trên bài — đáng tin hơn'
                         : 'ℹ AI tự chấm từ đầu (bài chưa thấy dấu chấm điểm) — nên xem kỹ hơn'}
                     </div>
+                    {!row.ai.fromExistingGrade && row.usedAnswerKey && (
+                      <div className="text-xs rounded-lg px-2 py-1 inline-block" style={{ background: C.emerald + '1f', color: '#0F5132' }}>
+                        ✓ Đã so theo đáp án mẫu bạn cung cấp
+                      </div>
+                    )}
                     <div className="text-xs" style={{ color: C.muted }}>AI đọc tên: “{row.ai.studentName || '(không thấy)'}”</div>
 
                     <select

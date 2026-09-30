@@ -24,8 +24,12 @@ export const gradePhoto = asyncHandler(async (req: Request, res: Response) => {
     return
   }
 
+  // Đáp án đúng của đề — giáo viên tự gõ, không bắt buộc (multer đưa field
+  // text thường của multipart/form-data vào req.body).
+  const answerKey = typeof req.body?.answerKey === 'string' ? req.body.answerKey.slice(0, 4000) : undefined
+
   try {
-    const result = await gradeTestPhoto(file.buffer, file.mimetype)
+    const result = await gradeTestPhoto(file.buffer, file.mimetype, answerKey)
     ok(res, result)
   } catch (err) {
     if (err instanceof Error && err.message === 'AI_NOT_CONFIGURED') {
