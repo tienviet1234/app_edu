@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { produce } from 'immer'
 import type { AppData, ClassData } from '@/types'
 import { C } from '@/constants/colors'
@@ -76,6 +76,7 @@ function scoreComps(cls: ClassData) {
 }
 
 export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [rows, setRows] = useState<Row[]>([])
   const [running, setRunning] = useState(false)
   // Đáp án đúng của đề — áp dụng chung cho cả lượt chấm (giáo viên thường
@@ -293,15 +294,19 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
             <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ background: C.board, color: '#fff' }}>1</span>
             <label className="text-sm font-semibold" style={{ color: C.ink }}>Thêm ảnh hoặc file PDF bài kiểm tra</label>
           </div>
-          <label className="cursor-pointer">
-            <input
-              type="file" accept="image/jpeg,image/png,image/webp,application/pdf" multiple
-              className="hidden" onChange={(e) => { addFiles(e.target.files); e.target.value = '' }}
-            />
-            <span className="inline-flex min-h-11 items-center rounded-xl px-4 text-sm font-semibold" style={{ background: C.paper, color: C.ink, border: `1px solid ${C.line}` }}>
-              + Thêm ảnh/PDF
-            </span>
-          </label>
+          <input
+            ref={fileInputRef}
+            type="file" accept="image/jpeg,image/png,image/webp,application/pdf" multiple
+            className="hidden" onChange={(e) => { addFiles(e.target.files); e.target.value = '' }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="inline-flex min-h-11 items-center rounded-xl px-4 text-sm font-semibold"
+            style={{ background: C.paper, color: C.ink, border: `1px solid ${C.line}` }}
+          >
+            + Thêm ảnh/PDF
+          </button>
         </div>
 
         <div>
