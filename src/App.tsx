@@ -362,8 +362,12 @@ export default function App() {
         if (existing) {
           existing.name = apiSt.name
           if (apiSt.avatar) existing.avatar = apiSt.avatar
+          existing.handwritingNote = apiSt.handwritingNote
         } else {
-          localCls.students.push({ id: apiSt._id, name: apiSt.name, avatar: apiSt.avatar, sessions: [] })
+          localCls.students.push({
+            id: apiSt._id, name: apiSt.name, avatar: apiSt.avatar,
+            handwritingNote: apiSt.handwritingNote, sessions: [],
+          })
         }
       })
     }))

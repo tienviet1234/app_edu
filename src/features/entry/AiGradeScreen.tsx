@@ -13,6 +13,7 @@ import { aiGradingService, type AiGradeResult } from '@/services/aiGrading'
 import { AiSolveBox } from './AiSolveBox'
 import { sessionService } from '@/services/sessions'
 import { scoreService } from '@/services/scores'
+import { studentService } from '@/services/students'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { toast } from '@/store/toastStore'
@@ -51,6 +52,10 @@ interface Row {
   secondCheck?: { rawScore: number; rawMax: number; studentName: string; agrees: boolean }
   // File PDF không hiện được bằng thẻ <img> — hiện icon thay vì ảnh xem trước.
   isPdf: boolean
+  // Bản nháp ô "Ghi chú nét chữ" của học sinh đã khớp — tách khỏi giá trị đã
+  // lưu để gõ mượt (input có kiểm soát), chỉ ghi thật khi bấm Lưu.
+  noteDraft: string
+  savingNote: boolean
 }
 
 function newRow(file: File): Row {
@@ -59,6 +64,7 @@ function newRow(file: File): Row {
     id: uid(), file, previewUrl: isPdf ? '' : URL.createObjectURL(file), status: 'pending',
     matches: [], studentId: '', classIndex: -1, date: todayISO(), compKey: '',
     rawScore: 0, rawMax: 0, usedAnswerKey: false, checking: false, isPdf,
+    noteDraft: '', savingNote: false,
   }
 }
 
@@ -96,8 +102,30 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
       const cls = data.classes[m.classIndex]
       const comps = scoreComps(cls)
       row.compKey = comps[0]?.key ?? ''
+      row.noteDraft = cls.students.find((s) => s.id === m.studentId)?.handwritingNote ?? ''
     } else {
       row.compKey = ''
+      row.noteDraft = ''
+    }
+  }
+
+  async function saveHandwritingNote(row: Row) {
+    if (!row.studentId || !isMongoid(row.studentId)) {
+      toast.error('Học sinh này chưa đồng bộ lên server — mở lại app rồi thử lại.')
+      return
+    }
+    patch(row.id, (r) => { r.savingNote = true })
+    try {
+      await studentService.update(row.studentId, { handwritingNote: row.noteDraft.trim() })
+      setData(produce((d: AppData) => {
+        const st = d.classes[row.classIndex]?.students.find((s) => s.id === row.studentId)
+        if (st) st.handwritingNote = row.noteDraft.trim()
+      }))
+      toast.success('Đã lưu ghi chú nét chữ.')
+    } catch {
+      toast.error('Lỗi khi lưu ghi chú — thử lại.')
+    } finally {
+      patch(row.id, (r) => { r.savingNote = false })
     }
   }
 
@@ -135,8 +163,13 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
     if (!row.ai) return
     patch(row.id, (r) => { r.checking = true })
     const keyUsed = answerKey.trim()
+    // Ghi chú nét chữ của ĐÚNG em đã được xác định (nếu có) — chỉ dùng được
+    // ở đây vì lúc này đã biết chắc là em nào, khác với lượt chấm đầu tiên.
+    const note = row.classIndex >= 0
+      ? data.classes[row.classIndex]?.students.find((s) => s.id === row.studentId)?.handwritingNote
+      : undefined
     try {
-      const second = await aiGradingService.gradePhoto(row.file, keyUsed || undefined, true)
+      const second = await aiGradingService.gradePhoto(row.file, keyUsed || undefined, true, note)
       const pct1 = row.rawMax > 0 ? row.rawScore / row.rawMax : 0
       const pct2 = second.rawMax > 0 ? second.rawScore / second.rawMax : 0
       const sameName = normalizeViName(second.studentName) === normalizeViName(row.ai.studentName)
@@ -292,17 +325,28 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
         </div>
 
         <div className="space-y-1.5">
-          <div className="mb-1 flex items-center gap-2">
-            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ background: C.paper, color: C.muted, border: `1px solid ${C.line}` }}>3</span>
-            <label className="text-sm font-semibold" style={{ color: C.ink }}>Đáp án đúng của đề (không bắt buộc)</label>
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ background: C.paper, color: C.muted, border: `1px solid ${C.line}` }}>3</span>
+              <label className="text-sm font-semibold" style={{ color: C.ink }}>Đáp án đúng của đề (không bắt buộc)</label>
+            </div>
+            {answerKey.trim() && (
+              <span className="text-xs" style={{ color: C.emerald }}>
+                ✓ Đã có {answerKey.trim().split(/\s+/).length} mục
+              </span>
+            )}
+          </div>
+          <div className="text-xs" style={{ color: C.muted }}>
+            Gõ tay kiểu "1-B 2-C 3-A..." hoặc liệt kê từng dòng, hoặc bấm "Giải đề mẫu bằng AI" bên dưới để AI tự
+            điền vào đây — có đáp án thì chấm chính xác hơn hẳn với bài CHƯA chấm tay sẵn.
           </div>
           <textarea
             value={answerKey}
             onChange={(e) => setAnswerKey(e.target.value)}
-            placeholder={'VD: 1-B 2-C 3-A 4-D... hoặc liệt kê từng dòng.\nCó thì AI so khớp theo đúng đáp án này — chính xác hơn hẳn với bài CHƯA được chấm tay sẵn. Áp dụng chung cho cả xấp ảnh đang chấm (cùng 1 đề).'}
-            rows={2}
-            className="w-full rounded-xl px-3 py-2 text-sm"
-            style={{ border: `1px solid ${C.line}` }}
+            placeholder={'1-B 2-C 3-A 4-D 5-C...\nhoặc\n1. is read\n2. was punished\n...'}
+            rows={10}
+            className="w-full resize-y rounded-xl px-3 py-2.5 text-sm leading-relaxed"
+            style={{ border: `1.5px solid ${C.line}`, background: '#FBFCFE', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', minHeight: 200 }}
           />
           <AiSolveBox onSolved={setAnswerKey} />
         </div>
@@ -396,6 +440,31 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
                     </select>
                     {row.matches.length > 1 && (
                       <div className="text-xs" style={{ color: C.gold }}>Có {row.matches.length} em trùng tên — chọn đúng em.</div>
+                    )}
+
+                    {row.studentId && (
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold" style={{ color: C.ink }}>
+                          Ghi chú nét chữ của em này (không bắt buộc)
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          <input
+                            type="text"
+                            value={row.noteDraft}
+                            onChange={(e) => patch(row.id, (r) => { r.noteDraft = e.target.value })}
+                            placeholder={'VD: hay viết "t" giống "l", số 5 giống 6...'}
+                            className="min-w-0 flex-1 rounded-xl px-3 py-2 text-sm"
+                            style={{ border: `1px solid ${C.line}` }}
+                          />
+                          <Btn kind="ghost" size="sm" onClick={() => saveHandwritingNote(row)} disabled={row.savingNote}>
+                            {row.savingNote ? 'Đang lưu...' : 'Lưu ghi chú'}
+                          </Btn>
+                        </div>
+                        <div className="mt-1 text-xs" style={{ color: C.muted }}>
+                          Dùng làm gợi ý cho AI ở nút "Chấm kỹ hơn" các lần sau của đúng em này — không lưu ảnh
+                          nào cả, chỉ vài dòng chữ.
+                        </div>
+                      </div>
                     )}
 
                     {cls && (

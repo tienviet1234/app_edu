@@ -11,6 +11,11 @@ export interface IUser extends Document {
   role: UserRole
   avatar?: string
   phone?: string
+  /** Ghi chú đặc điểm nét chữ viết tay (VD "hay viết 't' giống 'l'") — chỉ
+   *  có ý nghĩa với role='student'. Giáo viên tự gõ sau khi thấy AI đọc sai
+   *  nhiều lần; dùng làm gợi ý thêm khi bấm "Chấm kỹ hơn" ở tính năng Chấm
+   *  bằng AI, KHÔNG lưu ảnh chữ viết tay nào cả — chỉ vài dòng chữ mô tả. */
+  handwritingNote?: string
   centerId?: Types.ObjectId
   branchId?: Types.ObjectId
   childIds: Types.ObjectId[]
@@ -37,6 +42,7 @@ const userSchema = new Schema<IUser>(
     },
     avatar: { type: String },
     phone: { type: String, trim: true, maxlength: 20 },
+    handwritingNote: { type: String, trim: true, maxlength: 300 },
     centerId: { type: Schema.Types.ObjectId, ref: 'Center', index: true },
     branchId: { type: Schema.Types.ObjectId, ref: 'Branch', index: true },
     childIds: [{ type: Schema.Types.ObjectId, ref: 'User' }],

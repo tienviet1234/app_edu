@@ -116,6 +116,10 @@ export interface Student {
   id: string
   name: string
   avatar?: string
+  /** Ghi chú đặc điểm nét chữ viết tay (VD "hay viết 't' giống 'l'") — giáo
+   *  viên tự gõ, dùng làm gợi ý thêm khi "Chấm kỹ hơn" ở tính năng Chấm
+   *  bằng AI. Không lưu ảnh chữ viết tay nào cả, chỉ vài dòng chữ mô tả. */
+  handwritingNote?: string
   sessions: Session[]
 }
 

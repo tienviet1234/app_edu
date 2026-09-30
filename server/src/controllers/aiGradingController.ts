@@ -34,9 +34,11 @@ export const gradePhoto = asyncHandler(async (req: Request, res: Response) => {
   // Chỉ true khi giáo viên chủ động bấm "Chấm kỹ hơn" cho 1 ảnh cụ thể —
   // không phải mặc định, vì độ phân giải cao hơn tốn phí hơn.
   const highRes = req.body?.highRes === 'true'
+  // Ghi chú nét chữ của học sinh đã xác định — chỉ có ở lượt "Chấm kỹ hơn".
+  const handwritingNote = typeof req.body?.handwritingNote === 'string' ? req.body.handwritingNote.slice(0, 300) : undefined
 
   try {
-    const result = await gradeTestPhoto(file.buffer, file.mimetype, answerKey, highRes)
+    const result = await gradeTestPhoto(file.buffer, file.mimetype, answerKey, highRes, handwritingNote)
     // Chữ quá xấu/ảnh quá mờ, AI không đọc được gì — không chỉ hiện tạm trên
     // màn hình đang mở, mà còn gửi thông báo thật vào chuông 🔔 của giáo
     // viên, để họ biết dù không còn đang mở đúng màn "Chấm bằng AI" lúc đó.

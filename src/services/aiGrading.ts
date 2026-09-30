@@ -24,12 +24,14 @@ export const aiGradingService = {
    *  của đề, giúp AI so khớp chính xác hơn thay vì tự đoán — nhất là với bài
    *  chưa được chấm tay sẵn. `highRes` (không bắt buộc): gửi ảnh độ phân
    *  giải cao hơn — chỉ dùng cho lượt "Chấm kỹ hơn", tốn phí hơn nên không
-   *  bật mặc định. */
-  gradePhoto: (file: File, answerKey?: string, highRes?: boolean): Promise<AiGradeResult> => {
+   *  bật mặc định. `handwritingNote` (không bắt buộc): ghi chú nét chữ của
+   *  ĐÚNG học sinh này — chỉ có khi đã xác định được em (dùng ở "Chấm kỹ hơn"). */
+  gradePhoto: (file: File, answerKey?: string, highRes?: boolean, handwritingNote?: string): Promise<AiGradeResult> => {
     const form = new FormData()
     form.append('photo', file)
     if (answerKey?.trim()) form.append('answerKey', answerKey.trim())
     if (highRes) form.append('highRes', 'true')
+    if (handwritingNote?.trim()) form.append('handwritingNote', handwritingNote.trim())
     return api
       .post('/ai/grade-photo', form, {
         headers: { 'Content-Type': 'multipart/form-data' },

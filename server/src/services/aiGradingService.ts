@@ -119,16 +119,26 @@ CHỈ trả về JSON hợp lệ theo đúng schema sau, không thêm chữ nào
  *  này thay vì tự đoán, chính xác hơn hẳn với bài CHƯA được chấm tay sẵn.
  *  `highRes`: dùng độ phân giải cao hơn mức mặc định — CHỈ bật khi giáo viên
  *  chủ động bấm "Chấm kỹ hơn" cho 1 ảnh cụ thể, không dùng mặc định vì tốn
- *  phí hơn. */
+ *  phí hơn.
+ *  `handwritingNote`: ghi chú đặc điểm nét chữ của ĐÚNG học sinh này (VD
+ *  "hay viết 't' giống 'l'") — CHỈ có khi đã xác định được học sinh (dùng ở
+ *  lượt "Chấm kỹ hơn", không dùng được ở lượt chấm đầu vì lúc đó chưa biết
+ *  là em nào). Không phải ảnh, chỉ là vài dòng chữ giáo viên tự gõ. */
 export async function gradeTestPhoto(
-  imageBuffer: Buffer, mimeType: string, answerKey?: string, highRes = false,
+  imageBuffer: Buffer, mimeType: string, answerKey?: string, highRes = false, handwritingNote?: string,
 ): Promise<AiGradeResult> {
   const anthropic = getClient()
   const contentSource = await prepareContent(imageBuffer, mimeType, highRes)
 
-  const instructionText = answerKey?.trim()
-    ? `Đọc tên học sinh và chấm điểm bài này.\n\nĐÁP ÁN ĐÚNG của đề (do giáo viên cung cấp — ưu tiên dùng để so khớp thay vì tự đoán):\n${answerKey.trim()}\n\nChỉ trả JSON theo đúng schema.`
-    : 'Đọc tên học sinh và chấm điểm bài này. Chỉ trả JSON theo đúng schema.'
+  const parts = ['Đọc tên học sinh và chấm điểm bài này.']
+  if (answerKey?.trim()) {
+    parts.push(`\nĐÁP ÁN ĐÚNG của đề (do giáo viên cung cấp — ưu tiên dùng để so khớp thay vì tự đoán):\n${answerKey.trim()}`)
+  }
+  if (handwritingNote?.trim()) {
+    parts.push(`\nGHI CHÚ NÉT CHỮ của đúng học sinh này (giáo viên đã ghi từ trước, dùng để đọc chữ viết tay chính xác hơn): ${handwritingNote.trim()}`)
+  }
+  parts.push('\nChỉ trả JSON theo đúng schema.')
+  const instructionText = parts.join('\n')
 
   const msg = await anthropic.messages.create({
     model: 'claude-sonnet-5',

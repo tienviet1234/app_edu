@@ -81,7 +81,7 @@ export async function updateManagedStudent(req: Request, res: Response): Promise
     }
   }
 
-  const allowed = ['name', 'avatar'] as const
+  const allowed = ['name', 'avatar', 'handwritingNote'] as const
   const patch: Record<string, unknown> = {}
   for (const key of allowed) {
     if (key in req.body) patch[key] = req.body[key]
