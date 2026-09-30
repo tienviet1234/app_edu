@@ -785,27 +785,27 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
                         <div className="text-xs font-semibold" style={{ color: C.ink }}>
                           Từng câu — sửa đáp án hoặc bấm Đúng/Sai nếu AI đọc nhầm (điểm bên dưới tự tính lại):
                         </div>
-                        <div className="flex flex-wrap gap-1.5">
+                        <div className="space-y-1">
                           {row.questions.map((q, qi) => (
                             <div
                               key={qi}
-                              className="flex items-center gap-1 rounded-lg px-1.5 py-1 text-xs"
+                              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5"
                               style={q.uncertain
                                 ? { background: C.gold + '1f', border: `1px solid ${C.gold}55` }
                                 : { background: '#fff', border: `1px solid ${C.line}` }}
                               title={q.uncertain ? 'AI không chắc chắn đọc đúng chữ viết ở câu này' : undefined}
                             >
-                              <span className="font-semibold" style={{ color: C.muted }}>{q.no}.</span>
+                              <span className="shrink-0 text-xs font-semibold" style={{ color: C.muted }}>{q.no}.</span>
                               <input
                                 type="text" value={q.studentAnswer}
                                 onChange={(e) => updateQuestion(row, qi, (x) => { x.studentAnswer = e.target.value })}
-                                className="w-14 rounded px-1 py-0.5 text-xs"
+                                className="min-w-0 flex-1 rounded px-2 py-1 text-sm"
                                 style={{ border: `1px solid ${C.line}` }}
                               />
                               <button
                                 type="button"
                                 onClick={() => updateQuestion(row, qi, (x) => { x.correct = !x.correct; x.uncertain = false })}
-                                className="rounded px-1.5 py-0.5 text-xs font-semibold"
+                                className="shrink-0 rounded px-2 py-1 text-xs font-semibold"
                                 style={q.correct ? { background: C.emerald + '28', color: '#0F5132' } : { background: '#FEE2E2', color: '#991B1B' }}
                               >
                                 {q.correct ? '✓ Đúng' : '✗ Sai'}
@@ -813,7 +813,7 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
                               <button
                                 type="button" title="Xoá câu này (không tính vào tổng)"
                                 onClick={() => removeQuestion(row, qi)}
-                                className="text-xs" style={{ color: C.muted }}
+                                className="shrink-0 text-xs" style={{ color: C.muted }}
                               >
                                 ✕
                               </button>
