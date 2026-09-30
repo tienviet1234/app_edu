@@ -4,6 +4,7 @@ import { parentService, type Child } from '@/services/parent'
 import { C } from '@/constants/colors'
 import { Card } from '@/components/atoms/Card'
 import { HomeworkTab } from './HomeworkTab'
+import { DebtTab } from './DebtTab'
 
 // ── Màu điểm danh ────────────────────────────────────────────
 const ATTEND: Record<string, { label: string; bg: string; color: string }> = {
@@ -16,7 +17,7 @@ const ATTEND: Record<string, { label: string; bg: string; color: string }> = {
 // ── Hiển thị 1 thẻ học sinh ─────────────────────────────────
 function ChildCard({ child, onUnlink }: { child: Child; onUnlink: () => void }) {
   const [expanded, setExpanded] = useState(false)
-  const [innerTab, setInnerTab] = useState<'scores' | 'homework'>('scores')
+  const [innerTab, setInnerTab] = useState<'scores' | 'homework' | 'debts'>('scores')
   const [hwClassId, setHwClassId] = useState<string>(child.classes[0]?.id ?? '')
 
   const totalSessions = child.classes.reduce((a, c) => a + c.sessionCount, 0)
@@ -66,7 +67,7 @@ function ChildCard({ child, onUnlink }: { child: Child; onUnlink: () => void }) 
         <div style={{ padding: 16 }}>
           {/* Inner tab */}
           <div style={{ display: 'flex', gap: 4, marginBottom: 14, background: C.paper, padding: 4, borderRadius: 12 }}>
-            {(['scores', 'homework'] as const).map((t) => (
+            {(['scores', 'homework', 'debts'] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => setInnerTab(t)}
@@ -77,7 +78,7 @@ function ChildCard({ child, onUnlink }: { child: Child; onUnlink: () => void }) 
                   boxShadow: innerTab === t ? '0 1px 3px 0 rgb(0 0 0 / 0.08)' : 'none',
                 }}
               >
-                {t === 'scores' ? '📊 Kết quả' : '📚 Bài tập'}
+                {t === 'scores' ? '📊 Kết quả' : t === 'homework' ? '📚 Bài tập' : '📌 Nợ bài tập'}
               </button>
             ))}
           </div>
@@ -98,6 +99,32 @@ function ChildCard({ child, onUnlink }: { child: Child; onUnlink: () => void }) 
               )}
               {hwClassId
                 ? <HomeworkTab
+                    classId={hwClassId}
+                    studentId={child.id}
+                    className={child.classes.find((c) => c.id === hwClassId)?.name}
+                    teacherName={child.classes.find((c) => c.id === hwClassId)?.teacher}
+                  />
+                : <p style={{ color: C.muted, fontSize: '.82rem', textAlign: 'center' }}>Con chưa tham gia lớp nào.</p>
+              }
+            </div>
+          )}
+
+          {/* Tab: Nợ bài tập */}
+          {innerTab === 'debts' && (
+            <div>
+              {child.classes.length > 1 && (
+                <select
+                  value={hwClassId}
+                  onChange={(e) => setHwClassId(e.target.value)}
+                  style={{ marginBottom: 12, width: '100%', padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.line}`, fontSize: '.85rem' }}
+                >
+                  {child.classes.map((cls) => (
+                    <option key={cls.id} value={cls.id}>{cls.name}</option>
+                  ))}
+                </select>
+              )}
+              {hwClassId
+                ? <DebtTab
                     classId={hwClassId}
                     studentId={child.id}
                     className={child.classes.find((c) => c.id === hwClassId)?.name}

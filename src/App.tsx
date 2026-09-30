@@ -34,6 +34,10 @@ const ClassesScreen = lazy(() =>
   import('@/features/classes/ClassesScreen').then((m) => ({ default: m.ClassesScreen })))
 const DashboardScreen = lazy(() =>
   import('@/features/dashboard/DashboardScreen').then((m) => ({ default: m.DashboardScreen })))
+const DebtScreen = lazy(() =>
+  import('@/features/entry/DebtScreen').then((m) => ({ default: m.DebtScreen })))
+const StudentDebtScreen = lazy(() =>
+  import('@/features/student/StudentDebtScreen').then((m) => ({ default: m.StudentDebtScreen })))
 const EntryScreen = lazy(() =>
   import('@/features/entry/EntryScreen').then((m) => ({ default: m.EntryScreen })))
 const HomeworkScreen = lazy(() =>
@@ -75,8 +79,10 @@ const ALL_TABS = [
   { key: 'entry', label: 'Nhập điểm', icon: '✏️', roles: ['teacher', 'admin'] },
   { key: 'ai-grade', label: 'Chấm bằng AI', icon: '🤖', roles: ['teacher', 'admin'] },
   { key: 'homework', label: 'Bài tập', icon: '📝', roles: ['teacher', 'admin'] },
+  { key: 'debts', label: 'Nợ bài tập', icon: '📌', roles: ['teacher', 'admin'] },
   { key: 'my-scores', label: 'Điểm của tôi', icon: '📊', roles: ['student'] },
   { key: 'my-homework', label: 'Bài tập của tôi', icon: '📝', roles: ['student'] },
+  { key: 'my-debts', label: 'Nợ bài tập', icon: '📌', roles: ['student'] },
   { key: 'board', label: 'Xếp hạng', icon: '🏆', roles: ['teacher', 'admin', 'student'] },
   { key: 'report', label: 'Báo cáo', icon: '📊', roles: ['teacher', 'admin'] },
   { key: 'billing', label: 'Thống kê buổi', icon: '📅', roles: ['teacher', 'admin'] },
@@ -647,8 +653,10 @@ export default function App() {
           />
         )}
         {cls && activeTab === 'homework' && <HomeworkScreen cls={cls} />}
+        {cls && activeTab === 'debts' && <DebtScreen cls={cls} />}
         {activeTab === 'my-scores' && <StudentPortalScreen />}
         {activeTab === 'my-homework' && <StudentHomeworkScreen />}
+        {activeTab === 'my-debts' && <StudentDebtScreen />}
         {cls && activeTab === 'board' && <LeaderboardScreen cls={cls} update={updateClass} userId={user?.role === 'student' ? user.id : undefined} />}
         {cls && activeTab === 'report' && <ReportScreen cls={cls} update={updateClass} />}
         {cls && activeTab === 'billing' && (
