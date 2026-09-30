@@ -124,15 +124,16 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
     }
   }
 
-  /** "Chấm kỹ hơn" — gọi AI thêm 1 lần độc lập cho đúng ảnh này, so với kết
-   *  quả lần đầu. Chỉ chạy khi giáo viên chủ động bấm cho từng ảnh, không tự
-   *  động cho cả xấp — tránh phát sinh phí ngoài ý muốn. */
+  /** "Chấm kỹ hơn" — gọi AI thêm 1 lần độc lập cho đúng ảnh này (ảnh gửi ở
+   *  độ phân giải cao hơn mức mặc định, giữ nhiều chi tiết chữ viết tay hơn),
+   *  so với kết quả lần đầu. Chỉ chạy khi giáo viên chủ động bấm cho từng
+   *  ảnh, không tự động cho cả xấp — tránh phát sinh phí ngoài ý muốn. */
   async function doubleCheck(row: Row) {
     if (!row.ai) return
     patch(row.id, (r) => { r.checking = true })
     const keyUsed = answerKey.trim()
     try {
-      const second = await aiGradingService.gradePhoto(row.file, keyUsed || undefined)
+      const second = await aiGradingService.gradePhoto(row.file, keyUsed || undefined, true)
       const pct1 = row.rawMax > 0 ? row.rawScore / row.rawMax : 0
       const pct2 = second.rawMax > 0 ? second.rawScore / second.rawMax : 0
       const sameName = normalizeViName(second.studentName) === normalizeViName(row.ai.studentName)

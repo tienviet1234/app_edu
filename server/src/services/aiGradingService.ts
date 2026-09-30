@@ -17,11 +17,16 @@ function getClient(): Anthropic {
 // Resize + nén JPEG trước khi gửi — giảm chi phí rõ rệt, không giảm độ đọc
 // được chữ với ảnh chụp bài kiểm tra giấy thông thường.
 const MAX_DIMENSION = 1568
+// Chỉ dùng cho lượt "Chấm kỹ hơn" (giáo viên chủ động bấm cho 1 ảnh cụ thể,
+// không áp dụng mặc định cho cả xấp) — ảnh giữ chi tiết hơn cho chữ viết
+// tay nhỏ, đổi lại tốn phí hơn nên KHÔNG dùng làm mặc định.
+const MAX_DIMENSION_HIGH = 2200
 
-async function prepareImage(imageBuffer: Buffer): Promise<{ buffer: Buffer; mediaType: 'image/jpeg' }> {
+async function prepareImage(imageBuffer: Buffer, highRes = false): Promise<{ buffer: Buffer; mediaType: 'image/jpeg' }> {
+  const dim = highRes ? MAX_DIMENSION_HIGH : MAX_DIMENSION
   const resized = await sharp(imageBuffer)
     .rotate() // tự xoay theo đúng chiều thật (EXIF) — ảnh chụp điện thoại hay bị lật khi đọc buffer thô
-    .resize({ width: MAX_DIMENSION, height: MAX_DIMENSION, fit: 'inside', withoutEnlargement: true })
+    .resize({ width: dim, height: dim, fit: 'inside', withoutEnlargement: true })
     // Tăng độ tương phản (kéo dải sáng-tối cho đầy khung, giúp chữ mực nhạt/
     // ảnh chụp thiếu sáng nổi rõ hơn so với nền giấy) và làm nét nhẹ (giúp
     // đường nét chữ viết tay/khoanh tròn sắc hơn) — 2 bước xử lý ảnh chuẩn
@@ -95,13 +100,16 @@ CHỈ trả về JSON hợp lệ theo đúng schema sau, không thêm chữ nào
  *  ảnh trẻ em phải đi qua bên thứ ba.
  *  `answerKey`: đáp án đúng của đề (giáo viên tự gõ, dạng chữ tự do — VD
  *  "1-B 2-C 3-A..." hoặc liệt kê từng dòng) — nếu có, AI so khớp theo đáp án
- *  này thay vì tự đoán, chính xác hơn hẳn với bài CHƯA được chấm tay sẵn. */
+ *  này thay vì tự đoán, chính xác hơn hẳn với bài CHƯA được chấm tay sẵn.
+ *  `highRes`: dùng độ phân giải cao hơn mức mặc định — CHỈ bật khi giáo viên
+ *  chủ động bấm "Chấm kỹ hơn" cho 1 ảnh cụ thể, không dùng mặc định vì tốn
+ *  phí hơn. */
 export async function gradeTestPhoto(
-  imageBuffer: Buffer, mimeType: string, answerKey?: string,
+  imageBuffer: Buffer, mimeType: string, answerKey?: string, highRes = false,
 ): Promise<AiGradeResult> {
   void mimeType // resize luôn về JPEG bên dưới — không cần giữ định dạng gốc
   const anthropic = getClient()
-  const { buffer, mediaType } = await prepareImage(imageBuffer)
+  const { buffer, mediaType } = await prepareImage(imageBuffer, highRes)
 
   const instructionText = answerKey?.trim()
     ? `Đọc tên học sinh và chấm điểm bài này.\n\nĐÁP ÁN ĐÚNG của đề (do giáo viên cung cấp — ưu tiên dùng để so khớp thay vì tự đoán):\n${answerKey.trim()}\n\nChỉ trả JSON theo đúng schema.`

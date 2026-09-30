@@ -22,11 +22,14 @@ export const aiGradingService = {
   /** Gửi 1 ảnh bài kiểm tra giấy cho AI đọc tên + chấm điểm. Chỉ trả gợi ý —
    *  không tự ghi điểm ở đâu cả. `answerKey` (không bắt buộc): đáp án đúng
    *  của đề, giúp AI so khớp chính xác hơn thay vì tự đoán — nhất là với bài
-   *  chưa được chấm tay sẵn. */
-  gradePhoto: (file: File, answerKey?: string): Promise<AiGradeResult> => {
+   *  chưa được chấm tay sẵn. `highRes` (không bắt buộc): gửi ảnh độ phân
+   *  giải cao hơn — chỉ dùng cho lượt "Chấm kỹ hơn", tốn phí hơn nên không
+   *  bật mặc định. */
+  gradePhoto: (file: File, answerKey?: string, highRes?: boolean): Promise<AiGradeResult> => {
     const form = new FormData()
     form.append('photo', file)
     if (answerKey?.trim()) form.append('answerKey', answerKey.trim())
+    if (highRes) form.append('highRes', 'true')
     return api
       .post('/ai/grade-photo', form, {
         headers: { 'Content-Type': 'multipart/form-data' },

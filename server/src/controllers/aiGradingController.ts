@@ -29,9 +29,12 @@ export const gradePhoto = asyncHandler(async (req: Request, res: Response) => {
   // Đáp án đúng của đề — giáo viên tự gõ, không bắt buộc (multer đưa field
   // text thường của multipart/form-data vào req.body).
   const answerKey = typeof req.body?.answerKey === 'string' ? req.body.answerKey.slice(0, 4000) : undefined
+  // Chỉ true khi giáo viên chủ động bấm "Chấm kỹ hơn" cho 1 ảnh cụ thể —
+  // không phải mặc định, vì độ phân giải cao hơn tốn phí hơn.
+  const highRes = req.body?.highRes === 'true'
 
   try {
-    const result = await gradeTestPhoto(file.buffer, file.mimetype, answerKey)
+    const result = await gradeTestPhoto(file.buffer, file.mimetype, answerKey, highRes)
     // Chữ quá xấu/ảnh quá mờ, AI không đọc được gì — không chỉ hiện tạm trên
     // màn hình đang mở, mà còn gửi thông báo thật vào chuông 🔔 của giáo
     // viên, để họ biết dù không còn đang mở đúng màn "Chấm bằng AI" lúc đó.
