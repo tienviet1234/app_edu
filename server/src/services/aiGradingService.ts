@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import sharp from 'sharp'
 import { env } from '../config/env.js'
 
 let client: Anthropic | null = null
@@ -8,6 +9,22 @@ function getClient(): Anthropic {
   }
   if (!client) client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
   return client
+}
+
+// Claude tính phí ảnh theo (rộng × cao)/750 token — ảnh chụp thẳng từ điện
+// thoại thường 3000-4000px/cạnh, tốn gấp NHIỀU LẦN mức cần thiết mà không
+// đọc chữ tốt hơn (mô hình tự thu nhỏ nội bộ khi ảnh vượt quá mức này).
+// Resize + nén JPEG trước khi gửi — giảm chi phí rõ rệt, không giảm độ đọc
+// được chữ với ảnh chụp bài kiểm tra giấy thông thường.
+const MAX_DIMENSION = 1568
+
+async function prepareImage(imageBuffer: Buffer): Promise<{ buffer: Buffer; mediaType: 'image/jpeg' }> {
+  const resized = await sharp(imageBuffer)
+    .rotate() // tự xoay theo đúng chiều thật (EXIF) — ảnh chụp điện thoại hay bị lật khi đọc buffer thô
+    .resize({ width: MAX_DIMENSION, height: MAX_DIMENSION, fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: 82 })
+    .toBuffer()
+  return { buffer: resized, mediaType: 'image/jpeg' }
 }
 
 export interface AiGradeResult {
@@ -69,10 +86,9 @@ CHỈ trả về JSON hợp lệ theo đúng schema sau, không thêm chữ nào
 export async function gradeTestPhoto(
   imageBuffer: Buffer, mimeType: string, answerKey?: string,
 ): Promise<AiGradeResult> {
+  void mimeType // resize luôn về JPEG bên dưới — không cần giữ định dạng gốc
   const anthropic = getClient()
-  const media = (['image/jpeg', 'image/png', 'image/webp', 'image/gif'] as const).includes(mimeType as never)
-    ? (mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif')
-    : 'image/jpeg'
+  const { buffer, mediaType } = await prepareImage(imageBuffer)
 
   const instructionText = answerKey?.trim()
     ? `Đọc tên học sinh và chấm điểm bài này.\n\nĐÁP ÁN ĐÚNG của đề (do giáo viên cung cấp — ưu tiên dùng để so khớp thay vì tự đoán):\n${answerKey.trim()}\n\nChỉ trả JSON theo đúng schema.`
@@ -81,12 +97,15 @@ export async function gradeTestPhoto(
   const msg = await anthropic.messages.create({
     model: 'claude-sonnet-5',
     max_tokens: 1024,
-    system: SYSTEM_PROMPT,
+    // system prompt CỐ ĐỊNH, gọi lặp lại y hệt cho mọi ảnh trong 1 lượt chấm
+    // — đánh dấu cache để những lần gọi sau (trong ~5 phút) chỉ tính phí đọc
+    // cache (rẻ hơn nhiều lần), thay vì tính lại phí input đầy đủ mỗi lần.
+    system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
     messages: [
       {
         role: 'user',
         content: [
-          { type: 'image', source: { type: 'base64', media_type: media, data: imageBuffer.toString('base64') } },
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: buffer.toString('base64') } },
           { type: 'text', text: instructionText },
         ],
       },
@@ -148,20 +167,19 @@ CHỈ trả về JSON hợp lệ theo đúng schema sau, không thêm chữ nào
  *  nhất quán cho cùng 1 đề). Đáp án trả về LUÔN LÀ BẢN NHÁP — giáo viên phải
  *  xem lại/sửa trước khi dùng để chấm cả lớp, không dùng thẳng. */
 export async function solveTestPhoto(imageBuffer: Buffer, mimeType: string): Promise<AiSolveResult> {
+  void mimeType
   const anthropic = getClient()
-  const media = (['image/jpeg', 'image/png', 'image/webp', 'image/gif'] as const).includes(mimeType as never)
-    ? (mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif')
-    : 'image/jpeg'
+  const { buffer, mediaType } = await prepareImage(imageBuffer)
 
   const msg = await anthropic.messages.create({
     model: 'claude-sonnet-5',
     max_tokens: 1536,
-    system: SOLVE_SYSTEM_PROMPT,
+    system: [{ type: 'text', text: SOLVE_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
     messages: [
       {
         role: 'user',
         content: [
-          { type: 'image', source: { type: 'base64', media_type: media, data: imageBuffer.toString('base64') } },
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: buffer.toString('base64') } },
           { type: 'text', text: 'Đọc đề này và đưa ra đáp án đúng cho từng câu. Chỉ trả JSON theo đúng schema.' },
         ],
       },
