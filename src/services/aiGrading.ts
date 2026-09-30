@@ -8,7 +8,7 @@ export interface AiGradeResult {
   lowConfidence: boolean
   unreadable: boolean
   fromExistingGrade: boolean
-  ambiguousItems: string[]
+  ambiguousItems: Array<{ description: string; suggestions: string[] }>
 }
 
 export interface AiSolveResult {

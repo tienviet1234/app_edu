@@ -82,6 +82,59 @@ function scoreComps(cls: ClassData) {
   return getClassRubric(cls).comps.filter((c) => c.type === 'score')
 }
 
+/** 1 chỗ AI đang nghi ngờ — hiện sẵn vài phương án AI đoán được (bấm chọn
+ *  nhanh) và 1 ô để giáo viên tự gõ nếu không phương án nào đúng. Xác nhận
+ *  xong thì ghi lại thành công (không tự sửa điểm — chỉ lưu lại làm bằng
+ *  chứng/ghi chú, giáo viên vẫn tự quyết định điểm cuối ở ô Điểm bên trên). */
+function AmbiguousItemRow({
+  item, onConfirm,
+}: {
+  item: { description: string; suggestions: string[] }
+  onConfirm: (answer: string) => void
+}) {
+  const [draft, setDraft] = useState('')
+  const [confirmed, setConfirmed] = useState('')
+
+  if (confirmed) {
+    return (
+      <li style={{ color: C.emerald }}>
+        ✓ {item.description} — đã ghi: “{confirmed}”
+      </li>
+    )
+  }
+  return (
+    <li className="space-y-1">
+      <div>• {item.description}</div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {item.suggestions.map((s, i) => (
+          <button
+            key={i} type="button"
+            onClick={() => { onConfirm(s); setConfirmed(s) }}
+            className="rounded-lg px-2 py-1 text-xs font-semibold"
+            style={{ background: '#fff', border: `1px solid ${C.gold}`, color: '#7A5A05' }}
+          >
+            {s}
+          </button>
+        ))}
+        <input
+          type="text" value={draft} onChange={(e) => setDraft(e.target.value)}
+          placeholder="Tự gõ đáp án đúng..."
+          className="min-w-0 flex-1 rounded-lg px-2 py-1 text-xs"
+          style={{ border: `1px solid ${C.line}` }}
+        />
+        <button
+          type="button"
+          onClick={() => { if (draft.trim()) { onConfirm(draft.trim()); setConfirmed(draft.trim()) } }}
+          className="rounded-lg px-2 py-1 text-xs font-semibold"
+          style={{ background: C.board2, color: '#fff' }}
+        >
+          ✓ Xác nhận
+        </button>
+      </div>
+    </li>
+  )
+}
+
 export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [rows, setRows] = useState<Row[]>([])
@@ -128,6 +181,16 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
         r.rawMax = r.secondCheck.rawMax
       }
       r.secondCheck = undefined
+    })
+  }
+
+  /** Giáo viên xác nhận 1 chỗ AI đang nghi ngờ (bấm chọn phương án AI gợi ý,
+   *  hoặc tự gõ) — ghi lại vào ô "Ghi chú của bạn" làm bằng chứng, KHÔNG tự
+   *  sửa điểm (điểm vẫn do giáo viên tự quyết định ở ô Điểm bên trên). */
+  function confirmAmbiguousItem(row: Row, description: string, answer: string) {
+    const line = `${description.split(':')[0]}: ${answer}`
+    patch(row.id, (r) => {
+      r.myNote = r.myNote ? `${r.myNote}; ${line}` : line
     })
   }
 
@@ -442,9 +505,11 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
                     )}
                     {row.ai.ambiguousItems.length > 0 && (
                       <div className="text-xs rounded-lg px-2 py-2" style={{ background: C.gold + '14', color: '#7A5A05', border: `1px solid ${C.gold}40` }}>
-                        <b>Đúng chỗ cần bạn xem lại:</b>
-                        <ul className="mt-0.5 space-y-0.5">
-                          {row.ai.ambiguousItems.map((it, i) => <li key={i}>• {it}</li>)}
+                        <b>Đúng chỗ cần bạn xem lại — bấm phương án đúng hoặc tự gõ:</b>
+                        <ul className="mt-1 space-y-2">
+                          {row.ai.ambiguousItems.map((it, i) => (
+                            <AmbiguousItemRow key={i} item={it} onConfirm={(ans) => confirmAmbiguousItem(row, it.description, ans)} />
+                          ))}
                         </ul>
                       </div>
                     )}

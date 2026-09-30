@@ -72,10 +72,11 @@ export interface AiGradeResult {
   lowConfidence: boolean
   /** AI không đọc được gì có ý nghĩa (ảnh mờ/lạc đề) — không có điểm để dùng. */
   unreadable: boolean
-  /** ĐÚNG CHỖ nghi ngờ, không phải cả ảnh chung chung — VD "Câu 3: không
-   *  chắc chữ đầu là 'will' hay 'is'". Giáo viên xem đúng chỗ này thay vì
-   *  phải đọc lại từ đầu cả bài. Rỗng nếu không có chỗ nào đáng ngờ. */
-  ambiguousItems: string[]
+  /** ĐÚNG CHỖ nghi ngờ, không phải cả ảnh chung chung. Mỗi mục có sẵn vài
+   *  phương án AI đoán được (suggestions) để giáo viên bấm chọn nhanh, thay
+   *  vì phải tự gõ lại từ đầu — nếu không phương án nào đúng, giáo viên tự
+   *  gõ câu trả lời thật vào. Rỗng nếu không có chỗ nào đáng ngờ. */
+  ambiguousItems: Array<{ description: string; suggestions: string[] }>
   /** true = điểm này AI ĐỌC LẠI từ điểm/dấu giáo viên đã chấm sẵn trên bài
    *  (đáng tin hơn — chỉ là chép lại số có sẵn). false = AI TỰ CHẤM từ đầu
    *  (kém chắc chắn hơn — AI vừa phải đọc chữ vừa phải tự biết đáp án đúng).
@@ -106,10 +107,13 @@ Nhiệm vụ:
 
 5. Nếu chữ viết khó đọc, ảnh mờ, thiếu góc, đáp án/điểm số không rõ ràng (mờ, chồng lấn, số bị che), hoặc không chắc chắn về tên/điểm — đặt lowConfidence=true.
 
-6. Với TỪNG chỗ cụ thể bạn không chắc chắn (tên, 1 câu, 1 con số điểm...) — liệt kê vào ambiguousItems, mỗi mục nói rõ Ở ĐÂU và NGHI NGỜ GÌ, để giáo viên xem đúng chỗ đó thay vì đọc lại từ đầu (VD "Tên học sinh: chữ đầu không rõ là 'Đ' hay 'D'", "Câu 5: khoanh đè lên 2 đáp án B và C"). Tối đa 6 mục. Nếu không có gì đáng ngờ, để rỗng — đừng liệt kê những chỗ bạn thật sự đã đọc rõ.
+6. Với TỪNG chỗ cụ thể bạn không chắc chắn (tên, 1 câu, 1 con số điểm...) — liệt kê vào ambiguousItems, mỗi mục gồm:
+   - description: nói rõ Ở ĐÂU và NGHI NGỜ GÌ, để giáo viên xem đúng chỗ đó thay vì đọc lại từ đầu (VD "Tên học sinh: chữ đầu không rõ là 'Đ' hay 'D'", "Câu 5: khoanh đè lên 2 đáp án B và C").
+   - suggestions: LIỆT KÊ SẴN các khả năng bạn nghĩ tới (tối đa 4), để giáo viên bấm chọn nhanh thay vì tự gõ lại — VD nghi ngờ giữa "will"/"is" thì suggestions=["will","is"]; nghi ngờ đáp án B hay C thì suggestions=["B","C"]. Nếu thật sự không đoán được phương án nào hợp lý, để suggestions rỗng — đừng bịa ra phương án không có căn cứ.
+   Tối đa 6 mục ambiguousItems. Nếu không có gì đáng ngờ, để rỗng — đừng liệt kê những chỗ bạn thật sự đã đọc rõ.
 
 CHỈ trả về JSON hợp lệ theo đúng schema sau, không thêm chữ nào khác ngoài JSON:
-{"studentName": string, "rawScore": number, "rawMax": number, "errors": string[], "lowConfidence": boolean, "unreadable": boolean, "fromExistingGrade": boolean, "ambiguousItems": string[]}`
+{"studentName": string, "rawScore": number, "rawMax": number, "errors": string[], "lowConfidence": boolean, "unreadable": boolean, "fromExistingGrade": boolean, "ambiguousItems": [{"description": string, "suggestions": string[]}]}`
 
 /** Gửi 1 ảnh bài kiểm tra giấy cho AI đọc tên + chấm điểm. Không lưu ảnh lại
  *  ở đâu cả — chỉ dùng cho đúng 1 lần gọi này rồi bỏ, giảm tối đa dữ liệu
@@ -191,7 +195,15 @@ export async function gradeTestPhoto(
     lowConfidence: !!parsed.lowConfidence,
     unreadable: !!parsed.unreadable,
     fromExistingGrade: !!parsed.fromExistingGrade,
-    ambiguousItems: Array.isArray(parsed.ambiguousItems) ? parsed.ambiguousItems.map(String).slice(0, 6) : [],
+    ambiguousItems: Array.isArray(parsed.ambiguousItems)
+      ? parsed.ambiguousItems.slice(0, 6).map((it) => {
+          const item = it as { description?: unknown; suggestions?: unknown }
+          return {
+            description: String(item?.description ?? '').trim(),
+            suggestions: Array.isArray(item?.suggestions) ? item.suggestions.map(String).slice(0, 4) : [],
+          }
+        }).filter((it) => it.description)
+      : [],
   }
 }
 
