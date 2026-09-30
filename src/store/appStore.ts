@@ -42,6 +42,19 @@ const setLastClassId = (userId: string | undefined, classId: string) => {
   try { localStorage.setItem(lastClassKey(userId), classId) } catch {}
 }
 
+// Nhớ ĐÚNG tab đang xem qua mỗi lần F5 — trước đây activeTab luôn reset về
+// 'entry' (Nhập điểm) sau khi tải lại trang, dù đang ở tab khác (VD đang
+// chấm dở bằng AI, F5 xong bị nhảy sang Nhập điểm, tưởng lạc trang).
+const lastTabKey = (userId?: string) => `lms:lastTab${userId ? `:${userId}` : ''}`
+
+const getLastTab = (userId?: string): string | null => {
+  try { return localStorage.getItem(lastTabKey(userId)) } catch { return null }
+}
+
+const setLastTab = (userId: string | undefined, tab: string) => {
+  try { localStorage.setItem(lastTabKey(userId), tab) } catch {}
+}
+
 export const useAppStore = create<AppStore>((set, get) => ({
   data: null,
   currentClassIndex: 0,
@@ -57,7 +70,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const data = parsed ? normalize(parsed) : seed()
       const lastId = getLastClassId(userId)
       const idx = lastId ? data.classes.findIndex((c) => c.id === lastId) : -1
-      set({ data, userId, currentClassIndex: idx >= 0 ? idx : 0 })
+      const lastTab = getLastTab(userId)
+      set({ data, userId, currentClassIndex: idx >= 0 ? idx : 0, activeTab: lastTab || 'entry' })
     } catch {
       set({ data: seed(), userId, currentClassIndex: 0 })
     }
@@ -83,6 +97,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   setTab(tab) {
     set({ activeTab: tab })
+    setLastTab(get().userId, tab)
   },
 
   updateClass(fn) {
@@ -132,6 +147,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const { userId } = get()
     const empty = { classes: [] }
     set({ data: empty, currentClassIndex: 0, activeTab: 'classes' })
+    setLastTab(userId, 'classes')
     persist(empty, userId, set)
   },
 }))
