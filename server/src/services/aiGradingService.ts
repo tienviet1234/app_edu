@@ -39,6 +39,22 @@ async function prepareImage(imageBuffer: Buffer, highRes = false): Promise<{ buf
   return { buffer: resized, mediaType: 'image/jpeg' }
 }
 
+type ContentSource =
+  | { type: 'image'; source: { type: 'base64'; media_type: 'image/jpeg'; data: string } }
+  | { type: 'document'; source: { type: 'base64'; media_type: 'application/pdf'; data: string } }
+
+/** Chuẩn bị nội dung gửi cho AI — nhận cả ẢNH (jpeg/png/webp, được resize +
+ *  tăng nét như trước) LẪN FILE PDF (gửi thẳng, không qua sharp vì sharp
+ *  không xử lý được PDF — Claude tự đọc PDF trực tiếp qua khối "document",
+ *  không cần tự chuyển từng trang PDF sang ảnh trước). */
+async function prepareContent(buffer: Buffer, mimeType: string, highRes = false): Promise<ContentSource> {
+  if (mimeType === 'application/pdf') {
+    return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } }
+  }
+  const { buffer: img, mediaType } = await prepareImage(buffer, highRes)
+  return { type: 'image', source: { type: 'base64', media_type: mediaType, data: img.toString('base64') } }
+}
+
 export interface AiGradeResult {
   /** Tên học sinh AI đọc được trên bài (nguyên văn, có thể sai/thiếu dấu). */
   studentName: string
@@ -107,9 +123,8 @@ CHỈ trả về JSON hợp lệ theo đúng schema sau, không thêm chữ nào
 export async function gradeTestPhoto(
   imageBuffer: Buffer, mimeType: string, answerKey?: string, highRes = false,
 ): Promise<AiGradeResult> {
-  void mimeType // resize luôn về JPEG bên dưới — không cần giữ định dạng gốc
   const anthropic = getClient()
-  const { buffer, mediaType } = await prepareImage(imageBuffer, highRes)
+  const contentSource = await prepareContent(imageBuffer, mimeType, highRes)
 
   const instructionText = answerKey?.trim()
     ? `Đọc tên học sinh và chấm điểm bài này.\n\nĐÁP ÁN ĐÚNG của đề (do giáo viên cung cấp — ưu tiên dùng để so khớp thay vì tự đoán):\n${answerKey.trim()}\n\nChỉ trả JSON theo đúng schema.`
@@ -126,7 +141,7 @@ export async function gradeTestPhoto(
       {
         role: 'user',
         content: [
-          { type: 'image', source: { type: 'base64', media_type: mediaType, data: buffer.toString('base64') } },
+          contentSource,
           { type: 'text', text: instructionText },
         ],
       },
@@ -189,9 +204,8 @@ CHỈ trả về JSON hợp lệ theo đúng schema sau, không thêm chữ nào
  *  nhất quán cho cùng 1 đề). Đáp án trả về LUÔN LÀ BẢN NHÁP — giáo viên phải
  *  xem lại/sửa trước khi dùng để chấm cả lớp, không dùng thẳng. */
 export async function solveTestPhoto(imageBuffer: Buffer, mimeType: string): Promise<AiSolveResult> {
-  void mimeType
   const anthropic = getClient()
-  const { buffer, mediaType } = await prepareImage(imageBuffer)
+  const contentSource = await prepareContent(imageBuffer, mimeType)
 
   const msg = await anthropic.messages.create({
     model: 'claude-sonnet-5',
@@ -201,7 +215,7 @@ export async function solveTestPhoto(imageBuffer: Buffer, mimeType: string): Pro
       {
         role: 'user',
         content: [
-          { type: 'image', source: { type: 'base64', media_type: mediaType, data: buffer.toString('base64') } },
+          contentSource,
           { type: 'text', text: 'Đọc đề này và đưa ra đáp án đúng cho từng câu. Chỉ trả JSON theo đúng schema.' },
         ],
       },

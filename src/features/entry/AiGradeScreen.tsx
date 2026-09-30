@@ -49,13 +49,16 @@ interface Row {
   // nhau — đáng tin hơn; false nghĩa là 2 lần khác nhau — cần tự đọc kỹ.
   checking: boolean
   secondCheck?: { rawScore: number; rawMax: number; studentName: string; agrees: boolean }
+  // File PDF không hiện được bằng thẻ <img> — hiện icon thay vì ảnh xem trước.
+  isPdf: boolean
 }
 
 function newRow(file: File): Row {
+  const isPdf = file.type === 'application/pdf'
   return {
-    id: uid(), file, previewUrl: URL.createObjectURL(file), status: 'pending',
+    id: uid(), file, previewUrl: isPdf ? '' : URL.createObjectURL(file), status: 'pending',
     matches: [], studentId: '', classIndex: -1, date: todayISO(), compKey: '',
-    rawScore: 0, rawMax: 0, usedAnswerKey: false, checking: false,
+    rawScore: 0, rawMax: 0, usedAnswerKey: false, checking: false, isPdf,
   }
 }
 
@@ -255,15 +258,15 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
         <div>
           <div className="mb-1 flex items-center gap-2">
             <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ background: C.board, color: '#fff' }}>1</span>
-            <label className="text-sm font-semibold" style={{ color: C.ink }}>Thêm ảnh bài kiểm tra</label>
+            <label className="text-sm font-semibold" style={{ color: C.ink }}>Thêm ảnh hoặc file PDF bài kiểm tra</label>
           </div>
           <label className="cursor-pointer">
             <input
-              type="file" accept="image/jpeg,image/png,image/webp" multiple
+              type="file" accept="image/jpeg,image/png,image/webp,application/pdf" multiple
               className="hidden" onChange={(e) => { addFiles(e.target.files); e.target.value = '' }}
             />
             <span className="inline-flex min-h-11 items-center rounded-xl px-4 text-sm font-semibold" style={{ background: C.paper, color: C.ink, border: `1px solid ${C.line}` }}>
-              + Thêm ảnh
+              + Thêm ảnh/PDF
             </span>
           </label>
         </div>
@@ -323,7 +326,17 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
         return (
           <Card key={row.id} className="p-4">
             <div className="flex gap-3">
-              <img src={row.previewUrl} alt="" className="h-24 w-24 shrink-0 rounded-lg object-cover" style={{ border: `1px solid ${C.line}` }} />
+              {row.isPdf ? (
+                <div
+                  className="flex h-24 w-24 shrink-0 flex-col items-center justify-center gap-1 rounded-lg text-xs font-bold"
+                  style={{ border: `1px solid ${C.line}`, background: C.paper, color: C.muted }}
+                >
+                  <span className="text-2xl">📄</span>
+                  PDF
+                </div>
+              ) : (
+                <img src={row.previewUrl} alt="" className="h-24 w-24 shrink-0 rounded-lg object-cover" style={{ border: `1px solid ${C.line}` }} />
+              )}
               <div className="flex-1 min-w-0 space-y-2">
                 {row.status === 'pending' && <div className="text-sm" style={{ color: C.muted }}>Chưa chấm</div>}
                 {row.status === 'grading' && <div className="text-sm" style={{ color: C.muted }}>Đang đọc ảnh...</div>}

@@ -6,13 +6,15 @@ import { ok, badRequest } from '../utils/response.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
 import type { AuthRequest } from '../middleware/auth.js'
 
-// Multer: lưu tạm trong memory (không ghi ổ đĩa, không upload lên đâu cả),
-// giới hạn 8MB — chỉ để OCR/chấm, không cần ảnh gốc chất lượng cao.
+// Multer: lưu tạm trong memory (không ghi ổ đĩa, không upload lên đâu cả).
+// Nhận cả ẢNH (jpeg/png/webp) LẪN FILE PDF (VD chụp màn hình đề từ file PDF,
+// hoặc chính file PDF gốc) — Claude đọc PDF trực tiếp, không cần tự chuyển
+// từng trang sang ảnh. Giới hạn 15MB — PDF nhiều trang/scan nặng hơn ảnh.
 export const uploadAiPhoto = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024 },
+  limits: { fileSize: 15 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    cb(null, ['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype))
+    cb(null, ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.mimetype))
   },
 })
 

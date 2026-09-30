@@ -47,7 +47,7 @@ export function AiSolveBox({ onSolved }: AiSolveBoxProps) {
     <div className="space-y-1.5">
       <label className="cursor-pointer">
         <input
-          type="file" accept="image/jpeg,image/png,image/webp"
+          type="file" accept="image/jpeg,image/png,image/webp,application/pdf"
           className="hidden" disabled={solving}
           onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = '' }}
         />
