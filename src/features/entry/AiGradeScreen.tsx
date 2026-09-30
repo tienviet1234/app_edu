@@ -76,6 +76,11 @@ interface Row {
   // Đang hiện ảnh gốc kèm ghim ghi chú tại đúng khu vực AI nghi ngờ hay không
   // — mặc định ẩn (ảnh to chiếm nhiều chỗ), bấm nút mới hiện ra.
   showAnnotated: boolean
+  // Giáo viên CHỦ ĐỘNG tick chọn lưu lại ảnh gốc làm bằng chứng/hồ sơ — mặc
+  // định TẮT (ảnh KHÔNG được lưu trừ khi tick ô này), tự xóa sau 30 ngày.
+  // Chỉ áp dụng cho ẢNH thường, không áp dụng cho PDF.
+  saveOriginal: boolean
+  savingOriginal: boolean
 }
 
 function newRow(file: File): Row {
@@ -89,6 +94,7 @@ function newRow(file: File): Row {
     rawScore: 0, rawMax: 0, usedAnswerKey: false, checking: false, isPdf,
     noteDraft: '', savingNote: false, myNote: '',
     confirmManualOverride: false, showPicker: false, questions: [], showAnnotated: false,
+    saveOriginal: false, savingOriginal: false,
   }
 }
 
@@ -458,6 +464,21 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
 
       patch(row.id, (r2) => { r2.status = 'saved' })
       toast.success(`Đã lưu điểm ${comp.label} cho ${student.name} (${cls.name})`)
+
+      // Lưu ảnh gốc làm bằng chứng — CHỈ khi giáo viên chủ động tick, không
+      // tự động. Best-effort: lỗi ở bước này không được phép làm mất điểm
+      // vừa lưu thành công ở trên, chỉ báo riêng.
+      if (row.saveOriginal && !row.isPdf) {
+        patch(row.id, (r2) => { r2.savingOriginal = true })
+        try {
+          await aiGradingService.savePhoto(row.file, cls.id, student.id)
+          toast.success('Đã lưu ảnh gốc — tự xóa sau 30 ngày.')
+        } catch {
+          toast.error('Lưu điểm thành công nhưng lưu ảnh gốc bị lỗi — thử tick lại.')
+        } finally {
+          patch(row.id, (r2) => { r2.savingOriginal = false })
+        }
+      }
     } catch {
       patch(row.id, (r2) => { r2.status = 'error'; r2.error = 'Lỗi khi lưu điểm — thử lại.' })
     }
@@ -841,6 +862,21 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
                       <div className="mt-1 text-xs" style={{ color: C.muted }}>Ghi vào cùng buổi học khi bạn bấm "Lưu điểm" bên dưới.</div>
                     </div>
 
+                    {!row.isPdf && (
+                      <label className="flex items-start gap-2 text-xs" style={{ color: C.ink }}>
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={row.saveOriginal}
+                          onChange={(e) => patch(row.id, (r) => { r.saveOriginal = e.target.checked })}
+                        />
+                        <span>
+                          📎 Lưu lại ảnh gốc làm bằng chứng/hồ sơ (tự xóa sau 30 ngày, chỉ giáo viên lớp này + admin xem
+                          được) — lưu khi bạn bấm "Lưu điểm" bên dưới.
+                        </span>
+                      </label>
+                    )}
+
                     {row.secondCheck && (
                       <div
                         className="rounded-lg px-2 py-2 text-xs"
@@ -896,7 +932,7 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
                     onClick={() => saveRow(row)}
                     disabled={!row.studentId || !row.compKey || (needsManual && !row.confirmManualOverride)}
                   >
-                    {row.status === 'saved' ? '✓ Đã lưu' : 'Lưu điểm'}
+                    {row.savingOriginal ? 'Đang lưu ảnh...' : row.status === 'saved' ? '✓ Đã lưu' : 'Lưu điểm'}
                   </Btn>
                 )}
                 {(row.status === 'error' || row.status === 'read' || row.status === 'saved') && (

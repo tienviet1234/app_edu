@@ -1,0 +1,16 @@
+name: Cleanup AI-graded photos
+
+on:
+  schedule:
+    - cron: '0 18 * * *' # 18:00 UTC = 01:00 sáng giờ Việt Nam, mỗi ngày
+  workflow_dispatch: {} # cho phép bấm chạy tay từ tab Actions để test
+
+jobs:
+  cleanup-ai-photos:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gọi /api/cron/cleanup-ai-photos
+        run: |
+          curl --fail --show-error --silent \
+            -X POST "${{ secrets.BACKEND_URL }}/api/cron/cleanup-ai-photos" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}"

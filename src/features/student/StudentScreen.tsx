@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ClassData } from '@/types'
 import { C } from '@/constants/colors'
-import { round1 } from '@/utils/format'
+import { round1, viDate } from '@/utils/format'
+import { isMongoid } from '@/utils/mongoid'
 import { rankingOf, badgesOf } from '@/business/ranking'
+import { aiGradingService, type AiSavedPhoto } from '@/services/aiGrading'
 import { Card } from '@/components/atoms/Card'
 import { RankBadge } from '@/components/atoms/RankBadge'
 import { ExpBar } from '@/components/atoms/ExpBar'
@@ -15,6 +17,20 @@ interface StudentScreenProps {
 export function StudentScreen({ cls }: StudentScreenProps) {
   const [i, setI] = useState(0)
   const st = cls.students[i]
+  // Ảnh bài kiểm tra AI đã chấm, được giáo viên chủ động tick lưu lại làm
+  // bằng chứng ở màn "Chấm bằng AI" — tự xóa sau 30 ngày, chỉ giáo viên lớp
+  // này + admin xem được (xem aiGradingController.listSavedPhotos).
+  const [savedPhotos, setSavedPhotos] = useState<AiSavedPhoto[]>([])
+
+  useEffect(() => {
+    if (!st || !isMongoid(cls.id) || !isMongoid(st.id)) { setSavedPhotos([]); return }
+    let alive = true
+    aiGradingService.listSavedPhotos(cls.id, st.id)
+      .then((photos) => { if (alive) setSavedPhotos(photos) })
+      .catch(() => { if (alive) setSavedPhotos([]) })
+    return () => { alive = false }
+  }, [cls.id, st?.id])
+
   if (!st) return <Card className="p-6 text-center">Lớp chưa có học sinh.</Card>
 
   const ranking = rankingOf(cls)
@@ -111,6 +127,25 @@ export function StudentScreen({ cls }: StudentScreenProps) {
               >
                 {w.text}
               </span>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {savedPhotos.length > 0 && (
+        <Card className="p-3">
+          <div className="mb-2 text-xs font-bold" style={{ color: C.muted }}>
+            ẢNH BÀI KIỂM TRA ĐÃ LƯU (tự xóa sau 30 ngày)
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {savedPhotos.map((p) => (
+              <a key={p.id} href={p.photoUrl} target="_blank" rel="noreferrer" className="block" title={`Chụp ngày ${viDate(p.createdAt.slice(0, 10))} — tự xóa ${viDate(p.expiresAt.slice(0, 10))}`}>
+                <img
+                  src={p.photoUrl} alt=""
+                  className="h-20 w-20 rounded-lg object-cover"
+                  style={{ border: `1px solid ${C.line}` }}
+                />
+              </a>
             ))}
           </div>
         </Card>

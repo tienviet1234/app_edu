@@ -2,9 +2,25 @@ import type { Request, Response } from 'express'
 import multer from 'multer'
 import { gradeTestPhoto, solveTestPhoto } from '../services/aiGradingService.js'
 import { Notification } from '../models/Notification.js'
-import { ok, badRequest } from '../utils/response.js'
+import { Class } from '../models/Class.js'
+import { AiGradedPhoto } from '../models/AiGradedPhoto.js'
+import { uploadImageToCloudinary } from '../services/storageService.js'
+import { ok, created, badRequest, forbidden } from '../utils/response.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
 import type { AuthRequest } from '../middleware/auth.js'
+
+// Giữ 30 ngày — đủ để đối chiếu nếu phụ huynh thắc mắc điểm, sau đó tự xóa
+// (xem aiGradedPhotoService.runAiPhotoCleanup, gọi qua cron hàng ngày) —
+// giảm thời gian giữ dữ liệu ảnh trẻ em hơn mức cần thiết.
+const AI_PHOTO_RETENTION_DAYS = 30
+
+/** Giáo viên chỉ được lưu/xem ảnh của lớp MÌNH dạy — cùng kiểm tra với
+ *  submissionController.assertTeacherOwnsClass. Admin qua hết. */
+async function assertTeacherOwnsClass(authReq: AuthRequest, classId: string): Promise<boolean> {
+  if (authReq.user?.role === 'admin') return true
+  const cls = await Class.findById(classId, 'teacherId').lean()
+  return !!cls?.teacherId && String(cls.teacherId) === String(authReq.userId)
+}
 
 // Multer: lưu tạm trong memory (không ghi ổ đĩa, không upload lên đâu cả).
 // Nhận cả ẢNH (jpeg/png/webp) LẪN FILE PDF (VD chụp màn hình đề từ file PDF,
@@ -104,4 +120,49 @@ export const solveTest = asyncHandler(async (req: Request, res: Response) => {
     }
     throw err
   }
+})
+
+/** POST /api/ai/save-photo — giáo viên CHỦ ĐỘNG lưu lại ảnh bài đã chấm bằng
+ *  AI làm bằng chứng/hồ sơ (không tự động, không bắt buộc). Khác hẳn luồng
+ *  gradePhoto ở trên — ảnh KHÔNG được lưu trừ khi gọi đúng endpoint này.
+ *  Tự xóa sau AI_PHOTO_RETENTION_DAYS (xem aiGradedPhotoService). */
+export const savePhoto = asyncHandler(async (req: Request, res: Response) => {
+  const authReq = req as AuthRequest
+  const file = (req as Request & { file?: Express.Multer.File }).file
+  const classId = typeof req.body?.classId === 'string' ? req.body.classId : ''
+  const studentId = typeof req.body?.studentId === 'string' ? req.body.studentId : ''
+  if (!file || !classId || !studentId) {
+    badRequest(res, 'Thiếu ảnh, lớp hoặc học sinh.')
+    return
+  }
+  if (!(await assertTeacherOwnsClass(authReq, classId))) {
+    forbidden(res, 'Bạn không dạy lớp này.')
+    return
+  }
+
+  const { url, publicId } = await uploadImageToCloudinary(file.buffer, 'ai-grade')
+  const expiresAt = new Date(Date.now() + AI_PHOTO_RETENTION_DAYS * 24 * 60 * 60 * 1000)
+  const doc = await AiGradedPhoto.create({
+    classId, studentId, uploadedBy: authReq.userId, photoUrl: url, photoPublicId: publicId, expiresAt,
+  })
+  created(res, { id: doc._id, photoUrl: doc.photoUrl, expiresAt: doc.expiresAt })
+})
+
+/** GET /api/ai/saved-photos?classId=&studentId= — xem lại ảnh bài kiểm tra
+ *  đã lưu của 1 học sinh. Chỉ giáo viên dạy đúng lớp đó + admin xem được. */
+export const listSavedPhotos = asyncHandler(async (req: Request, res: Response) => {
+  const authReq = req as AuthRequest
+  const classId = typeof req.query.classId === 'string' ? req.query.classId : ''
+  const studentId = typeof req.query.studentId === 'string' ? req.query.studentId : ''
+  if (!classId || !studentId) {
+    badRequest(res, 'Thiếu classId hoặc studentId.')
+    return
+  }
+  if (!(await assertTeacherOwnsClass(authReq, classId))) {
+    forbidden(res, 'Bạn không dạy lớp này.')
+    return
+  }
+
+  const photos = await AiGradedPhoto.find({ classId, studentId }).sort({ createdAt: -1 }).lean()
+  ok(res, photos.map((p) => ({ id: p._id, photoUrl: p.photoUrl, expiresAt: p.expiresAt, createdAt: p.createdAt })))
 })

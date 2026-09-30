@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express'
 import { runReminderCheck } from '../services/reminderService.js'
 import { runDatabaseBackup } from '../services/backupService.js'
+import { runAiPhotoCleanup } from '../services/aiGradedPhotoService.js'
 import { ok, unauthorized } from '../utils/response.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
 import { env } from '../config/env.js'
@@ -27,5 +28,16 @@ export const backupDatabase = asyncHandler(async (req: Request, res: Response) =
     return
   }
   const result = await runDatabaseBackup()
+  ok(res, result)
+})
+
+/** POST /api/cron/cleanup-ai-photos — xóa ảnh bài kiểm tra đã lưu (AiGradedPhoto)
+ *  quá hạn 30 ngày, cả trên Cloudinary lẫn Mongo. */
+export const cleanupAiPhotos = asyncHandler(async (req: Request, res: Response) => {
+  if (!checkCronSecret(req)) {
+    unauthorized(res, 'Invalid cron secret.')
+    return
+  }
+  const result = await runAiPhotoCleanup()
   ok(res, result)
 })

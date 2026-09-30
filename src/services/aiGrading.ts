@@ -21,6 +21,13 @@ export interface AiSolveResult {
   unreadable: boolean
 }
 
+export interface AiSavedPhoto {
+  id: string
+  photoUrl: string
+  expiresAt: string
+  createdAt: string
+}
+
 export const aiGradingService = {
   /** Gửi 1 ảnh bài kiểm tra giấy cho AI đọc tên + chấm điểm. Chỉ trả gợi ý —
    *  không tự ghi điểm ở đâu cả. `answerKey` (không bắt buộc): đáp án đúng
@@ -55,4 +62,24 @@ export const aiGradingService = {
       })
       .then((r) => r.data.data)
   },
+
+  /** Giáo viên CHỦ ĐỘNG lưu lại ảnh bài đã chấm làm bằng chứng/hồ sơ — KHÁC
+   *  hẳn gradePhoto ở trên, ảnh KHÔNG được lưu trừ khi gọi đúng hàm này. Tự
+   *  xóa sau 30 ngày, chỉ giáo viên dạy lớp đó + admin xem lại được. */
+  savePhoto: (file: File, classId: string, studentId: string): Promise<AiSavedPhoto> => {
+    const form = new FormData()
+    form.append('photo', file)
+    form.append('classId', classId)
+    form.append('studentId', studentId)
+    return api
+      .post('/ai/save-photo', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 60 * 1000,
+      })
+      .then((r) => r.data.data)
+  },
+
+  /** Xem lại ảnh bài kiểm tra đã lưu của 1 học sinh (mới nhất trước). */
+  listSavedPhotos: (classId: string, studentId: string): Promise<AiSavedPhoto[]> =>
+    api.get('/ai/saved-photos', { params: { classId, studentId } }).then((r) => r.data.data),
 }
