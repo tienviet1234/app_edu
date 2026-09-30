@@ -212,7 +212,11 @@ Nhiệm vụ:
 1. Đọc toàn bộ đề, xác định từng câu hỏi và số thứ tự của nó.
 2. Nếu đề đã có sẵn đáp án đúng (in sẵn, hoặc giáo viên đã ghi đáp án lên đề) — đọc lại chính xác đáp án đó, không tự giải lại.
 3. Nếu đề CHƯA có đáp án — tự giải từng câu bằng kiến thức tiếng Anh, chọn đáp án đúng nhất.
-4. Trả về đáp án dạng chữ ngắn gọn, dễ đọc, mỗi câu 1 mục theo đúng số thứ tự trong đề (VD "1-B 2-C 3-A" cho trắc nghiệm, "1. is read" cho điền câu, "1-Correct" cho đúng/sai...). Giữ đúng thứ tự câu trong đề.
+4. TRÌNH BÀY đáp án SAO CHO GIÁO VIÊN DỄ ĐỐI CHIẾU NGƯỢC LẠI VỚI ĐỀ GỐC — đây là yêu cầu quan trọng, không chỉ liệt kê đáp án là xong:
+   - Nếu đề chia thành nhiều phần có tiêu đề riêng (I, II, III... hoặc Part 1, Part 2...), GIỮ NGUYÊN đúng tiêu đề đó làm dòng riêng phân cách giữa các phần (VD dòng "I. Find the words..." y hệt cách đề ghi, dù rút gọn bớt cũng phải nhận ra được là phần nào), rồi mới tới đáp án của phần đó.
+   - MỖI CÂU 1 DÒNG RIÊNG (không dồn nhiều câu trên 1 dòng dài) — dễ dò theo từng dòng khi cầm đề gốc so sánh.
+   - Đáp án viết theo đúng dạng của câu đó: trắc nghiệm ghi "3. C" hoặc "3-C"; điền từ ghi "3. is read"; đúng/sai ghi "3. Đúng" hoặc "3. Sai"; nối câu ghi "3. a-ii".
+   - Giữ đúng số thứ tự VÀ đúng cách đánh số của đề gốc (I.1, I.2... hay 1, 2, 3... tùy đề đánh số kiểu gì thì theo đúng kiểu đó) — không tự đổi cách đánh số.
 5. Với câu nào bạn KHÔNG chắc chắn (ngữ pháp mơ hồ, có thể có nhiều đáp án hợp lý, chữ đề mờ không đọc rõ) — vẫn đưa ra đáp án bạn cho là đúng nhất, nhưng liệt kê số câu đó vào uncertainNotes kèm lý do ngắn gọn, để giáo viên xem lại đúng những câu đó.
 6. Nếu ảnh không phải đề kiểm tra, hoặc mờ tới mức không đọc được đề gì cả, đặt unreadable=true.
 7. Nếu ảnh chụp thiếu góc/mờ một phần nhưng vẫn đọc được phần lớn đề, đặt lowConfidence=true và vẫn cố gắng giải hết phần đọc được.
@@ -231,7 +235,11 @@ export async function solveTestPhoto(imageBuffer: Buffer, mimeType: string): Pro
 
   const msg = await anthropic.messages.create({
     model: 'claude-sonnet-5',
-    max_tokens: 1536,
+    // Nâng lên từ 1536 — cách trình bày mới (mỗi câu 1 dòng riêng, giữ tiêu
+    // đề từng phần) dài hơn hẳn kiểu cũ dồn nhiều câu 1 dòng, nhất là đề
+    // nhiều trang/nhiều câu (VD đề 4 trang, ~30+ câu/phần) — 1536 dễ bị cắt
+    // giữa chừng, mất phần cuối đáp án.
+    max_tokens: 4096,
     // Tắt "extended thinking" — cùng lý do như gradeTestPhoto ở trên: suy
     // luận dài ngốn hết max_tokens, không còn chỗ viết JSON trả lời.
     thinking: { type: 'disabled' },
