@@ -250,10 +250,29 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
           chỗ trống. Chỉ dùng được cho tiêu chí dạng điểm số (VD Mini Test, Nghe) — bài tập viết tay dạng chữa
           lỗi/BTVN vẫn phải chấm tay ở Nhập điểm như cũ.
         </div>
+        <hr style={{ borderColor: C.line }} />
+
         <div>
-          <label className="mb-1 block text-xs font-semibold" style={{ color: C.ink }}>
-            Lớp áp dụng (không bắt buộc)
+          <div className="mb-1 flex items-center gap-2">
+            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ background: C.board, color: '#fff' }}>1</span>
+            <label className="text-sm font-semibold" style={{ color: C.ink }}>Thêm ảnh bài kiểm tra</label>
+          </div>
+          <label className="cursor-pointer">
+            <input
+              type="file" accept="image/jpeg,image/png,image/webp" multiple
+              className="hidden" onChange={(e) => { addFiles(e.target.files); e.target.value = '' }}
+            />
+            <span className="inline-flex min-h-11 items-center rounded-xl px-4 text-sm font-semibold" style={{ background: C.paper, color: C.ink, border: `1px solid ${C.line}` }}>
+              + Thêm ảnh
+            </span>
           </label>
+        </div>
+
+        <div>
+          <div className="mb-1 flex items-center gap-2">
+            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ background: C.paper, color: C.muted, border: `1px solid ${C.line}` }}>2</span>
+            <label className="text-sm font-semibold" style={{ color: C.ink }}>Lớp áp dụng (không bắt buộc)</label>
+          </div>
           <select
             value={targetClassId}
             onChange={(e) => setTargetClassId(e.target.value)}
@@ -268,10 +287,12 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
             lớp khác nhau. Để trống thì AI vẫn tự tìm khắp mọi lớp như trước.
           </div>
         </div>
+
         <div className="space-y-1.5">
-          <label className="mb-1 block text-xs font-semibold" style={{ color: C.ink }}>
-            Đáp án đúng của đề (không bắt buộc)
-          </label>
+          <div className="mb-1 flex items-center gap-2">
+            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ background: C.paper, color: C.muted, border: `1px solid ${C.line}` }}>3</span>
+            <label className="text-sm font-semibold" style={{ color: C.ink }}>Đáp án đúng của đề (không bắt buộc)</label>
+          </div>
           <textarea
             value={answerKey}
             onChange={(e) => setAnswerKey(e.target.value)}
@@ -282,22 +303,18 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
           />
           <AiSolveBox onSolved={setAnswerKey} />
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="cursor-pointer">
-            <input
-              type="file" accept="image/jpeg,image/png,image/webp" multiple
-              className="hidden" onChange={(e) => { addFiles(e.target.files); e.target.value = '' }}
-            />
-            <span className="inline-flex min-h-11 items-center rounded-xl px-4 text-sm font-semibold" style={{ background: C.paper, color: C.ink, border: `1px solid ${C.line}` }}>
-              + Thêm ảnh
-            </span>
-          </label>
-          {rows.length > 0 && (
+
+        {rows.length > 0 && (
+          <div>
+            <div className="mb-1 flex items-center gap-2">
+              <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ background: C.gold, color: '#1C0F00' }}>4</span>
+              <label className="text-sm font-semibold" style={{ color: C.ink }}>Bấm chấm — làm sau khi đã thêm đủ ảnh</label>
+            </div>
             <Btn kind="solid" onClick={gradeAll} disabled={running}>
               {running ? 'Đang chấm...' : `Chấm bằng AI (${rows.filter((r) => r.status === 'pending').length} ảnh chưa chấm)`}
             </Btn>
-          )}
-        </div>
+          </div>
+        )}
       </Card>
 
       {displayRows.map((row) => {
