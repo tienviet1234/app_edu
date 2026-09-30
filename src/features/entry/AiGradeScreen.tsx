@@ -56,15 +56,22 @@ interface Row {
   // lưu để gõ mượt (input có kiểm soát), chỉ ghi thật khi bấm Lưu.
   noteDraft: string
   savingNote: boolean
+  // Ghi chú TỰ DO của giáo viên cho ĐÚNG lần chấm này (khác ghi chú nét chữ —
+  // cái đó gắn với học sinh, dùng lại mãi; cái này gắn với 1 lần chấm cụ
+  // thể) — lưu vào ô "note" của điểm khi bấm Lưu điểm.
+  myNote: string
 }
 
 function newRow(file: File): Row {
   const isPdf = file.type === 'application/pdf'
   return {
-    id: uid(), file, previewUrl: isPdf ? '' : URL.createObjectURL(file), status: 'pending',
+    // Luôn tạo previewUrl kể cả PDF — dùng để bấm mở xem to (trình duyệt tự
+    // hiển thị PDF trong tab mới), chỉ riêng thẻ <img> mới không hiển thị
+    // được PDF nên phần đó vẫn phải dùng icon thay thế.
+    id: uid(), file, previewUrl: URL.createObjectURL(file), status: 'pending',
     matches: [], studentId: '', classIndex: -1, date: todayISO(), compKey: '',
     rawScore: 0, rawMax: 0, usedAnswerKey: false, checking: false, isPdf,
-    noteDraft: '', savingNote: false,
+    noteDraft: '', savingNote: false, myNote: '',
   }
 }
 
@@ -108,6 +115,20 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
       row.compKey = ''
       row.noteDraft = ''
     }
+  }
+
+  /** Khi "Chấm kỹ hơn" ra 2 kết quả khác nhau — giáo viên bấm chọn dùng kết
+   *  quả nào, không chỉ đọc thông báo rồi tự loay hoay. Chọn lần 2 thì thay
+   *  luôn điểm hiện tại bằng điểm lần 2; chọn lần 1 thì giữ nguyên, chỉ đóng
+   *  banner lại — cả 2 trường hợp đều coi như đã xử lý xong cảnh báo. */
+  function useSecondCheckResult(row: Row, which: 'first' | 'second') {
+    patch(row.id, (r) => {
+      if (which === 'second' && r.secondCheck) {
+        r.rawScore = r.secondCheck.rawScore
+        r.rawMax = r.secondCheck.rawMax
+      }
+      r.secondCheck = undefined
+    })
   }
 
   async function saveHandwritingNote(row: Row) {
@@ -232,7 +253,14 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
       }
       const entry = session ? { ...session.entry } : emptyEntry()
       entry.scores = { ...entry.scores, [row.compKey]: scoreValue }
-      if (isNew && row.ai?.errors.length) entry.note = row.ai.errors.join(', ')
+      // Ghi chú của bạn (nếu có gõ) LUÔN được lưu, kể cả buổi đã có sẵn — vì
+      // bạn chủ động gõ ngay lúc này, không phải suy luận tự động như lỗi AI
+      // thấy (chỉ điền tự động lần đầu, không ghi đè ghi chú cũ đã có).
+      if (row.myNote.trim()) {
+        entry.note = entry.note ? `${entry.note}; ${row.myNote.trim()}` : row.myNote.trim()
+      } else if (isNew && row.ai?.errors.length) {
+        entry.note = row.ai.errors.join(', ')
+      }
 
       const r = getClassRubric(cls)
       const allComps = r.comps.map((c) => (c.key === row.compKey ? comp : c))
@@ -375,17 +403,29 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
         return (
           <Card key={row.id} className="p-4">
             <div className="flex gap-3">
-              {row.isPdf ? (
-                <div
-                  className="flex h-24 w-24 shrink-0 flex-col items-center justify-center gap-1 rounded-lg text-xs font-bold"
-                  style={{ border: `1px solid ${C.line}`, background: C.paper, color: C.muted }}
+              <a
+                href={row.previewUrl} target="_blank" rel="noreferrer"
+                title="Bấm để xem ảnh gốc to hơn (mở tab mới)"
+                className="relative block h-24 w-24 shrink-0"
+              >
+                {row.isPdf ? (
+                  <div
+                    className="flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-lg text-xs font-bold"
+                    style={{ border: `1px solid ${C.line}`, background: C.paper, color: C.muted }}
+                  >
+                    <span className="text-2xl">📄</span>
+                    PDF
+                  </div>
+                ) : (
+                  <img src={row.previewUrl} alt="" className="h-24 w-24 rounded-lg object-cover" style={{ border: `1px solid ${C.line}` }} />
+                )}
+                <span
+                  className="absolute inset-x-0 bottom-0 rounded-b-lg py-0.5 text-center text-[10px] font-semibold text-white"
+                  style={{ background: 'rgba(15,23,42,.65)' }}
                 >
-                  <span className="text-2xl">📄</span>
-                  PDF
-                </div>
-              ) : (
-                <img src={row.previewUrl} alt="" className="h-24 w-24 shrink-0 rounded-lg object-cover" style={{ border: `1px solid ${C.line}` }} />
-              )}
+                  🔍 Xem to
+                </span>
+              </a>
               <div className="flex-1 min-w-0 space-y-2">
                 {row.status === 'pending' && <div className="text-sm" style={{ color: C.muted }}>Chưa chấm</div>}
                 {row.status === 'grading' && <div className="text-sm" style={{ color: C.muted }}>Đang đọc ảnh...</div>}
@@ -511,16 +551,48 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
                       <div className="text-xs" style={{ color: C.muted }}>Lỗi AI thấy: {row.ai.errors.join(', ')}</div>
                     )}
 
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold" style={{ color: C.ink }}>
+                        Ghi chú của bạn cho lần chấm này (không bắt buộc)
+                      </label>
+                      <input
+                        type="text"
+                        value={row.myNote}
+                        onChange={(e) => patch(row.id, (r) => { r.myNote = e.target.value })}
+                        placeholder="VD: đã xem lại ảnh gốc, điểm đúng như AI đọc..."
+                        className="w-full rounded-xl px-3 py-2 text-sm"
+                        style={{ border: `1px solid ${C.line}` }}
+                      />
+                      <div className="mt-1 text-xs" style={{ color: C.muted }}>Ghi vào cùng buổi học khi bạn bấm "Lưu điểm" bên dưới.</div>
+                    </div>
+
                     {row.secondCheck && (
                       <div
-                        className="text-xs rounded-lg px-2 py-1.5"
+                        className="rounded-lg px-2 py-2 text-xs"
                         style={row.secondCheck.agrees
                           ? { background: C.emerald + '1f', color: '#0F5132' }
                           : { background: '#FEE2E2', color: '#991B1B' }}
                       >
-                        {row.secondCheck.agrees
-                          ? `✓ Đã chấm kỹ hơn — lần 2 cho kết quả khớp (${row.secondCheck.rawScore}/${row.secondCheck.rawMax}), đáng tin hơn.`
-                          : `⚠ Chấm kỹ hơn: lần 2 ra kết quả KHÁC — tên "${row.secondCheck.studentName || '(không thấy)'}", ${row.secondCheck.rawScore}/${row.secondCheck.rawMax}. 2 lần không khớp, bạn nên tự đọc lại ảnh gốc.`}
+                        {row.secondCheck.agrees ? (
+                          <div className="flex items-center justify-between gap-2">
+                            <span>✓ Đã chấm kỹ hơn — lần 2 khớp ({row.secondCheck.rawScore}/{row.secondCheck.rawMax}), đáng tin hơn.</span>
+                            <Btn kind="ghost" size="sm" onClick={() => useSecondCheckResult(row, 'first')}>Đã xem</Btn>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="mb-1.5">
+                              ⚠ 2 lần chấm ra kết quả KHÁC nhau, bạn chọn dùng kết quả nào — hoặc mở ảnh gốc để tự đọc:
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <Btn kind="ghost" size="sm" onClick={() => useSecondCheckResult(row, 'first')}>
+                                Dùng lần 1: {row.rawScore}/{row.rawMax}
+                              </Btn>
+                              <Btn kind="ghost" size="sm" onClick={() => useSecondCheckResult(row, 'second')}>
+                                Dùng lần 2: {row.secondCheck.rawScore}/{row.secondCheck.rawMax} (tên "{row.secondCheck.studentName || '?'}")
+                              </Btn>
+                            </div>
+                          </>
+                        )}
                       </div>
                     )}
                     {(row.ai.lowConfidence || row.ai.ambiguousItems.length > 0) && !row.secondCheck && (
@@ -541,8 +613,8 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
                     {row.status === 'saved' ? '✓ Đã lưu' : 'Lưu điểm'}
                   </Btn>
                 )}
-                {row.status === 'error' && (
-                  <Btn kind="ghost" onClick={() => gradeOne(row)}>Chấm lại</Btn>
+                {(row.status === 'error' || row.status === 'read' || row.status === 'saved') && (
+                  <Btn kind="ghost" onClick={() => gradeOne(row)}>🔄 Chấm lại từ đầu</Btn>
                 )}
                 <button className="text-xs" style={{ color: C.muted }} onClick={() => removeRow(row.id)}>Bỏ ảnh này</button>
               </div>
