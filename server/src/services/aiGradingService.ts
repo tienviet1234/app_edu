@@ -116,3 +116,74 @@ export async function gradeTestPhoto(
     fromExistingGrade: !!parsed.fromExistingGrade,
   }
 }
+
+export interface AiSolveResult {
+  /** Đáp án đúng AI tự giải, dạng chữ tự do dễ đọc (VD "1-B 2-C 3-A..."),
+   *  giáo viên XEM LẠI VÀ SỬA ĐƯỢC trước khi dùng — đây là bản NHÁP AI tự
+   *  giải, không phải đáp án chính thức đã được xác nhận. */
+  answerKey: string
+  /** Có câu nào AI không chắc chắn về đáp án đúng (câu khó/hiếm, đề mơ hồ,
+   *  ảnh mờ không đọc rõ đề...) — giáo viên nên xem kỹ các câu đó. */
+  uncertainNotes: string[]
+  lowConfidence: boolean
+  unreadable: boolean
+}
+
+const SOLVE_SYSTEM_PROMPT = `Bạn đang giúp một trung tâm Anh ngữ tại Việt Nam CHUẨN BỊ đáp án cho 1 đề kiểm tra tiếng Anh (KHÔNG PHẢI bài làm của học sinh — đây là đề gốc/đề mẫu còn trống hoặc đã có đáp án đúng in sẵn).
+Nhiệm vụ:
+1. Đọc toàn bộ đề, xác định từng câu hỏi và số thứ tự của nó.
+2. Nếu đề đã có sẵn đáp án đúng (in sẵn, hoặc giáo viên đã ghi đáp án lên đề) — đọc lại chính xác đáp án đó, không tự giải lại.
+3. Nếu đề CHƯA có đáp án — tự giải từng câu bằng kiến thức tiếng Anh, chọn đáp án đúng nhất.
+4. Trả về đáp án dạng chữ ngắn gọn, dễ đọc, mỗi câu 1 mục theo đúng số thứ tự trong đề (VD "1-B 2-C 3-A" cho trắc nghiệm, "1. is read" cho điền câu, "1-Correct" cho đúng/sai...). Giữ đúng thứ tự câu trong đề.
+5. Với câu nào bạn KHÔNG chắc chắn (ngữ pháp mơ hồ, có thể có nhiều đáp án hợp lý, chữ đề mờ không đọc rõ) — vẫn đưa ra đáp án bạn cho là đúng nhất, nhưng liệt kê số câu đó vào uncertainNotes kèm lý do ngắn gọn, để giáo viên xem lại đúng những câu đó.
+6. Nếu ảnh không phải đề kiểm tra, hoặc mờ tới mức không đọc được đề gì cả, đặt unreadable=true.
+7. Nếu ảnh chụp thiếu góc/mờ một phần nhưng vẫn đọc được phần lớn đề, đặt lowConfidence=true và vẫn cố gắng giải hết phần đọc được.
+
+CHỈ trả về JSON hợp lệ theo đúng schema sau, không thêm chữ nào khác ngoài JSON:
+{"answerKey": string, "uncertainNotes": string[], "lowConfidence": boolean, "unreadable": boolean}`
+
+/** Gửi 1 ảnh ĐỀ MẪU (không phải bài học sinh) cho AI tự giải ra đáp án đúng
+ *  — dùng để tạo đáp án 1 lần cho cả xấp bài, thay vì để AI tự giải lại độc
+ *  lập từng ảnh học sinh (dễ giải khác nhau giữa các lần gọi, chấm không
+ *  nhất quán cho cùng 1 đề). Đáp án trả về LUÔN LÀ BẢN NHÁP — giáo viên phải
+ *  xem lại/sửa trước khi dùng để chấm cả lớp, không dùng thẳng. */
+export async function solveTestPhoto(imageBuffer: Buffer, mimeType: string): Promise<AiSolveResult> {
+  const anthropic = getClient()
+  const media = (['image/jpeg', 'image/png', 'image/webp', 'image/gif'] as const).includes(mimeType as never)
+    ? (mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif')
+    : 'image/jpeg'
+
+  const msg = await anthropic.messages.create({
+    model: 'claude-sonnet-5',
+    max_tokens: 1536,
+    system: SOLVE_SYSTEM_PROMPT,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: media, data: imageBuffer.toString('base64') } },
+          { type: 'text', text: 'Đọc đề này và đưa ra đáp án đúng cho từng câu. Chỉ trả JSON theo đúng schema.' },
+        ],
+      },
+    ],
+  })
+
+  const textBlock = msg.content.find((b) => b.type === 'text')
+  const raw = textBlock && 'text' in textBlock ? textBlock.text : ''
+  const jsonMatch = raw.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) throw new Error('AI_BAD_RESPONSE')
+
+  let parsed: Partial<AiSolveResult>
+  try {
+    parsed = JSON.parse(jsonMatch[0])
+  } catch {
+    throw new Error('AI_BAD_RESPONSE')
+  }
+
+  return {
+    answerKey: String(parsed.answerKey ?? '').trim(),
+    uncertainNotes: Array.isArray(parsed.uncertainNotes) ? parsed.uncertainNotes.map(String).slice(0, 10) : [],
+    lowConfidence: !!parsed.lowConfidence,
+    unreadable: !!parsed.unreadable,
+  }
+}

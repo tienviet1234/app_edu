@@ -10,6 +10,7 @@ import { emptyEntry } from '@/business/seed'
 import { sessionScore } from '@/business/scoring'
 import { matchStudentsByName, type StudentMatch } from '@/business/aiMatch'
 import { aiGradingService, type AiGradeResult } from '@/services/aiGrading'
+import { AiSolveBox } from './AiSolveBox'
 import { sessionService } from '@/services/sessions'
 import { scoreService } from '@/services/scores'
 import { Card } from '@/components/atoms/Card'
@@ -199,7 +200,7 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
           chỗ trống. Chỉ dùng được cho tiêu chí dạng điểm số (VD Mini Test, Nghe) — bài tập viết tay dạng chữa
           lỗi/BTVN vẫn phải chấm tay ở Nhập điểm như cũ.
         </div>
-        <div>
+        <div className="space-y-1.5">
           <label className="mb-1 block text-xs font-semibold" style={{ color: C.ink }}>
             Đáp án đúng của đề (không bắt buộc)
           </label>
@@ -211,6 +212,7 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
             className="w-full rounded-xl px-3 py-2 text-sm"
             style={{ border: `1px solid ${C.line}` }}
           />
+          <AiSolveBox onSolved={setAnswerKey} />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <label className="cursor-pointer">

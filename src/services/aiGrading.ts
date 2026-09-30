@@ -10,6 +10,13 @@ export interface AiGradeResult {
   fromExistingGrade: boolean
 }
 
+export interface AiSolveResult {
+  answerKey: string
+  uncertainNotes: string[]
+  lowConfidence: boolean
+  unreadable: boolean
+}
+
 export const aiGradingService = {
   /** Gửi 1 ảnh bài kiểm tra giấy cho AI đọc tên + chấm điểm. Chỉ trả gợi ý —
    *  không tự ghi điểm ở đâu cả. `answerKey` (không bắt buộc): đáp án đúng
@@ -21,6 +28,19 @@ export const aiGradingService = {
     if (answerKey?.trim()) form.append('answerKey', answerKey.trim())
     return api
       .post('/ai/grade-photo', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 60 * 1000,
+      })
+      .then((r) => r.data.data)
+  },
+
+  /** Gửi 1 ảnh ĐỀ MẪU (không phải bài học sinh) cho AI tự giải ra đáp án —
+   *  trả về BẢN NHÁP, cần xem lại/sửa trước khi dùng để chấm cả lớp. */
+  solveTest: (file: File): Promise<AiSolveResult> => {
+    const form = new FormData()
+    form.append('photo', file)
+    return api
+      .post('/ai/solve-test', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 60 * 1000,
       })
