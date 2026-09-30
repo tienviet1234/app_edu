@@ -357,3 +357,86 @@ export async function solveTestPhoto(imageBuffer: Buffer, mimeType: string): Pro
     unreadable: !!parsed.unreadable,
   }
 }
+
+export interface AiSubmissionResult {
+  /** Điểm GỢI Ý (0-100) theo mức hoàn thành + chất lượng — KHÔNG PHẢI điểm
+   *  chính thức, giáo viên luôn tự quyết định điểm cuối trước khi lưu. Khác
+   *  hẳn gradeTestPhoto: bài tập về nhà thường KHÔNG có đáp án cố định để so
+   *  khớp như bài kiểm tra, nên đây chỉ là đánh giá tổng quan. */
+  suggestedScore: number
+  /** Nhận xét ngắn cho giáo viên tham khảo — LUÔN nêu rõ nếu có câu/phần bị
+   *  bỏ trống (xem blanks), không chỉ khen/chê chung chung. */
+  comment: string
+  /** Câu/phần cụ thể bị bỏ trống/chưa làm (VD "Câu 5", "Phần II") — rỗng nếu
+   *  làm đầy đủ. Giáo viên xem nhanh chỗ nào cần nhắc học sinh làm bù. */
+  blanks: string[]
+  lowConfidence: boolean
+  unreadable: boolean
+}
+
+const SUBMISSION_SYSTEM_PROMPT = `Bạn đang giúp giáo viên trung tâm Anh ngữ tại Việt Nam ĐÁNH GIÁ SƠ BỘ 1 ảnh bài tập về nhà học sinh đã làm (KHÔNG PHẢI bài kiểm tra có đáp án cố định — đây là bài tập về nhà thông thường: vở ghi, phiếu bài tập, làm bài trong sách...).
+Nhiệm vụ:
+1. Đọc kỹ đề bài/yêu cầu (nếu giáo viên có mô tả đính kèm bên dưới) và xem học sinh đã làm gì trong ảnh.
+2. Đánh giá mức độ HOÀN THÀNH — câu/phần nào bị bỏ trống, chưa làm, liệt kê cụ thể vào blanks (VD "Câu 5", "Phần II bài tập viết lại câu"). Để rỗng nếu học sinh làm đầy đủ mọi câu/phần nhìn thấy trong ảnh.
+3. Đánh giá CHẤT LƯỢNG chung (trình bày, có lỗi rõ ràng không) — đây là đánh giá GỢI Ý tổng quan, KHÔNG phải chấm từng câu đúng/sai chính xác như trắc nghiệm, vì bài tập về nhà thường không có đáp án cố định để so khớp.
+4. suggestedScore (0-100): điểm gợi ý tổng hợp từ mức hoàn thành + chất lượng — càng bỏ trống/thiếu nhiều thì càng thấp. Đây CHỈ LÀ GỢI Ý để giáo viên tham khảo, giáo viên luôn tự quyết định điểm cuối cùng trước khi lưu.
+5. comment: nhận xét ngắn gọn 1-2 câu bằng tiếng Việt cho giáo viên tham khảo — LUÔN nêu rõ nếu có chỗ bỏ trống, không chỉ khen/chê chung chung.
+6. Nếu ảnh mờ/khó đọc 1 phần, đặt lowConfidence=true, vẫn cố đánh giá phần đọc được.
+7. Nếu ảnh hoàn toàn không đọc được hoặc không liên quan đến bài tập, đặt unreadable=true, suggestedScore=0, comment giải thích ngắn gọn lý do.
+
+CHỈ trả về JSON hợp lệ theo đúng schema sau, không thêm chữ nào khác ngoài JSON:
+{"suggestedScore": number, "comment": string, "blanks": string[], "lowConfidence": boolean, "unreadable": boolean}`
+
+/** Gửi 1 ảnh bài tập về nhà học sinh đã nộp qua app cho AI đánh giá sơ bộ —
+ *  dùng trong màn giáo viên duyệt bài nộp (SubmissionReviewPanel), KHÁC với
+ *  gradeTestPhoto (bài kiểm tra có đáp án đúng/sai rõ ràng). Kết quả LUÔN LÀ
+ *  GỢI Ý — giáo viên xem qua, sửa điểm/nhận xét nếu cần, rồi mới bấm duyệt
+ *  thật. `assignmentTitle`/`assignmentDescription`: đề bài gốc, giúp AI biết
+ *  cần đánh giá theo yêu cầu gì thay vì đoán mò. */
+export async function gradeSubmissionPhoto(
+  imageBuffer: Buffer, mimeType: string, assignmentTitle?: string, assignmentDescription?: string,
+): Promise<AiSubmissionResult> {
+  const anthropic = getClient()
+  const contentSource = await prepareContent(imageBuffer, mimeType)
+
+  const parts = ['Đánh giá sơ bộ ảnh bài tập về nhà này.']
+  if (assignmentTitle?.trim()) parts.push(`\nĐề bài: ${assignmentTitle.trim()}`)
+  if (assignmentDescription?.trim()) parts.push(`Mô tả/yêu cầu: ${assignmentDescription.trim()}`)
+  parts.push('\nChỉ trả JSON theo đúng schema.')
+
+  const msg = await anthropic.messages.create({
+    model: 'claude-sonnet-5',
+    max_tokens: 1024,
+    thinking: { type: 'disabled' },
+    system: [{ type: 'text', text: SUBMISSION_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+    messages: [
+      {
+        role: 'user',
+        content: [
+          contentSource,
+          { type: 'text', text: parts.join('\n') },
+        ],
+      },
+    ],
+  })
+
+  const textBlock = msg.content.find((b) => b.type === 'text')
+  const raw = textBlock && 'text' in textBlock ? textBlock.text : ''
+  const jsonMatch = raw.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) throw new Error('AI_BAD_RESPONSE')
+
+  let parsed: Partial<AiSubmissionResult>
+  try {
+    parsed = JSON.parse(jsonMatch[0])
+  } catch {
+    throw new Error('AI_BAD_RESPONSE')
+  }
+
+  return {
+    suggestedScore: Math.min(100, Math.max(0, Number(parsed.suggestedScore) || 0)),
+    comment: String(parsed.comment ?? '').trim().slice(0, 500),
+    blanks: Array.isArray(parsed.blanks) ? parsed.blanks.map(String).slice(0, 20) : [],
+    lowConfidence: !!parsed.lowConfidence,
+    unreadable: !!parsed.unreadable,
+  }
+}

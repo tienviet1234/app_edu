@@ -107,6 +107,33 @@ export function compHasData(comp: RubricComponent, e: SessionEntry): boolean {
   }
 }
 
+/** Quy đổi 1 con số % (0-100) TỔNG QUÁT (VD điểm bài tập nộp qua app, giáo
+ *  viên cho theo thang 0-100) sang ĐÚNG cấu trúc lưu trữ của 1 tiêu chí —
+ *  mỗi loại tiêu chí lưu điểm 1 kiểu khác nhau (score = số đơn; choice = chọn
+ *  1 mức có sẵn; parts = nhiều phần nhỏ cộng lại), không thể gán thẳng %
+ *  vào đâu cũng được. Trả về SessionEntry ĐÃ SỬA (bản sao, không mutate e).
+ *  type='ticks' (VD BTVN cấp 2: tích từng việc CỤ THỂ đã làm) KHÔNG quy đổi
+ *  được từ 1 con số chung — trả về null, gọi nơi khác phải tự loại bỏ tiêu
+ *  chí loại này khỏi danh sách cho chọn. */
+export function applyPercentToComp(comp: RubricComponent, pct: number, e: SessionEntry): SessionEntry | null {
+  const clamped = Math.min(100, Math.max(0, pct))
+  if (comp.type === 'score') {
+    return { ...e, scores: { ...e.scores, [comp.key]: Math.round((clamped / 100) * comp.max) } }
+  }
+  if (comp.type === 'choice' && comp.options?.length) {
+    // Chọn option có % (pts/max) gần nhất với mức % đang quy đổi.
+    const best = comp.options.reduce((a, b) =>
+      Math.abs((b.pts / comp.max) * 100 - clamped) < Math.abs((a.pts / comp.max) * 100 - clamped) ? b : a)
+    return { ...e, choice: { ...e.choice, [comp.key]: best.id } }
+  }
+  if (comp.type === 'parts' && comp.parts?.length) {
+    const m: Record<string, number> = {}
+    comp.parts.forEach((p) => { m[p.id] = Math.round((clamped / 100) * p.max) })
+    return { ...e, parts: { ...e.parts, [comp.key]: m } }
+  }
+  return null
+}
+
 export function compErrors(comp: RubricComponent, e: SessionEntry): Tag[] {
   switch (comp.type) {
     case 'score':

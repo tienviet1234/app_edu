@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express'
 import multer from 'multer'
-import { gradeTestPhoto, solveTestPhoto } from '../services/aiGradingService.js'
+import { gradeTestPhoto, solveTestPhoto, gradeSubmissionPhoto } from '../services/aiGradingService.js'
 import { Notification } from '../models/Notification.js'
 import { Class } from '../models/Class.js'
 import { AiGradedPhoto } from '../models/AiGradedPhoto.js'
@@ -165,4 +165,40 @@ export const listSavedPhotos = asyncHandler(async (req: Request, res: Response) 
 
   const photos = await AiGradedPhoto.find({ classId, studentId }).sort({ createdAt: -1 }).lean()
   ok(res, photos.map((p) => ({ id: p._id, photoUrl: p.photoUrl, expiresAt: p.expiresAt, createdAt: p.createdAt })))
+})
+
+/** POST /api/ai/grade-submission — đánh giá sơ bộ 1 ảnh bài tập về nhà đã
+ *  nộp qua app (dùng ở SubmissionReviewPanel, KHÁC gradePhoto — bài tập về
+ *  nhà không có đáp án cố định). Chỉ trả GỢI Ý — giáo viên phải tự xem lại
+ *  và bấm duyệt thật, không có gì được tự động lưu ở endpoint này. Không cần
+ *  classId/studentId vì không lưu ảnh lại — chỉ chuyển tiếp ảnh cho AI rồi bỏ. */
+export const gradeSubmission = asyncHandler(async (req: Request, res: Response) => {
+  const file = (req as Request & { file?: Express.Multer.File }).file
+  if (!file) {
+    badRequest(res, 'Chưa có ảnh nào được gửi lên.')
+    return
+  }
+  const assignmentTitle = typeof req.body?.assignmentTitle === 'string' ? req.body.assignmentTitle.slice(0, 200) : undefined
+  const assignmentDescription = typeof req.body?.assignmentDescription === 'string' ? req.body.assignmentDescription.slice(0, 2000) : undefined
+
+  try {
+    const result = await gradeSubmissionPhoto(file.buffer, file.mimetype, assignmentTitle, assignmentDescription)
+    ok(res, result)
+  } catch (err) {
+    if (err instanceof Error && err.message === 'AI_NOT_CONFIGURED') {
+      res.status(503).json({
+        success: false,
+        message: 'Tính năng chấm điểm bằng AI chưa được bật — thiếu ANTHROPIC_API_KEY trên server.',
+      })
+      return
+    }
+    if (err instanceof Error && err.message === 'AI_BAD_RESPONSE') {
+      res.status(502).json({
+        success: false,
+        message: 'AI trả về kết quả không đọc được, thử lại.',
+      })
+      return
+    }
+    throw err
+  }
 })

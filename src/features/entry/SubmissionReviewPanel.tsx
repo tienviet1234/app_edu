@@ -1,9 +1,20 @@
 import { useEffect, useState } from 'react'
+import { produce } from 'immer'
 import { C } from '@/constants/colors'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { assignmentService, type Assignment, type AssignmentStats } from '@/services/assignments'
 import { submissionService, type Submission } from '@/services/submissions'
+import { aiGradingService } from '@/services/aiGrading'
+import { sessionService } from '@/services/sessions'
+import { scoreService } from '@/services/scores'
+import { useAppStore } from '@/store/appStore'
+import { getClassRubric } from '@/constants/rubrics'
+import { applyPercentToComp, sessionScore } from '@/business/scoring'
+import { emptyEntry } from '@/business/seed'
+import { isMongoid } from '@/utils/mongoid'
+import { todayISO } from '@/utils/format'
+import type { AppData } from '@/types'
 import { toast } from '@/store/toastStore'
 import { AssignHomeworkModal } from './AssignHomeworkModal'
 
@@ -12,12 +23,18 @@ interface Props {
   sessionId?: string
 }
 
+function studentIdOf(sub: Submission): string {
+  return typeof sub.studentId === 'object' ? sub.studentId._id : sub.studentId
+}
+
 function StudentName(sub: Submission) {
   if (typeof sub.studentId === 'object') return sub.studentId.name
   return String(sub.studentId)
 }
 
 export function SubmissionReviewPanel({ classId, sessionId }: Props) {
+  const { data, setData } = useAppStore()
+  const cls = data?.classes.find((c) => c.id === classId)
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [submissions, setSubmissions] = useState<Submission[]>([])
@@ -26,10 +43,22 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
   const [reviewing, setReviewing] = useState<string | null>(null)
   const [comment, setComment] = useState('')
   const [score, setScore] = useState('')
+  // Cộng điểm này vào ĐÚNG tiêu chí nào trong rubric (rỗng = không cộng, chỉ
+  // lưu điểm/nhận xét trong bài nộp như trước) — để Báo cáo/Xếp hạng phản
+  // ánh đầy đủ cả điểm bài tập nộp qua app, không chỉ điểm nhập tay ở Nhập
+  // điểm/Chấm bằng AI.
+  const [targetComp, setTargetComp] = useState('')
+  const [syncDate, setSyncDate] = useState(todayISO())
+  const [aiChecking, setAiChecking] = useState(false)
   const [saving, setSaving] = useState(false)
   const [loadingVideo, setLoadingVideo] = useState<string | null>(null)
   const [editingAssignment, setEditingAssignment] = useState<Assignment | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  // Tiêu chí nào cộng được từ 1 con số % chung — loại 'ticks' (VD BTVN cấp 2:
+  // tích từng việc cụ thể đã làm) không quy đổi được từ 1 điểm tổng, xem
+  // business/scoring.ts applyPercentToComp.
+  const availableComps = cls ? getClassRubric(cls).comps.filter((c) => c.type !== 'ticks') : []
 
   function refreshAssignments() {
     assignmentService.list(classId, sessionId).then(setAssignments).catch(() => toast.error('Không tải được danh sách bài tập'))
@@ -69,6 +98,33 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
     }
   }
 
+  /** AI đọc ảnh bài tập nộp, gợi ý điểm/nhận xét — điền vào Ô NHÁP (score/
+   *  comment) để giáo viên xem lại/sửa trước khi bấm "Xác nhận duyệt" thật,
+   *  không tự lưu gì cả. Chỉ dùng được cho submitType='photo' — Claude không
+   *  xử lý được video trực tiếp. */
+  async function runAiAssist(sub: Submission) {
+    if (!sub.photos.length) return
+    setAiChecking(true)
+    try {
+      const res = await fetch(sub.photos[0].url)
+      const blob = await res.blob()
+      const file = new File([blob], 'submission.jpg', { type: blob.type || 'image/jpeg' })
+      const result = await aiGradingService.gradeSubmission(file, selected?.title, selected?.description)
+      if (result.unreadable) {
+        toast.error('AI không đọc được ảnh này rõ ràng — chấm tay cho chắc.')
+        return
+      }
+      setScore(String(result.suggestedScore))
+      const blanksText = result.blanks.length ? ` (Bỏ trống: ${result.blanks.join(', ')})` : ''
+      setComment(`${result.comment}${blanksText}`)
+      toast.success('AI đã gợi ý điểm/nhận xét — xem lại và sửa nếu cần trước khi duyệt.')
+    } catch {
+      toast.error('Lỗi khi gọi AI đánh giá — thử lại.')
+    } finally {
+      setAiChecking(false)
+    }
+  }
+
   async function loadVideo(subId: string) {
     if (videoUrls[subId] || loadingVideo === subId) return
     setLoadingVideo(subId)
@@ -82,10 +138,61 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
     }
   }
 
+  /** Cộng điểm bài nộp vào ĐÚNG tiêu chí rubric của học sinh — tìm/tạo buổi
+   *  đúng ngày syncDate (giống cách AiGradeScreen.saveRow đang làm), quy đổi
+   *  % sang cấu trúc đúng của tiêu chí đó (applyPercentToComp), rồi lưu.
+   *  Best-effort: lỗi ở đây KHÔNG được làm mất việc duyệt bài đã lưu thành
+   *  công ở trên, chỉ báo riêng. */
+  async function syncToRubric(sub: Submission, pct: number, compKey: string) {
+    if (!cls || !isMongoid(cls.id)) return
+    const student = cls.students.find((s) => s.id === studentIdOf(sub))
+    if (!student || !isMongoid(student.id)) return
+    const comp = getClassRubric(cls).comps.find((c) => c.key === compKey)
+    if (!comp) return
+
+    try {
+      let session = student.sessions.find((s) => s.date === syncDate)
+      let sessionId = session?.id ?? ''
+      if (!session) {
+        const apiSession = await sessionService.create({
+          classId: cls.id, studentId: student.id,
+          title: `Buổi ${student.sessions.length + 1}`,
+          lessonNo: student.sessions.length + 1,
+          scheduledAt: `${syncDate}T00:00:00.000Z`,
+        })
+        sessionId = apiSession._id
+      }
+      const baseEntry = session ? { ...session.entry } : emptyEntry()
+      const entry = applyPercentToComp(comp, pct, baseEntry)
+      if (!entry) return
+
+      const r = getClassRubric(cls)
+      const total = sessionScore(entry, r) ?? 0
+      await scoreService.upsert({ classId: cls.id, sessionId, studentId: student.id, ...entry, total })
+
+      setData(produce((d: AppData) => {
+        const c2 = d.classes.find((x) => x.id === cls.id)
+        const st2 = c2?.students.find((x) => x.id === student.id)
+        if (!st2) return
+        let ss2 = st2.sessions.find((x) => x.id === sessionId)
+        if (!ss2) {
+          ss2 = { id: sessionId, no: st2.sessions.length + 1, date: syncDate, homework: '', entry }
+          st2.sessions.push(ss2)
+          st2.sessions.sort((a, b) => a.no - b.no)
+        } else {
+          ss2.entry = entry
+        }
+      }))
+    } catch {
+      toast.error('Đã duyệt bài, nhưng cộng điểm vào Báo cáo bị lỗi — thử lại ở Nhập điểm.')
+    }
+  }
+
   async function handleReview(subId: string) {
     setSaving(true)
     try {
-      const wasReviewed = submissions.find((s) => s._id === subId)?.status === 'reviewed'
+      const sub = submissions.find((s) => s._id === subId)
+      const wasReviewed = sub?.status === 'reviewed'
       const updated = await submissionService.review(subId, {
         teacherComment: comment.trim() || undefined,
         teacherScore: score ? Number(score) : undefined,
@@ -94,9 +201,13 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
       if (!wasReviewed) {
         setStats((prev) => prev ? { ...prev, reviewed: prev.reviewed + 1, pending: prev.pending - 1 } : prev)
       }
+      if (sub && score && targetComp) {
+        await syncToRubric(sub, Number(score), targetComp)
+      }
       setReviewing(null)
       setComment('')
       setScore('')
+      setTargetComp('')
     } catch {
       toast.error('Lưu duyệt bài thất bại, thử lại.')
     } finally {
@@ -299,13 +410,28 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
 
               {/* Form duyệt */}
               {!isReviewing && (!reviewed || (selected.submitType === 'quiz' && !sub.teacherComment)) && (
-                <Btn kind="solid" onClick={() => { setReviewing(sub._id); setComment(''); setScore('') }}>
+                <Btn
+                  kind="solid"
+                  onClick={() => {
+                    setReviewing(sub._id)
+                    setComment('')
+                    setScore('')
+                    setSyncDate(todayISO())
+                    const guessKey = selected.submitType === 'video' ? 'video' : selected.submitType === 'photo' ? 'hw' : ''
+                    setTargetComp(availableComps.some((c) => c.key === guessKey) ? guessKey : '')
+                  }}
+                >
                   {selected.submitType === 'quiz' ? 'Thêm nhận xét' : 'Duyệt bài + Ghi nhận xét'}
                 </Btn>
               )}
 
               {isReviewing && (
                 <div className="space-y-2 rounded-xl p-3" style={{ background: C.paper }}>
+                  {selected.submitType === 'photo' && sub.photos.length > 0 && (
+                    <Btn kind="ghost" size="sm" onClick={() => runAiAssist(sub)} disabled={aiChecking}>
+                      {aiChecking ? 'AI đang xem ảnh...' : '🤖 AI gợi ý điểm/nhận xét (bản nháp)'}
+                    </Btn>
+                  )}
                   {selected.submitType !== 'quiz' && (
                     <input
                       type="number" min={0} max={100}
@@ -322,6 +448,28 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
                     className="w-full resize-none rounded-xl px-3 py-2 text-sm"
                     style={{ border: `1px solid ${C.line}` }}
                   />
+                  {selected.submitType !== 'quiz' && availableComps.length > 0 && (
+                    <div className="space-y-1 rounded-lg p-2" style={{ background: '#fff', border: `1px solid ${C.line}` }}>
+                      <div className="text-xs" style={{ color: C.muted }}>
+                        Cộng điểm này vào tiêu chí (để Báo cáo/Xếp hạng phản ánh đầy đủ):
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <select
+                          value={targetComp} onChange={(e) => setTargetComp(e.target.value)}
+                          className="rounded-lg px-2 py-1.5 text-sm" style={{ border: `1px solid ${C.line}` }}
+                        >
+                          <option value="">— Không cộng vào rubric —</option>
+                          {availableComps.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+                        </select>
+                        {targetComp && (
+                          <input
+                            type="date" value={syncDate} onChange={(e) => setSyncDate(e.target.value)}
+                            className="rounded-lg px-2 py-1.5 text-sm" style={{ border: `1px solid ${C.line}` }}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  )}
                   <div className="flex gap-2">
                     <Btn onClick={() => setReviewing(null)}>Hủy</Btn>
                     <button

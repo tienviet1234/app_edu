@@ -28,6 +28,14 @@ export interface AiSavedPhoto {
   createdAt: string
 }
 
+export interface AiSubmissionResult {
+  suggestedScore: number
+  comment: string
+  blanks: string[]
+  lowConfidence: boolean
+  unreadable: boolean
+}
+
 export const aiGradingService = {
   /** Gửi 1 ảnh bài kiểm tra giấy cho AI đọc tên + chấm điểm. Chỉ trả gợi ý —
    *  không tự ghi điểm ở đâu cả. `answerKey` (không bắt buộc): đáp án đúng
@@ -82,4 +90,21 @@ export const aiGradingService = {
   /** Xem lại ảnh bài kiểm tra đã lưu của 1 học sinh (mới nhất trước). */
   listSavedPhotos: (classId: string, studentId: string): Promise<AiSavedPhoto[]> =>
     api.get('/ai/saved-photos', { params: { classId, studentId } }).then((r) => r.data.data),
+
+  /** Đánh giá sơ bộ 1 ảnh bài tập về nhà đã nộp qua app (SubmissionReviewPanel)
+   *  — KHÁC gradePhoto: bài tập về nhà không có đáp án cố định, chỉ trả GỢI
+   *  Ý điểm + nhận xét + chỗ bỏ trống, giáo viên tự xem lại và sửa trước khi
+   *  lưu thật. */
+  gradeSubmission: (file: File, assignmentTitle?: string, assignmentDescription?: string): Promise<AiSubmissionResult> => {
+    const form = new FormData()
+    form.append('photo', file)
+    if (assignmentTitle?.trim()) form.append('assignmentTitle', assignmentTitle.trim())
+    if (assignmentDescription?.trim()) form.append('assignmentDescription', assignmentDescription.trim())
+    return api
+      .post('/ai/grade-submission', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 60 * 1000,
+      })
+      .then((r) => r.data.data)
+  },
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { compScore, compHasData, sessionScore, rescaleComp, detectMissingComps } from './scoring'
+import { compScore, compHasData, sessionScore, rescaleComp, detectMissingComps, applyPercentToComp } from './scoring'
 import { emptyEntry } from './seed'
 import type { ClassData, RubricComponent, RubricDef, Session, SessionEntry } from '@/types'
 
@@ -51,6 +51,46 @@ describe('compScore', () => {
     expect(compScore(comp, entry({ parts: { video: { full: 99 } } }))).toBe(10)
     // Bị đánh dấu "không nộp" → luôn 0 dù parts có dữ liệu
     expect(compScore(comp, entry({ skip: { video: true }, parts: { video: { full: 10 } } }))).toBe(0)
+  })
+})
+
+describe('applyPercentToComp', () => {
+  it('score: quy đổi % thẳng sang scores[key] theo max', () => {
+    const comp: RubricComponent = { key: 'mini', label: 'Mini', max: 40, type: 'score' }
+    expect(applyPercentToComp(comp, 75, entry())?.scores.mini).toBe(30)
+    expect(applyPercentToComp(comp, 100, entry())?.scores.mini).toBe(40)
+    expect(applyPercentToComp(comp, 0, entry())?.scores.mini).toBe(0)
+  })
+
+  it('choice: chọn option có % (pts/max) gần nhất', () => {
+    const comp: RubricComponent = {
+      key: 'hw', label: 'BTVN', max: 30, type: 'choice',
+      options: [
+        { id: 'full', label: 'Hoàn thành', pts: 30 },
+        { id: 'partial', label: 'Không đầy đủ', pts: 15 },
+        { id: 'none', label: 'Chưa làm', pts: 0 },
+      ],
+    }
+    expect(applyPercentToComp(comp, 95, entry())?.choice.hw).toBe('full')
+    expect(applyPercentToComp(comp, 50, entry())?.choice.hw).toBe('partial')
+    expect(applyPercentToComp(comp, 5, entry())?.choice.hw).toBe('none')
+  })
+
+  it('parts: rải % đều cho từng phần theo max riêng, giữ nguyên phần chưa liên quan', () => {
+    const comp: RubricComponent = {
+      key: 'video', label: 'Video', max: 30, type: 'parts',
+      parts: [{ id: 'full', label: 'Đầy đủ', max: 10 }, { id: 'pron', label: 'Phát âm', max: 10 }, { id: 'ontime', label: 'Đúng hạn', max: 10 }],
+    }
+    const out = applyPercentToComp(comp, 80, entry())
+    expect(out?.parts.video).toEqual({ full: 8, pron: 8, ontime: 8 })
+  })
+
+  it('ticks: không quy đổi được từ 1 con số chung, trả về null', () => {
+    const comp: RubricComponent = {
+      key: 'hw', label: 'BTVN', max: 20, type: 'ticks',
+      items: [{ id: 'a', label: 'A', pts: 10 }, { id: 'b', label: 'B', pts: 10 }],
+    }
+    expect(applyPercentToComp(comp, 80, entry())).toBeNull()
   })
 })
 
