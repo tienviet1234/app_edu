@@ -10,6 +10,7 @@ import { emptyEntry } from '@/business/seed'
 import { sessionScore } from '@/business/scoring'
 import { matchStudentsByName, normalizeViName, type StudentMatch } from '@/business/aiMatch'
 import { matchAiErrorTags } from '@/business/aiErrorTags'
+import { checkImageQuality, type ImageQuality } from '@/utils/imageQuality'
 import { aiGradingService, type AiGradeResult } from '@/services/aiGrading'
 import { AiSolveBox } from './AiSolveBox'
 import { sessionService } from '@/services/sessions'
@@ -82,6 +83,13 @@ interface Row {
   // Chỉ áp dụng cho ẢNH thường, không áp dụng cho PDF.
   saveOriginal: boolean
   savingOriginal: boolean
+  // Kết quả kiểm tra chất lượng ảnh (miễn phí, chạy ngay trên trình duyệt
+  // trước khi gọi AI) — undefined = đang kiểm tra/chưa xong, null = không
+  // kiểm tra được (VD file PDF). Nếu hasIssue=true thì KHÔNG tự động chấm
+  // cho tới khi giáo viên chủ động xác nhận vẫn muốn chấm (qualityConfirmed),
+  // tránh tốn phí gọi AI cho ảnh rõ ràng kém chất lượng.
+  quality?: ImageQuality | null
+  qualityConfirmed: boolean
 }
 
 function newRow(file: File): Row {
@@ -95,7 +103,7 @@ function newRow(file: File): Row {
     rawScore: 0, rawMax: 0, usedAnswerKey: false, checking: false, isPdf,
     noteDraft: '', savingNote: false, myNote: '',
     confirmManualOverride: false, showPicker: false, questions: [], showAnnotated: false,
-    saveOriginal: false, savingOriginal: false,
+    saveOriginal: false, savingOriginal: false, qualityConfirmed: false,
   }
 }
 
@@ -239,7 +247,13 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
 
   function addFiles(files: FileList | null) {
     if (!files?.length) return
-    setRows((prev) => [...prev, ...Array.from(files).map(newRow)])
+    const newRows = Array.from(files).map(newRow)
+    setRows((prev) => [...prev, ...newRows])
+    // Kiểm tra chất lượng ảnh NGAY, miễn phí (không gọi AI) — chạy song song
+    // cho tất cả ảnh vừa thêm, không chặn việc thêm ảnh khác trong lúc chờ.
+    newRows.forEach((r) => {
+      checkImageQuality(r.file).then((q) => patch(r.id, (row) => { row.quality = q }))
+    })
   }
 
   function applyMatch(row: Row, m: StudentMatch | undefined) {
@@ -393,12 +407,19 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
     }
   }
 
+  // Ảnh rõ ràng kém chất lượng (mờ/tối/độ phân giải thấp) mà giáo viên CHƯA
+  // chủ động xác nhận vẫn muốn chấm — không tự động gọi AI cho ảnh này, tránh
+  // tốn phí vô ích khi gần như chắc chắn không ra kết quả tốt.
+  function isReadyToGrade(row: Row): boolean {
+    return !row.quality?.hasIssue || row.qualityConfirmed
+  }
+
   async function gradeAll() {
     setRunning(true)
     // Chấm TUẦN TỰ, không song song — mỗi ảnh tốn phí thật, chạy song song
     // nhiều ảnh cùng lúc dễ vượt giới hạn tốc độ và khó theo dõi tiến độ.
     for (const row of rows) {
-      if (row.status === 'pending' || row.status === 'error') await gradeOne(row)
+      if ((row.status === 'pending' || row.status === 'error') && isReadyToGrade(row)) await gradeOne(row)
     }
     setRunning(false)
   }
@@ -529,6 +550,11 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
           chỗ trống. Chỉ dùng được cho tiêu chí dạng điểm số (VD Mini Test, Nghe) — bài tập viết tay dạng chữa
           lỗi/BTVN vẫn phải chấm tay ở Nhập điểm như cũ.
         </div>
+        <div className="text-xs" style={{ color: C.muted }}>
+          📸 Ảnh tốt cần: đủ sáng, không rung tay/mờ, giấy chiếm phần lớn khung hình, thấy rõ toàn bộ bài làm
+          (không bị cắt góc). Ảnh rõ ràng kém (quá mờ/tối/độ phân giải thấp) sẽ bị cảnh báo trước, bạn tự quyết
+          định chụp lại hay vẫn chấm — tránh gọi AI vô ích tốn phí.
+        </div>
         <hr style={{ borderColor: C.line }} />
 
         <div>
@@ -605,8 +631,16 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
               <label className="text-sm font-semibold" style={{ color: C.ink }}>Bấm chấm — làm sau khi đã thêm đủ ảnh</label>
             </div>
             <Btn kind="solid" onClick={gradeAll} disabled={running}>
-              {running ? 'Đang chấm...' : `Chấm bằng AI (${rows.filter((r) => r.status === 'pending').length} ảnh chưa chấm)`}
+              {running
+                ? 'Đang chấm...'
+                : `Chấm bằng AI (${rows.filter((r) => r.status === 'pending' && isReadyToGrade(r)).length} ảnh chưa chấm)`}
             </Btn>
+            {rows.some((r) => r.status === 'pending' && !isReadyToGrade(r)) && (
+              <div className="mt-1 text-xs" style={{ color: C.red }}>
+                {rows.filter((r) => r.status === 'pending' && !isReadyToGrade(r)).length} ảnh đang bị cảnh báo
+                chất lượng — chưa tự chấm, xem lại bên dưới.
+              </div>
+            )}
           </div>
         )}
       </Card>
@@ -650,7 +684,30 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
                 </span>
               </a>
               <div className="flex-1 min-w-0 space-y-2">
-                {row.status === 'pending' && <div className="text-sm" style={{ color: C.muted }}>Chưa chấm</div>}
+                {row.status === 'pending' && row.quality?.hasIssue && !row.qualityConfirmed && (
+                  <div className="space-y-1.5 rounded-lg p-2" style={{ background: '#FEE2E2', border: '1px solid #FCA5A5' }}>
+                    <div className="text-xs font-semibold" style={{ color: '#991B1B' }}>
+                      ⚠ Ảnh có thể {[
+                        row.quality.blurry && 'quá MỜ',
+                        row.quality.tooDark && 'quá TỐI',
+                        row.quality.tooBright && 'quá SÁNG/cháy sáng',
+                        row.quality.lowRes && 'độ phân giải quá THẤP',
+                      ].filter(Boolean).join(', ')} — chấm sẽ dễ ra kết quả sai hoặc không đọc được, tốn phí vô ích.
+                    </div>
+                    <div className="text-xs" style={{ color: '#7A1515' }}>
+                      Ảnh tốt cần: đủ sáng, không rung tay, giấy chiếm phần lớn khung hình, thấy rõ toàn bộ bài làm.
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Btn kind="ghost" size="sm" onClick={() => removeRow(row.id)}>🗑 Bỏ ảnh, chụp lại</Btn>
+                      <Btn kind="ghost" size="sm" onClick={() => patch(row.id, (r) => { r.qualityConfirmed = true })}>
+                        Vẫn chấm ảnh này
+                      </Btn>
+                    </div>
+                  </div>
+                )}
+                {row.status === 'pending' && !(row.quality?.hasIssue && !row.qualityConfirmed) && (
+                  <div className="text-sm" style={{ color: C.muted }}>Chưa chấm</div>
+                )}
                 {row.status === 'grading' && <div className="text-sm" style={{ color: C.muted }}>Đang đọc ảnh...</div>}
                 {row.status === 'error' && (
                   <div className="text-sm" style={{ color: C.red }}>{row.error}</div>
