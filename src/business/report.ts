@@ -1,4 +1,4 @@
-import type { Student, StudentStats, DetailBlock } from '@/types'
+import type { Student, StudentStats, DetailBlock, EvidenceItem } from '@/types'
 import { getRubric } from '@/constants/rubrics'
 import { round1 } from '@/utils'
 
@@ -71,8 +71,28 @@ export function detailBlocks(s: StudentStats, r: ReturnType<typeof getRubric>): 
   return out
 }
 
+/** Tìm mục ghi chú cụ thể (VD "Từ phát âm chưa đúng: make, snowflake...")
+ *  ĐÁNG NÊU NHẤT — nhiều lần được ghi nhận nhất trong kỳ — để đưa vào nhận
+ *  xét tự động 1 chi tiết CỤ THỂ (không phải chỉ điểm số/% chung chung),
+ *  giống cách giáo viên vẫn tự viết tay (VD "chú ý phát âm: ..."). Vẫn hoàn
+ *  toàn dựa trên dữ liệu giáo viên đã ghi khi chấm điểm (s.evidence), không
+ *  tự bịa ra — chỉ có nội dung nếu giáo viên có điền ghi chú cụ thể lúc chấm. */
+function topEvidenceLine(s: StudentStats, r: ReturnType<typeof getRubric>): string | undefined {
+  let bestLabel = ''
+  let bestItems: EvidenceItem[] = []
+  let bestTotal = 0
+  r.comps.forEach((c) => {
+    ;(c.evidence ?? []).filter((ev) => ev.type !== 'ratio').forEach((ev) => {
+      const items = s.evidence[`${c.key}.${ev.key}`] ?? []
+      const total = items.reduce((a, it) => a + it.n, 0)
+      if (total > bestTotal) { bestTotal = total; bestLabel = ev.label; bestItems = items }
+    })
+  })
+  if (!bestItems.length) return undefined
+  return `${bestLabel}: ${bestItems.slice(0, 4).map((it) => it.text).join(', ')}.`
+}
+
 export function buildComment(name: string, s: StudentStats, r: ReturnType<typeof getRubric>): string {
-  void r
   const L: string[] = []
   // So theo % (monthTotal/monthMax) chứ không so số tuyệt đối với 90/75 —
   // lớp có tùy chỉnh thêm/bớt tiêu chí thì monthMax không phải lúc nào cũng
@@ -95,6 +115,8 @@ export function buildComment(name: string, s: StudentStats, r: ReturnType<typeof
   const fixes = [...new Set(top.map((t) => t.fix).filter(Boolean))]
   if (fixes.length)
     L.push(`Tháng tới, cô sẽ tập trung ${fixes.join(' và ')} để giúp con cải thiện kết quả.`)
+  const evLine = topEvidenceLine(s, r)
+  if (evLine) L.push(evLine)
   if (s.absent > 0)
     L.push(`Con nghỉ không phép ${s.absent} buổi, phụ huynh nhắc con đi học đều hơn giúp cô.`)
   return L.join(' ')

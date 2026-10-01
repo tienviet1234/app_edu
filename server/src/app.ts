@@ -25,6 +25,7 @@ import { submissionRouter } from './routes/submissionRoutes.js'
 import { cronRouter } from './routes/cronRoutes.js'
 import { aiRouter } from './routes/aiRoutes.js'
 import { debtRouter } from './routes/debtRoutes.js'
+import { tuitionNoticeRouter } from './routes/tuitionNoticeRoutes.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { notFound } from './utils/response.js'
 
@@ -100,6 +101,7 @@ app.use('/api/push', pushRouter)
 app.use('/api/cron', cronRouter)
 app.use('/api/ai', aiRouter)
 app.use('/api/debts', debtRouter)
+app.use('/api/tuition-notices', tuitionNoticeRouter)
 
 app.use((_req, res) => {
   notFound(res, 'Route not found.')

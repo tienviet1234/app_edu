@@ -42,6 +42,8 @@ const EntryScreen = lazy(() =>
   import('@/features/entry/EntryScreen').then((m) => ({ default: m.EntryScreen })))
 const HomeworkScreen = lazy(() =>
   import('@/features/entry/HomeworkScreen').then((m) => ({ default: m.HomeworkScreen })))
+const TuitionReportScreen = lazy(() =>
+  import('@/features/report/TuitionReportScreen').then((m) => ({ default: m.TuitionReportScreen })))
 const LeaderboardScreen = lazy(() =>
   import('@/features/leaderboard/LeaderboardScreen').then((m) => ({ default: m.LeaderboardScreen })))
 const LearnScreen = lazy(() =>
@@ -85,6 +87,7 @@ const ALL_TABS = [
   { key: 'my-debts', label: 'Nợ bài tập', icon: '📌', roles: ['student'] },
   { key: 'board', label: 'Xếp hạng', icon: '🏆', roles: ['teacher', 'admin', 'student'] },
   { key: 'report', label: 'Báo cáo', icon: '📊', roles: ['teacher', 'admin'] },
+  { key: 'tuition-report', label: 'Báo cáo + Học phí', icon: '💰', roles: ['teacher', 'admin'] },
   { key: 'billing', label: 'Thống kê buổi', icon: '📅', roles: ['teacher', 'admin'] },
   { key: 'parent', label: 'Phụ huynh', icon: '👨‍👩‍👧', roles: ['teacher', 'admin'] },
   { key: 'student', label: 'Học sinh', icon: '🎓', roles: ['teacher', 'admin'] },
@@ -659,6 +662,7 @@ export default function App() {
         {activeTab === 'my-debts' && <StudentDebtScreen />}
         {cls && activeTab === 'board' && <LeaderboardScreen cls={cls} update={updateClass} userId={user?.role === 'student' ? user.id : undefined} />}
         {cls && activeTab === 'report' && <ReportScreen cls={cls} update={updateClass} />}
+        {cls && activeTab === 'tuition-report' && <TuitionReportScreen cls={cls} />}
         {cls && activeTab === 'billing' && (
           <SessionCountScreen
             cls={cls}

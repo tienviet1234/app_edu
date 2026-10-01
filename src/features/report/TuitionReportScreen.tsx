@@ -1,0 +1,328 @@
+import { useEffect, useState } from 'react'
+import type { ClassData } from '@/types'
+import { C } from '@/constants/colors'
+import { getClassRubric } from '@/constants/rubrics'
+import { statsOf } from '@/business/stats'
+import { buildComment } from '@/business/report'
+import { billingPeriodsOf, sessionsBilledOf } from '@/business/tuition'
+import { isMongoid } from '@/utils/mongoid'
+import { viDate } from '@/utils/format'
+import { exportTuitionNotices } from '@/utils/excel'
+import { classService } from '@/services/classes'
+import { tuitionNoticeService, type TuitionNotice } from '@/services/tuitionNotices'
+import { Card } from '@/components/atoms/Card'
+import { Btn } from '@/components/atoms/Btn'
+import { toast } from '@/store/toastStore'
+
+interface Props {
+  cls: ClassData
+}
+
+interface DueRow {
+  studentId: string
+  studentName: string
+  periodFrom: number
+  periodTo: number
+  periodLabel: string
+  sessionsBilled: number
+  computedAmount: number
+  finalAmount: string
+  adjustmentReason: string
+  reportComment: string
+  saving: boolean
+}
+
+function fmtVnd(n: number): string {
+  return n.toLocaleString('vi-VN') + 'đ'
+}
+
+export function TuitionReportScreen({ cls }: Props) {
+  const [rate, setRate] = useState<number | null>(null)
+  const [loadingRate, setLoadingRate] = useState(true)
+  const [notices, setNotices] = useState<TuitionNotice[]>([])
+  const [dueRows, setDueRows] = useState<DueRow[]>([])
+  const [showPaidHistory, setShowPaidHistory] = useState(false)
+
+  useEffect(() => {
+    if (!isMongoid(cls.id)) return
+    setLoadingRate(true)
+    Promise.all([
+      classService.get(cls.id),
+      tuitionNoticeService.list(cls.id),
+    ]).then(([apiCls, noticeList]) => {
+      setRate(apiCls.tuitionPerSession ?? null)
+      setNotices(noticeList)
+    }).finally(() => setLoadingRate(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cls.id])
+
+  useEffect(() => {
+    if (rate == null) { setDueRows([]); return }
+    const r = getClassRubric(cls)
+    const sentKeys = new Set(notices.map((n) => `${n.studentId}:${n.periodFrom}-${n.periodTo}`))
+    const rows: DueRow[] = []
+    cls.students.forEach((st) => {
+      billingPeriodsOf(st, cls.perMonth).forEach((p) => {
+        const key = `${st.id}:${p.from}-${p.to}`
+        if (sentKeys.has(key)) return
+        const sessionsBilled = sessionsBilledOf(st, p.from, p.to)
+        const computedAmount = sessionsBilled * rate
+        const s = statsOf(cls, st.sessions.slice(p.from, p.to))
+        rows.push({
+          studentId: st.id, studentName: st.name,
+          periodFrom: p.from, periodTo: p.to, periodLabel: p.label,
+          sessionsBilled, computedAmount,
+          finalAmount: String(computedAmount), adjustmentReason: '',
+          reportComment: buildComment(st.name, s, r),
+          saving: false,
+        })
+      })
+    })
+    setDueRows(rows)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rate, notices, cls])
+
+  function patchRow(key: string, fn: (r: DueRow) => void) {
+    setDueRows((prev) => prev.map((r) => {
+      if (`${r.studentId}:${r.periodFrom}-${r.periodTo}` !== key) return r
+      const copy = { ...r }
+      fn(copy)
+      return copy
+    }))
+  }
+
+  async function markSent(row: DueRow) {
+    const finalAmount = Number(row.finalAmount)
+    if (Number.isNaN(finalAmount) || finalAmount < 0) {
+      toast.error('Số tiền không hợp lệ.')
+      return
+    }
+    if (finalAmount !== row.computedAmount && !row.adjustmentReason.trim()) {
+      toast.error('Số tiền khác số tự tính — bắt buộc ghi lý do điều chỉnh.')
+      return
+    }
+    const key = `${row.studentId}:${row.periodFrom}-${row.periodTo}`
+    patchRow(key, (r) => { r.saving = true })
+    try {
+      const created = await tuitionNoticeService.create({
+        classId: cls.id, studentId: row.studentId,
+        periodFrom: row.periodFrom, periodTo: row.periodTo, periodLabel: row.periodLabel,
+        sessionsBilled: row.sessionsBilled, ratePerSession: rate ?? 0,
+        computedAmount: row.computedAmount, finalAmount,
+        adjustmentReason: row.adjustmentReason.trim() || undefined,
+        reportComment: row.reportComment,
+      })
+      setNotices((prev) => [created, ...prev])
+      toast.success(`Đã đánh dấu gửi cho ${row.studentName}.`)
+    } catch (err) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Lỗi khi lưu — thử lại.'
+      toast.error(msg)
+    } finally {
+      patchRow(key, (r) => { r.saving = false })
+    }
+  }
+
+  async function undoSent(notice: TuitionNotice) {
+    if (!confirm(`Hoàn tác "đã gửi" cho kỳ ${notice.periodLabel}? Dùng khi ghi nhầm — sau đó có thể ghi lại cho đúng.`)) return
+    try {
+      await tuitionNoticeService.remove(notice._id)
+      setNotices((prev) => prev.filter((n) => n._id !== notice._id))
+      toast.success('Đã hoàn tác.')
+    } catch {
+      toast.error('Lỗi khi hoàn tác — thử lại.')
+    }
+  }
+
+  /** Đánh dấu ĐÃ THU ĐƯỢC TIỀN — khác hẳn "đã gửi" ở trên, ghi nhận lúc phụ
+   *  huynh THỰC SỰ đóng, có thể trễ hơn lúc gửi rất nhiều. */
+  async function markPaid(notice: TuitionNotice) {
+    try {
+      const updated = await tuitionNoticeService.markPaid(notice._id)
+      setNotices((prev) => prev.map((n) => (n._id === updated._id ? updated : n)))
+      toast.success('Đã đánh dấu đóng tiền.')
+    } catch {
+      toast.error('Lỗi — thử lại.')
+    }
+  }
+
+  async function undoPaid(notice: TuitionNotice) {
+    try {
+      const updated = await tuitionNoticeService.markUnpaid(notice._id)
+      setNotices((prev) => prev.map((n) => (n._id === updated._id ? updated : n)))
+      toast.success('Đã chuyển lại về "chưa đóng".')
+    } catch {
+      toast.error('Lỗi — thử lại.')
+    }
+  }
+
+  function exportDue() {
+    if (!dueRows.length) return
+    exportTuitionNotices(cls.name, dueRows.map((r) => ({
+      studentName: r.studentName,
+      periodLabel: r.periodLabel,
+      sessionsBilled: r.sessionsBilled,
+      ratePerSession: rate ?? 0,
+      finalAmount: Number(r.finalAmount) || 0,
+      adjustmentReason: r.adjustmentReason || undefined,
+      reportComment: r.reportComment,
+      sentAtLabel: '(chưa gửi — bản nháp)',
+    })))
+  }
+
+  if (!isMongoid(cls.id)) {
+    return (
+      <Card className="p-6 text-center text-sm" style={{ color: C.muted }}>
+        Lớp này chưa đồng bộ lên máy chủ — cần lớp đã lưu trên server để dùng tính năng này.
+      </Card>
+    )
+  }
+  if (loadingRate) {
+    return <div className="py-8 text-center text-sm" style={{ color: C.muted }}>Đang tải...</div>
+  }
+  if (rate == null) {
+    return (
+      <Card className="p-6 text-center text-sm" style={{ color: C.muted }}>
+        Lớp này chưa có đơn giá học phí/buổi — nhờ admin thiết lập ở màn Quản trị trước khi dùng tính năng này.
+      </Card>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <Card className="p-4 space-y-1">
+        <div className="text-lg font-bold" style={{ color: C.ink }}>💰 Báo cáo học tập + Học phí — {cls.name}</div>
+        <div className="text-sm" style={{ color: C.muted }}>
+          Tự động xác định học sinh đã đủ mốc "cuối 8/12 buổi" chưa gửi báo cáo — tính sẵn số buổi tính phí
+          (chỉ tính buổi có mặt/muộn, không tính buổi nghỉ) × đơn giá {fmtVnd(rate)}/buổi. Bạn xem lại, sửa số
+          tiền nếu có ngoại lệ, xuất Excel gửi phụ huynh, rồi đánh dấu đã gửi để không bị nhắc lại.
+        </div>
+      </Card>
+
+      {dueRows.length > 0 && (
+        <Btn kind="solid" onClick={exportDue}>📥 Xuất Excel ({dueRows.length} học sinh chưa gửi)</Btn>
+      )}
+
+      {dueRows.length === 0 ? (
+        <Card className="p-8 text-center text-sm" style={{ color: C.muted }}>
+          Không có học sinh nào đến mốc cần gửi báo cáo + học phí lúc này.
+        </Card>
+      ) : (
+        dueRows.map((row) => {
+          const key = `${row.studentId}:${row.periodFrom}-${row.periodTo}`
+          const finalNum = Number(row.finalAmount)
+          const differs = !Number.isNaN(finalNum) && finalNum !== row.computedAmount
+          return (
+            <Card key={key} className="p-4 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="font-bold" style={{ color: C.ink }}>{row.studentName}</div>
+                  <div className="text-xs" style={{ color: C.muted }}>{row.periodLabel} — {row.sessionsBilled} buổi tính phí</div>
+                </div>
+                <div className="text-right text-xs" style={{ color: C.muted }}>
+                  Tự tính: {fmtVnd(row.computedAmount)}
+                </div>
+              </div>
+              <div className="rounded-lg p-2 text-xs" style={{ background: C.paper, color: C.ink }}>
+                {row.reportComment}
+              </div>
+              <div className="flex flex-wrap items-end gap-2">
+                <div>
+                  <label className="mb-1 block text-xs font-semibold" style={{ color: C.ink }}>Số tiền gửi (VNĐ)</label>
+                  <input
+                    type="number" min={0} value={row.finalAmount}
+                    onChange={(e) => patchRow(key, (r) => { r.finalAmount = e.target.value })}
+                    className="w-32 rounded-xl px-3 py-2 text-sm text-right" style={{ border: `1px solid ${C.line}` }}
+                  />
+                </div>
+                {differs && (
+                  <div className="min-w-0 flex-1">
+                    <label className="mb-1 block text-xs font-semibold" style={{ color: '#991B1B' }}>
+                      Lý do điều chỉnh (bắt buộc)
+                    </label>
+                    <input
+                      type="text" value={row.adjustmentReason}
+                      onChange={(e) => patchRow(key, (r) => { r.adjustmentReason = e.target.value })}
+                      placeholder="VD: giảm giá học bù, nghỉ dịch..."
+                      className="w-full rounded-xl px-3 py-2 text-sm"
+                      style={{ border: `1px solid ${C.red}` }}
+                    />
+                  </div>
+                )}
+                <Btn kind="solid" onClick={() => markSent(row)} disabled={row.saving}>
+                  {row.saving ? 'Đang lưu...' : '✅ Đánh dấu đã gửi'}
+                </Btn>
+              </div>
+            </Card>
+          )
+        })
+      )}
+
+      {(() => {
+        const unpaid = notices.filter((n) => n.paymentStatus === 'unpaid')
+        const paid = notices.filter((n) => n.paymentStatus === 'paid')
+        return (
+          <>
+            <Card className="p-4 space-y-2" style={unpaid.length ? { border: `1.5px solid ${C.red}55` } : undefined}>
+              <div className="text-sm font-bold" style={{ color: unpaid.length ? '#991B1B' : C.ink }}>
+                📋 Đang nợ học phí {unpaid.length > 0 && `(${unpaid.length})`}
+              </div>
+              {unpaid.length === 0 ? (
+                <div className="text-xs" style={{ color: C.muted }}>Không có khoản nào đang chờ đóng tiền.</div>
+              ) : (
+                <div className="space-y-1.5">
+                  {unpaid.map((n) => {
+                    const st = cls.students.find((s) => s.id === n.studentId)
+                    return (
+                      <div key={n._id} className="flex items-center justify-between gap-2 rounded-lg p-2 text-xs" style={{ background: '#FEE2E2' }}>
+                        <div>
+                          <b>{st?.name ?? '(học sinh đã xoá)'}</b> — {n.periodLabel} — {fmtVnd(n.finalAmount)}
+                          {n.adjustmentReason && <span style={{ color: C.muted }}> ({n.adjustmentReason})</span>}
+                          <div style={{ color: C.muted }}>Đã gửi lúc {viDate(n.sentAt.slice(0, 10))} — chưa thu tiền</div>
+                        </div>
+                        <div className="flex shrink-0 gap-2">
+                          <Btn kind="solid" size="sm" onClick={() => markPaid(n)}>✅ Đã đóng tiền</Btn>
+                          <button className="text-xs" style={{ color: C.muted }} onClick={() => undoSent(n)}>↩ Hoàn tác gửi</button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </Card>
+
+            {paid.length > 0 && (
+              <Card className="p-4 space-y-2">
+                <button
+                  className="w-full text-left text-sm font-bold"
+                  style={{ color: C.ink }}
+                  onClick={() => setShowPaidHistory((x) => !x)}
+                >
+                  {showPaidHistory ? '▾' : '▸'} Đã đóng xong ({paid.length})
+                </button>
+                {showPaidHistory && (
+                  <div className="space-y-1.5">
+                    {paid.map((n) => {
+                      const st = cls.students.find((s) => s.id === n.studentId)
+                      return (
+                        <div key={n._id} className="flex items-center justify-between gap-2 rounded-lg p-2 text-xs" style={{ background: '#ECFDF5' }}>
+                          <div>
+                            <b>{st?.name ?? '(học sinh đã xoá)'}</b> — {n.periodLabel} — {fmtVnd(n.finalAmount)}
+                            {n.adjustmentReason && <span style={{ color: C.muted }}> ({n.adjustmentReason})</span>}
+                            <div style={{ color: C.muted }}>
+                              Gửi {viDate(n.sentAt.slice(0, 10))} — đóng {n.paidAt ? viDate(n.paidAt.slice(0, 10)) : '?'}
+                            </div>
+                          </div>
+                          <button className="shrink-0 text-xs" style={{ color: C.muted }} onClick={() => undoPaid(n)}>↩ Hoàn tác đóng</button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </Card>
+            )}
+          </>
+        )
+      })()}
+    </div>
+  )
+}

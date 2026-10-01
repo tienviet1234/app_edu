@@ -273,6 +273,44 @@ export function exportSessionStats(cls: ClassData, month: string): void {
   XLSX.writeFile(wb, `${cls.name}_thongke-buoi_${month}.xlsx`)
 }
 
+export interface TuitionNoticeRow {
+  studentName: string
+  periodLabel: string
+  sessionsBilled: number
+  ratePerSession: number
+  finalAmount: number
+  adjustmentReason?: string
+  reportComment: string
+  sentAtLabel: string
+}
+
+/** Xuất Excel "Báo cáo học tập + học phí" — kết hợp cả 2 trong 1 bảng để gửi
+ *  phụ huynh, theo đúng mốc "cuối 8/12 buổi" (xem business/tuition.ts). Mỗi
+ *  dòng là 1 học sinh đã được đánh dấu "đã gửi" — đây là hồ sơ tiền bạc nên
+ *  CHỈ xuất những gì đã thực sự gửi (finalAmount, không phải số tự tính), để
+ *  khớp đúng với con số phụ huynh thực nhận. */
+export function exportTuitionNotices(className: string, rows: TuitionNoticeRow[]): void {
+  const headers = [
+    'Học sinh', 'Kỳ báo cáo', 'Số buổi tính phí', 'Đơn giá/buổi (VNĐ)',
+    'Thành tiền (VNĐ)', 'Lý do điều chỉnh (nếu có)', 'Nhận xét tình hình học tập', 'Ngày gửi',
+  ]
+  const data = rows.map((r) => [
+    r.studentName, r.periodLabel, r.sessionsBilled, r.ratePerSession,
+    r.finalAmount, r.adjustmentReason ?? '', r.reportComment, r.sentAtLabel,
+  ])
+
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...data])
+  ws['!cols'] = [
+    { wch: 20 }, { wch: 16 }, { wch: 14 }, { wch: 16 },
+    { wch: 16 }, { wch: 28 }, { wch: 50 }, { wch: 14 },
+  ]
+
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Báo cáo + học phí')
+  const today = new Date().toISOString().slice(0, 10)
+  XLSX.writeFile(wb, `${className}_baocao-hocphi_${today}.xlsx`)
+}
+
 /** Parse first column of uploaded .xlsx/.xls/.csv as student names */
 export async function importStudentNames(file: File): Promise<string[]> {
   const buffer = await file.arrayBuffer()
