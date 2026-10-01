@@ -36,6 +36,47 @@ function fmtVnd(n: number): string {
   return n.toLocaleString('vi-VN') + 'đ'
 }
 
+/** Ghép sẵn nội dung tin nhắn gửi phụ huynh (qua Zalo, hoặc bất kỳ kênh nào
+ *  giáo viên đang dùng) — chỉ để DÁN RA GỬI TAY, không tự động gửi đi đâu cả
+ *  (Zalo không có cách mở sẵn khung chat kèm tin nhắn như WhatsApp, nên chưa
+ *  làm được nút "gửi thẳng"). */
+function buildZaloMessage(className: string, row: DueRow, rate: number): string {
+  const amount = Number(row.finalAmount) || row.computedAmount
+  return [
+    `📚 BÁO CÁO HỌC TẬP — ${className}`,
+    `Con: ${row.studentName}`,
+    `Kỳ: ${row.periodLabel}`,
+    '',
+    row.reportComment,
+    '',
+    `💰 Học phí kỳ này: ${row.sessionsBilled} buổi × ${fmtVnd(rate)} = ${fmtVnd(amount)}`,
+    row.adjustmentReason ? `(${row.adjustmentReason})` : '',
+    '',
+    'Cảm ơn quý phụ huynh đã đồng hành cùng con!',
+  ].filter((line) => line !== '').join('\n')
+}
+
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    try {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+      return true
+    } catch {
+      return false
+    }
+  }
+}
+
 export function TuitionReportScreen({ cls }: Props) {
   const [rate, setRate] = useState<number | null>(null)
   const [loadingRate, setLoadingRate] = useState(true)
@@ -155,6 +196,12 @@ export function TuitionReportScreen({ cls }: Props) {
     }
   }
 
+  async function copyMessage(row: DueRow) {
+    const ok = await copyToClipboard(buildZaloMessage(cls.name, row, rate ?? 0))
+    if (ok) toast.success('Đã sao chép — dán vào Zalo/Messenger để gửi phụ huynh.')
+    else toast.error('Không sao chép được — thử lại hoặc bấm giữ để tự chọn/sao chép.')
+  }
+
   function exportDue() {
     if (!dueRows.length) return
     exportTuitionNotices(cls.name, dueRows.map((r) => ({
@@ -194,7 +241,8 @@ export function TuitionReportScreen({ cls }: Props) {
         <div className="text-sm" style={{ color: C.muted }}>
           Tự động xác định học sinh đã đủ mốc "cuối 8/12 buổi" chưa gửi báo cáo — tính sẵn số buổi tính phí
           (chỉ tính buổi có mặt/muộn, không tính buổi nghỉ) × đơn giá {fmtVnd(rate)}/buổi. Bạn xem lại, sửa số
-          tiền nếu có ngoại lệ, xuất Excel gửi phụ huynh, rồi đánh dấu đã gửi để không bị nhắc lại.
+          tiền nếu có ngoại lệ, bấm "Sao chép nội dung" để dán vào Zalo gửi tay (Zalo chưa hỗ trợ gửi thẳng từ
+          web), hoặc xuất Excel cả loạt — xong thì đánh dấu đã gửi để không bị nhắc lại.
         </div>
       </Card>
 
@@ -248,6 +296,7 @@ export function TuitionReportScreen({ cls }: Props) {
                     />
                   </div>
                 )}
+                <Btn kind="ghost" onClick={() => copyMessage(row)}>📋 Sao chép nội dung</Btn>
                 <Btn kind="solid" onClick={() => markSent(row)} disabled={row.saving}>
                   {row.saving ? 'Đang lưu...' : '✅ Đánh dấu đã gửi'}
                 </Btn>
