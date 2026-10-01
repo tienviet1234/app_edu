@@ -119,12 +119,21 @@ function BroadcastComposer() {
   )
 }
 
+// Giới hạn cứng ở backend (paginate(), xem server/src/utils/pagination.ts) —
+// "Xem thêm" tăng dần tới đây rồi dừng, không tăng vô hạn.
+const MAX_LIMIT = 100
+
 export function NotificationsPage() {
   const { user } = useAuthStore()
   const [filter, setFilter] = useState<'all' | 'unread'>('all')
   const [typeFilter, setTypeFilter] = useState('')
+  // Trước đây CỐ ĐỊNH 20 thông báo gần nhất, không có cách xem quá khứ xa
+  // hơn — nhìn như "trống" dù dữ liệu vẫn còn nguyên trên server, chỉ là
+  // không tải về. "Xem thêm" tăng dần số lượng tải về (không phải phân
+  // trang rời rạc) để tránh trùng/thiếu khi danh sách có thông báo mới.
+  const [limit, setLimit] = useState(20)
 
-  const { data, isLoading } = useNotifications()
+  const { data, isLoading, isFetching } = useNotifications(limit)
   const { mutate: markRead } = useMarkRead()
   const { mutate: markAll, isPending: markingAll } = useMarkAllRead()
   const { status: pushStatus, subscribe, unsubscribe } = usePushSubscription()
@@ -137,6 +146,9 @@ export function NotificationsPage() {
   })
   const unreadCount = allItems.filter((n) => !n.readAt).length
   const push = PUSH_LABEL[pushStatus]
+  const total = data?.total ?? 0
+  // Còn thông báo cũ hơn chưa tải về, và chưa chạm mức tối đa cho phép.
+  const canLoadMore = total > allItems.length && limit < MAX_LIMIT
 
   return (
     <div className="space-y-4">
@@ -256,6 +268,19 @@ export function NotificationsPage() {
               </div>
             </Card>
           ))}
+        </div>
+      )}
+
+      {canLoadMore && (
+        <div className="text-center">
+          <Btn kind="ghost" disabled={isFetching} onClick={() => setLimit((x) => Math.min(MAX_LIMIT, x + 20))}>
+            {isFetching ? 'Đang tải...' : `Xem thêm (đã hiện ${allItems.length}/${total})`}
+          </Btn>
+        </div>
+      )}
+      {!canLoadMore && total > allItems.length && (
+        <div className="text-center text-xs" style={{ color: C.muted }}>
+          Chỉ hiện tối đa {MAX_LIMIT} thông báo gần nhất (còn {total - allItems.length} cái cũ hơn).
         </div>
       )}
     </div>
