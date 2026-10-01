@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express'
 import multer from 'multer'
-import { gradeTestPhoto, solveTestPhoto, gradeSubmissionPhoto } from '../services/aiGradingService.js'
+import { gradeTestPhoto, solveTestPhoto, gradeSubmissionPhoto, identifyStudentPhoto } from '../services/aiGradingService.js'
 import { Notification } from '../models/Notification.js'
 import { Class } from '../models/Class.js'
 import { AiGradedPhoto } from '../models/AiGradedPhoto.js'
@@ -189,6 +189,38 @@ export const gradeSubmission = asyncHandler(async (req: Request, res: Response) 
       res.status(503).json({
         success: false,
         message: 'Tính năng chấm điểm bằng AI chưa được bật — thiếu ANTHROPIC_API_KEY trên server.',
+      })
+      return
+    }
+    if (err instanceof Error && err.message === 'AI_BAD_RESPONSE') {
+      res.status(502).json({
+        success: false,
+        message: 'AI trả về kết quả không đọc được, thử lại.',
+      })
+      return
+    }
+    throw err
+  }
+})
+
+/** POST /api/ai/identify-student — chỉ đọc tên học sinh trên 1 ảnh giấy, KHÔNG
+ *  chấm điểm gì — dùng khi giáo viên quét 1 xấp giấy nộp tay (lớp không dùng
+ *  điện thoại được) để tự động phân đúng từng em trước khi nộp hộ. Rẻ/nhanh
+ *  hơn hẳn grade-photo. */
+export const identifyStudent = asyncHandler(async (req: Request, res: Response) => {
+  const file = (req as Request & { file?: Express.Multer.File }).file
+  if (!file) {
+    badRequest(res, 'Chưa có ảnh nào được gửi lên.')
+    return
+  }
+  try {
+    const result = await identifyStudentPhoto(file.buffer, file.mimetype)
+    ok(res, result)
+  } catch (err) {
+    if (err instanceof Error && err.message === 'AI_NOT_CONFIGURED') {
+      res.status(503).json({
+        success: false,
+        message: 'Tính năng AI chưa được bật — thiếu ANTHROPIC_API_KEY trên server.',
       })
       return
     }

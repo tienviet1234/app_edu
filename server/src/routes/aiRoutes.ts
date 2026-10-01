@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { gradePhoto, solveTest, savePhoto, listSavedPhotos, gradeSubmission, uploadAiPhoto } from '../controllers/aiGradingController.js'
+import { gradePhoto, solveTest, savePhoto, listSavedPhotos, gradeSubmission, identifyStudent, uploadAiPhoto } from '../controllers/aiGradingController.js'
 import { authenticate, authorize } from '../middleware/auth.js'
 
 export const aiRouter = Router()
@@ -12,3 +12,4 @@ aiRouter.post('/solve-test', authorize('teacher'), uploadAiPhoto.single('photo')
 aiRouter.post('/save-photo', authorize('teacher'), uploadAiPhoto.single('photo'), savePhoto)
 aiRouter.get('/saved-photos', authorize('teacher'), listSavedPhotos)
 aiRouter.post('/grade-submission', authorize('teacher'), uploadAiPhoto.single('photo'), gradeSubmission)
+aiRouter.post('/identify-student', authorize('teacher'), uploadAiPhoto.single('photo'), identifyStudent)

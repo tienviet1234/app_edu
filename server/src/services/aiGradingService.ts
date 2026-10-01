@@ -450,3 +450,56 @@ export async function gradeSubmissionPhoto(
     unreadable: !!parsed.unreadable,
   }
 }
+
+export interface AiIdentifyResult {
+  studentName: string
+  /** "high" nếu tên IN SẴN hoặc chữ viết tay rất rõ ràng; "low" nếu khó đọc. */
+  nameConfidence: 'high' | 'low'
+}
+
+const IDENTIFY_SYSTEM_PROMPT = `Nhiệm vụ DUY NHẤT: đọc TÊN HỌC SINH viết tay/in ở đầu tờ giấy trong ảnh (thường ở góc trên) — KHÔNG chấm điểm, KHÔNG đọc nội dung bài làm, chỉ cần tên.
+Đặt nameConfidence="high" nếu tên IN SẴN (không phải viết tay) hoặc chữ viết tay rất rõ ràng, ngay ngắn, không thể nhầm sang tên khác. Đặt nameConfidence="low" nếu chữ viết tay khó đọc/nguệch ngoạc hoặc phải đoán giữa vài cách đọc. Nếu không thấy tên nào, để studentName rỗng.
+CHỈ trả về JSON hợp lệ theo đúng schema sau, không thêm chữ nào khác ngoài JSON:
+{"studentName": string, "nameConfidence": "high"|"low"}`
+
+/** Chỉ đọc TÊN học sinh trên 1 ảnh giấy — KHÔNG chấm điểm gì cả, rẻ và nhanh
+ *  hơn hẳn gradeTestPhoto/gradeSubmissionPhoto. Dùng khi giáo viên quét 1 xấp
+ *  giấy học sinh nộp tay (lớp không dùng điện thoại được) để tự động phân
+ *  đúng về từng em trước khi nộp hộ qua hệ thống "Bài tập". */
+export async function identifyStudentPhoto(imageBuffer: Buffer, mimeType: string): Promise<AiIdentifyResult> {
+  const anthropic = getClient()
+  const contentSource = await prepareContent(imageBuffer, mimeType)
+
+  const msg = await anthropic.messages.create({
+    model: 'claude-sonnet-5',
+    max_tokens: 256,
+    thinking: { type: 'disabled' },
+    system: [{ type: 'text', text: IDENTIFY_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+    messages: [
+      {
+        role: 'user',
+        content: [
+          contentSource,
+          { type: 'text', text: 'Đọc tên học sinh trên ảnh này. Chỉ trả JSON theo đúng schema.' },
+        ],
+      },
+    ],
+  })
+
+  const textBlock = msg.content.find((b) => b.type === 'text')
+  const raw = textBlock && 'text' in textBlock ? textBlock.text : ''
+  const jsonMatch = raw.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) throw new Error('AI_BAD_RESPONSE')
+
+  let parsed: Partial<AiIdentifyResult>
+  try {
+    parsed = JSON.parse(jsonMatch[0])
+  } catch {
+    throw new Error('AI_BAD_RESPONSE')
+  }
+
+  return {
+    studentName: String(parsed.studentName ?? '').trim(),
+    nameConfidence: parsed.nameConfidence === 'high' ? 'high' : 'low',
+  }
+}

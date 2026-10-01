@@ -37,6 +37,11 @@ export interface AiSubmissionResult {
   unreadable: boolean
 }
 
+export interface AiIdentifyResult {
+  studentName: string
+  nameConfidence: 'high' | 'low'
+}
+
 export const aiGradingService = {
   /** Gửi 1 ảnh bài kiểm tra giấy cho AI đọc tên + chấm điểm. Chỉ trả gợi ý —
    *  không tự ghi điểm ở đâu cả. `answerKey` (không bắt buộc): đáp án đúng
@@ -103,6 +108,20 @@ export const aiGradingService = {
     if (assignmentDescription?.trim()) form.append('assignmentDescription', assignmentDescription.trim())
     return api
       .post('/ai/grade-submission', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 60 * 1000,
+      })
+      .then((r) => r.data.data)
+  },
+
+  /** Chỉ đọc tên học sinh trên 1 ảnh giấy, KHÔNG chấm điểm gì — rẻ/nhanh hơn
+   *  hẳn gradePhoto. Dùng khi giáo viên quét 1 xấp giấy nộp tay (lớp không
+   *  dùng điện thoại được) để tự động phân đúng từng em trước khi nộp hộ. */
+  identifyStudent: (file: File): Promise<AiIdentifyResult> => {
+    const form = new FormData()
+    form.append('photo', file)
+    return api
+      .post('/ai/identify-student', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 60 * 1000,
       })

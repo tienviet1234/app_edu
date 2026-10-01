@@ -17,6 +17,7 @@ import { todayISO } from '@/utils/format'
 import type { AppData } from '@/types'
 import { toast } from '@/store/toastStore'
 import { AssignHomeworkModal } from './AssignHomeworkModal'
+import { BulkSubmitPanel } from './BulkSubmitPanel'
 
 interface Props {
   classId: string
@@ -59,6 +60,8 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
   // tích từng việc cụ thể đã làm) không quy đổi được từ 1 điểm tổng, xem
   // business/scoring.ts applyPercentToComp.
   const availableComps = cls ? getClassRubric(cls).comps.filter((c) => c.type !== 'ticks') : []
+  // Giáo viên quét giấy nộp tay hộ cả lớp — chỉ áp dụng bài tập loại "Ảnh".
+  const [bulkOpen, setBulkOpen] = useState(false)
 
   function refreshAssignments() {
     assignmentService.list(classId, sessionId).then(setAssignments).catch(() => toast.error('Không tải được danh sách bài tập'))
@@ -86,6 +89,7 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
     setStats(null)
     setVideoUrls({})
     setReviewing(null)
+    setBulkOpen(false)
     try {
       const [subs, st] = await Promise.all([
         submissionService.list({ assignmentId: id }),
@@ -288,6 +292,20 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
             </div>
           ))}
         </div>
+      )}
+
+      {selected && selected.submitType === 'photo' && (
+        <Btn kind="ghost" size="sm" onClick={() => setBulkOpen((x) => !x)}>
+          {bulkOpen ? '✕ Đóng nộp hộ cả xấp' : '📤 Nộp bài giúp (ảnh giấy nộp tay)'}
+        </Btn>
+      )}
+      {selected && selected.submitType === 'photo' && bulkOpen && (
+        <BulkSubmitPanel
+          classId={classId}
+          classes={data?.classes ?? []}
+          assignment={selected}
+          onSubmitted={() => selectAssignment(selected._id)}
+        />
       )}
 
       {/* Danh sách bài nộp */}
