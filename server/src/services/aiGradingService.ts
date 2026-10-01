@@ -58,6 +58,13 @@ async function prepareContent(buffer: Buffer, mimeType: string, highRes = false)
 export interface AiGradeResult {
   /** Tên học sinh AI đọc được trên bài (nguyên văn, có thể sai/thiếu dấu). */
   studentName: string
+  /** Tiêu đề/dạng đề đọc được TỪ CHỮ IN SẴN trên đề (tên đề kiểm tra, Unit/
+   *  bài học, lớp in sẵn, hướng dẫn làm bài...) — đọc TRƯỚC khi chấm điểm.
+   *  Chữ in luôn đáng tin cậy hơn chữ viết tay, nên đây là thông tin HỮU ÍCH
+   *  để giáo viên xác định đúng bối cảnh đề/lớp, ĐẶC BIỆT khi tên viết tay
+   *  không đọc rõ (nameConfidence=low) — rỗng nếu đề không có chữ in nào xác
+   *  định được (VD giấy kẻ ô ly viết tay hoàn toàn). */
+  testTitle: string
   /** Điểm đạt được, theo đúng thang điểm GỐC của bài giấy đó (VD 8/10 câu). */
   rawScore: number
   /** Thang điểm gốc của bài giấy đó — KHÔNG PHẢI thang điểm của rubric app,
@@ -119,15 +126,17 @@ export interface AiGradeResult {
 
 const SYSTEM_PROMPT = `Bạn đang giúp một trung tâm Anh ngữ tại Việt Nam chấm bài kiểm tra giấy từ ảnh chụp.
 Nhiệm vụ:
-1. Đọc TÊN HỌC SINH viết tay/in trên đầu bài (thường ở góc trên). Nếu không thấy tên, để studentName rỗng.
+1. TRƯỚC KHI chấm điểm, đọc TOÀN BỘ CHỮ IN SẴN trên đề (tiêu đề đề kiểm tra, tên Unit/bài học, lớp in sẵn, hướng dẫn làm bài, ngày tháng in sẵn...) để XÁC ĐỊNH BỐI CẢNH đề này là gì — ghi lại vào testTitle (VD "Kiểm tra Unit 5 - Lớp 7A", "Mini Test tuần 3", "Listening - Unit 8"). Chữ IN luôn rõ ràng và đáng tin cậy hơn chữ viết tay — đây là thông tin HỮU ÍCH giúp giáo viên xác định đúng bối cảnh đề/lớp, ĐẶC BIỆT khi tên học sinh viết tay ở bước 2 không đọc rõ. Để testTitle rỗng nếu đề không có chữ in nào xác định được (VD giấy kẻ ô ly viết tay hoàn toàn, không có tiêu đề in sẵn).
 
-2. TRƯỚC TIÊN, tìm xem bài này ĐÃ ĐƯỢC GIÁO VIÊN CHẤM SẴN chưa — đây là trường hợp phổ biến nhất và LUÔN ưu tiên đọc lại số có sẵn thay vì tự chấm. Dấu hiệu đã chấm sẵn:
+2. Đọc TÊN HỌC SINH viết tay/in trên đầu bài (thường ở góc trên). Nếu không thấy tên, để studentName rỗng.
+
+3. TRƯỚC TIÊN, tìm xem bài này ĐÃ ĐƯỢC GIÁO VIÊN CHẤM SẴN chưa — đây là trường hợp phổ biến nhất và LUÔN ưu tiên đọc lại số có sẵn thay vì tự chấm. Dấu hiệu đã chấm sẵn:
    - Số điểm viết tay, thường được khoanh tròn/đóng khung, đặt ở góc trang hoặc lề mỗi phần (VD "9/10", "5", "4/5", "8" khoanh tròn). Bài có thể có NHIỀU con số như vậy nếu chấm riêng từng phần (I, II, III...) — CỘNG DỒN: rawScore = tổng số điểm đạt của mọi phần, rawMax = tổng số điểm tối đa của mọi phần đó (VD phần I được "5" khoanh trên tổng 5, phần III được "9/10" → rawScore=14, rawMax=15).
    - Dấu ✓/✗ hoặc gạch chéo ngay cạnh từng câu, đánh dấu đúng/sai cho từng câu học sinh đã làm.
    - Chữ sửa lỗi bằng mực khác màu (thường đỏ) ngay trên bài.
    Nếu tìm thấy các dấu hiệu này, đặt fromExistingGrade=true và CHỈ đếm/cộng lại đúng những gì giáo viên đã đánh dấu — không tự ý chấm lại hay đoán đáp án đúng/sai theo ý riêng.
 
-3. CHỈ KHI KHÔNG có dấu hiệu đã chấm sẵn nào ở bước 2, mới tự chấm từ đầu: đặt fromExistingGrade=false, đếm tổng số câu của bài và số câu học sinh làm đúng. Học sinh Việt Nam chọn đáp án trắc nghiệm theo NHIỀU KIỂU khác nhau, có thể lẫn nhiều kiểu trong cùng 1 bài — nhận diện đúng đáp án học sinh chọn ở TỪNG kiểu sau:
+4. CHỈ KHI KHÔNG có dấu hiệu đã chấm sẵn nào ở bước 3, mới tự chấm từ đầu: đặt fromExistingGrade=false, đếm tổng số câu của bài và số câu học sinh làm đúng. Học sinh Việt Nam chọn đáp án trắc nghiệm theo NHIỀU KIỂU khác nhau, có thể lẫn nhiều kiểu trong cùng 1 bài — nhận diện đúng đáp án học sinh chọn ở TỪNG kiểu sau:
    - Khoanh tròn quanh chữ cái/đáp án (khoanh vòng, có thể khoanh hở hoặc khoanh lại nhiều lần nếu đổi ý — lấy khoanh SAU CÙNG, ý gạch/xóa khoanh cũ nghĩa là đã đổi đáp án).
    - Đánh dấu tick/dấu ✓ hoặc dấu x bên cạnh đáp án.
    - Tô đậm/gạch chéo kín 1 ô hoặc 1 chữ cái (kiểu tô phiếu trắc nghiệm).
@@ -136,29 +145,29 @@ Nhiệm vụ:
    Nếu giáo viên đã CUNG CẤP SẴN đáp án đúng của đề (xem phần "ĐÁP ÁN ĐÚNG" bên dưới, nếu có) thì LUÔN dùng đáp án đó để so khớp — đây là nguồn đáng tin cậy nhất, không tự đoán theo kiến thức riêng nữa dù có chắc đến đâu.
    Nếu không đủ căn cứ để tính RA MỘT ĐIỂM SỐ đáng tin (chữ quá xấu, đáp án không rõ đúng/sai), đặt unreadable=true — NHƯNG VẪN PHẢI điền studentName và liệt kê ĐẦY ĐỦ questions với NGUYÊN VĂN chữ bạn đọc được ở mỗi câu (studentAnswer), dù không chắc đúng/sai (đặt correct=false, uncertain=true cho các câu đó) — giáo viên cần xem được TOÀN BỘ nội dung bạn đọc được để tự đối chiếu với đáp án mẫu và chấm tay, không phải đọc lại ảnh gốc từ đầu. Chỉ để questions rỗng khi ảnh THỰC SỰ không thấy chữ nào (mờ hoàn toàn/lạc đề/không phải bài kiểm tra).
 
-4. Liệt kê ngắn gọn các dạng lỗi sai lặp lại (VD "chia động từ", "giới từ", "chính tả") — tối đa 5 mục, bằng tiếng Việt. Nếu fromExistingGrade=true và không thấy ghi chú lỗi cụ thể trên bài, để errors rỗng — đừng tự bịa lỗi.
+5. Liệt kê ngắn gọn các dạng lỗi sai lặp lại (VD "chia động từ", "giới từ", "chính tả") — tối đa 5 mục, bằng tiếng Việt. Nếu fromExistingGrade=true và không thấy ghi chú lỗi cụ thể trên bài, để errors rỗng — đừng tự bịa lỗi.
 
-5. Nếu chữ viết khó đọc, ảnh mờ, thiếu góc, đáp án/điểm số không rõ ràng (mờ, chồng lấn, số bị che), hoặc không chắc chắn về tên/điểm — đặt lowConfidence=true.
+6. Nếu chữ viết khó đọc, ảnh mờ, thiếu góc, đáp án/điểm số không rõ ràng (mờ, chồng lấn, số bị che), hoặc không chắc chắn về tên/điểm — đặt lowConfidence=true.
 
-6. Đánh giá ĐỘ CHẮC CHẮN của TÊN học sinh đọc được ở bước 1 — đặt nameConfidence="high" nếu tên được IN SẴN (chữ máy tính/font in trên đề, không phải viết tay), HOẶC chữ viết tay rất rõ ràng, ngay ngắn, không thể nhầm sang tên nào khác. Đặt nameConfidence="low" nếu tên viết tay khó đọc, nét chữ nguệch ngoạc, hoặc bạn phải đoán giữa vài cách đọc khác nhau.
+7. Đánh giá ĐỘ CHẮC CHẮN của TÊN học sinh đọc được ở bước 2 — đặt nameConfidence="high" nếu tên được IN SẴN (chữ máy tính/font in trên đề, không phải viết tay), HOẶC chữ viết tay rất rõ ràng, ngay ngắn, không thể nhầm sang tên nào khác. Đặt nameConfidence="low" nếu tên viết tay khó đọc, nét chữ nguệch ngoạc, hoặc bạn phải đoán giữa vài cách đọc khác nhau.
 
-7. Đánh giá xem bài này có NÊN ĐỂ GIÁO VIÊN TỰ CHẤM TAY HOÀN TOÀN thay vì dùng điểm AI hay không — mức nghiêm trọng HƠN lowConfidence. CHỈ áp dụng khi fromExistingGrade=false (bài chưa có ai chấm sẵn): nếu chữ viết/đáp án của học sinh (không chỉ riêng tên) quá xấu, nguệch ngoạc, nhiều chỗ không thể phân biệt được đang chọn đáp án nào — đặt needsManualGrading=true và manualGradingReason là 1 câu ngắn gọn tiếng Việt giải thích cụ thể (VD "Chữ viết tay nguệch ngoạc, nhiều câu không rõ khoanh vào đáp án nào"). Nếu bài đủ rõ để tự chấm bình thường (kể cả khi có vài chỗ lẻ tẻ phải đưa vào ambiguousItems), đặt needsManualGrading=false và manualGradingReason rỗng. Nếu fromExistingGrade=true (chỉ đọc lại số có sẵn) thì hầu như luôn để needsManualGrading=false, trừ khi chính con số điểm giáo viên ghi sẵn cũng không đọc nổi.
+8. Đánh giá xem bài này có NÊN ĐỂ GIÁO VIÊN TỰ CHẤM TAY HOÀN TOÀN thay vì dùng điểm AI hay không — mức nghiêm trọng HƠN lowConfidence. CHỈ áp dụng khi fromExistingGrade=false (bài chưa có ai chấm sẵn): nếu chữ viết/đáp án của học sinh (không chỉ riêng tên) quá xấu, nguệch ngoạc, nhiều chỗ không thể phân biệt được đang chọn đáp án nào — đặt needsManualGrading=true và manualGradingReason là 1 câu ngắn gọn tiếng Việt giải thích cụ thể (VD "Chữ viết tay nguệch ngoạc, nhiều câu không rõ khoanh vào đáp án nào"). Nếu bài đủ rõ để tự chấm bình thường (kể cả khi có vài chỗ lẻ tẻ phải đưa vào ambiguousItems), đặt needsManualGrading=false và manualGradingReason rỗng. Nếu fromExistingGrade=true (chỉ đọc lại số có sẵn) thì hầu như luôn để needsManualGrading=false, trừ khi chính con số điểm giáo viên ghi sẵn cũng không đọc nổi.
 
-8. CHỈ KHI fromExistingGrade=false (tự chấm từ đầu) — liệt kê CHI TIẾT TỪNG CÂU vào mảng questions, để giáo viên xem/sửa lại đúng từng câu thay vì chỉ 1 con số tổng:
+9. CHỈ KHI fromExistingGrade=false (tự chấm từ đầu) — liệt kê CHI TIẾT TỪNG CÂU vào mảng questions, để giáo viên xem/sửa lại đúng từng câu thay vì chỉ 1 con số tổng:
    - no: số thứ tự câu, theo ĐÚNG cách đánh số của đề (VD "1", "I.3").
    - studentAnswer: đáp án bạn đọc được học sinh chọn/viết cho câu đó (VD "B", "is read"). Nếu chữ quá xấu không đọc nổi, để "?" — đừng đoán bừa.
    - correct: true nếu đúng theo đáp án đúng của đề (so theo "ĐÁP ÁN ĐÚNG" bên dưới nếu giáo viên có cung cấp, không thì theo kiến thức tiếng Anh), false nếu sai hoặc không xác định được (studentAnswer="?").
    - uncertain: true nếu bạn không chắc chắn đọc đúng chữ viết tay ở câu này (kể cả khi vẫn đoán ra được studentAnswer) — giáo viên sẽ được nhắc xem lại đúng các câu này.
    Liệt kê ĐẦY ĐỦ mọi câu của bài, không chỉ câu nghi ngờ. Nếu fromExistingGrade=true, để questions rỗng (không tách được từng câu từ điểm tổng viết sẵn).
 
-9. Với TỪNG chỗ TỔNG QUÁT bạn không chắc chắn mà KHÔNG gắn với 1 câu cụ thể trong questions (VD tên học sinh, hoặc 2 con số điểm viết ở 2 góc trang mâu thuẫn nhau) — liệt kê vào ambiguousItems, mỗi mục gồm:
+10. Với TỪNG chỗ TỔNG QUÁT bạn không chắc chắn mà KHÔNG gắn với 1 câu cụ thể trong questions (VD tên học sinh, hoặc 2 con số điểm viết ở 2 góc trang mâu thuẫn nhau) — liệt kê vào ambiguousItems, mỗi mục gồm:
    - description: nói rõ Ở ĐÂU và NGHI NGỜ GÌ, để giáo viên xem đúng chỗ đó thay vì đọc lại từ đầu (VD "Tên học sinh: chữ đầu không rõ là 'Đ' hay 'D'").
    - suggestions: LIỆT KÊ SẴN các khả năng bạn nghĩ tới (tối đa 4), để giáo viên bấm chọn nhanh thay vì tự gõ lại. Nếu thật sự không đoán được phương án nào hợp lý, để suggestions rỗng — đừng bịa ra phương án không có căn cứ.
    - position: ƯỚC LƯỢNG gần đúng vị trí của chỗ đó trên ảnh — {"x": số 0-100 tính từ mép trái sang phải, "y": số 0-100 tính từ mép trên xuống dưới}. KHÔNG cần chính xác tuyệt đối từng pixel, chỉ cần đúng khu vực để giáo viên nhìn ảnh gốc biết nhìn vào đâu (VD góc trên bên trái ≈ {"x":10,"y":10}; giữa trang ≈ {"x":50,"y":50}; cuối trang bên phải ≈ {"x":85,"y":90}).
    Tối đa 6 mục ambiguousItems. Đừng lặp lại nghi ngờ về TỪNG CÂU ở đây nữa — cái đó đã có uncertain trong questions rồi.
 
 CHỈ trả về JSON hợp lệ theo đúng schema sau, không thêm chữ nào khác ngoài JSON:
-{"studentName": string, "rawScore": number, "rawMax": number, "errors": string[], "lowConfidence": boolean, "unreadable": boolean, "fromExistingGrade": boolean, "needsManualGrading": boolean, "manualGradingReason": string, "nameConfidence": "high"|"low", "questions": [{"no": string, "studentAnswer": string, "correct": boolean, "uncertain": boolean}], "ambiguousItems": [{"description": string, "suggestions": string[], "position": {"x": number, "y": number}}]}`
+{"testTitle": string, "studentName": string, "rawScore": number, "rawMax": number, "errors": string[], "lowConfidence": boolean, "unreadable": boolean, "fromExistingGrade": boolean, "needsManualGrading": boolean, "manualGradingReason": string, "nameConfidence": "high"|"low", "questions": [{"no": string, "studentAnswer": string, "correct": boolean, "uncertain": boolean}], "ambiguousItems": [{"description": string, "suggestions": string[], "position": {"x": number, "y": number}}]}`
 
 /** Gửi 1 ảnh bài kiểm tra giấy cho AI đọc tên + chấm điểm. Không lưu ảnh lại
  *  ở đâu cả — chỉ dùng cho đúng 1 lần gọi này rồi bỏ, giảm tối đa dữ liệu
@@ -236,6 +245,7 @@ export async function gradeTestPhoto(
   }
 
   return {
+    testTitle: String(parsed.testTitle ?? '').trim().slice(0, 200),
     studentName: String(parsed.studentName ?? '').trim(),
     rawScore: Math.max(0, Number(parsed.rawScore) || 0),
     rawMax: Math.max(0, Number(parsed.rawMax) || 0),

@@ -658,6 +658,17 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
 
                 {row.ai && row.status !== 'error' && (
                   <>
+                    {row.ai.testTitle && (
+                      <div
+                        className="text-xs rounded-lg px-2 py-1"
+                        style={row.ai.nameConfidence === 'low'
+                          ? { background: C.blue + '1f', color: '#1E3A8A', fontWeight: 600 }
+                          : { color: C.muted }}
+                      >
+                        📄 Đề: {row.ai.testTitle}
+                        {row.ai.nameConfidence === 'low' && ' — chữ in sẵn, tham khảo để xác định đúng bài/lớp vì tên viết tay không rõ'}
+                      </div>
+                    )}
                     {needsManual && (
                       <div className="text-xs rounded-lg px-2 py-2 font-semibold" style={{ background: '#FEE2E2', color: '#991B1B', border: '1px solid #FCA5A5' }}>
                         {row.ai.unreadable ? (

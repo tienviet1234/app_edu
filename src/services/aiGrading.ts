@@ -1,6 +1,7 @@
 import { api } from '@/utils/api'
 
 export interface AiGradeResult {
+  testTitle: string
   studentName: string
   rawScore: number
   rawMax: number
