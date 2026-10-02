@@ -28,8 +28,10 @@ import type { AppData, ClassData, SessionEntry } from '@/types'
 // ClassesScreen...) bị gộp chung 1 file JS ~1.6MB dù chỉ dùng 1 tab/lần.
 const SessionCountScreen = lazy(() =>
   import('@/features/billing/SessionCountScreen').then((m) => ({ default: m.SessionCountScreen })))
-const AiGradeScreen = lazy(() =>
-  import('@/features/entry/AiGradeScreen').then((m) => ({ default: m.AiGradeScreen })))
+// "Chấm bằng AI" tạm ẩn khỏi menu — xem ghi chú ở ALL_TABS. Bỏ comment 2 dòng
+// này + 2 chỗ khác (ALL_TABS, khối render) nếu muốn bật lại.
+// const AiGradeScreen = lazy(() =>
+//   import('@/features/entry/AiGradeScreen').then((m) => ({ default: m.AiGradeScreen })))
 const ClassesScreen = lazy(() =>
   import('@/features/classes/ClassesScreen').then((m) => ({ default: m.ClassesScreen })))
 const DashboardScreen = lazy(() =>
@@ -79,7 +81,10 @@ function TabLoading() {
 const ALL_TABS = [
   { key: 'dashboard', label: 'Tổng quan', icon: '📋', roles: ['teacher', 'admin'] },
   { key: 'entry', label: 'Nhập điểm', icon: '✏️', roles: ['teacher', 'admin'] },
-  { key: 'ai-grade', label: 'Chấm bằng AI', icon: '🤖', roles: ['teacher', 'admin'] },
+  // "Chấm bằng AI" tạm ẩn khỏi menu theo yêu cầu (không dùng tính năng này
+  // nữa) — code/màn hình (AiGradeScreen) vẫn còn nguyên, chỉ không hiện tab
+  // để dễ bật lại sau này nếu cần, không phải xóa hẳn.
+  // { key: 'ai-grade', label: 'Chấm bằng AI', icon: '🤖', roles: ['teacher', 'admin'] },
   { key: 'homework', label: 'Bài tập', icon: '📝', roles: ['teacher', 'admin'] },
   { key: 'debts', label: 'Nợ bài tập', icon: '📌', roles: ['teacher', 'admin'] },
   { key: 'my-scores', label: 'Điểm của tôi', icon: '📊', roles: ['student'] },
@@ -645,7 +650,7 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <DashboardScreen data={data} setTab={setTab} setCurrent={setCurrentClass} />
         )}
-        {activeTab === 'ai-grade' && <AiGradeScreen data={data} setData={setData} />}
+        {/* "Chấm bằng AI" tạm ẩn — xem ghi chú ở ALL_TABS phía trên. */}
         {cls && activeTab === 'entry' && (
           <EntryScreen
             cls={cls}
