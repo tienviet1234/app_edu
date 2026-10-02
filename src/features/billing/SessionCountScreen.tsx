@@ -32,6 +32,12 @@ interface DetailRow {
    *  hợp theo giáo viên. */
   isOfficialTeacher: boolean
   attendance: AttendanceKey
+  /** Em này có 2+ bản ghi buổi KHÁC NHAU trong CÙNG 1 ngày (dù số buổi khác
+   *  nhau) — gần như chắc chắn là chấm trùng/chấm nhầm 2 lần, không phải do
+   *  thiết kế. Khác với lỗi "lệch ngày" (cùng buổi, khác ngày) đã có công cụ
+   *  riêng — ca này phải xem tay rồi tự xóa bớt 1 bản (không tự xóa giúp vì
+   *  không chắc bản nào mới đúng). */
+  isDuplicateDay: boolean
 }
 
 interface TeacherDay {
@@ -89,14 +95,14 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
     return latest || null
   }, [cls])
 
-  const { byStudent, byTeacher, byNo, teacherNames, totalRows } = useMemo(() => {
-    const all: DetailRow[] = []
+  const { byStudent, byTeacher, byNo, teacherNames, totalRows, duplicateCount } = useMemo(() => {
+    const rawRows: Omit<DetailRow, 'isDuplicateDay'>[] = []
     cls.students.forEach((st) => {
       st.sessions
         .filter((s) => s.date.startsWith(month))
         .forEach((s) => {
           const teacherName = s.createdByName ?? 'Chưa rõ giáo viên'
-          all.push({
+          rawRows.push({
             sessionId: s.id,
             no: s.no,
             date: s.date,
@@ -109,6 +115,18 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
           })
         })
     })
+
+    // Em nào có 2+ bản ghi buổi trong CÙNG 1 ngày (bất kể số buổi) — gần như
+    // chắc chắn chấm trùng 2 lần, đánh dấu để dễ phát hiện mà tự xóa bớt.
+    const studentDateCount = new Map<string, number>()
+    rawRows.forEach((r) => {
+      const key = `${r.studentId}:${r.date}`
+      studentDateCount.set(key, (studentDateCount.get(key) ?? 0) + 1)
+    })
+    const all: DetailRow[] = rawRows.map((r) => ({
+      ...r,
+      isDuplicateDay: (studentDateCount.get(`${r.studentId}:${r.date}`) ?? 0) > 1,
+    }))
 
     // Buổi của học sinh = số NGÀY khác nhau em đó có bản ghi buổi — gộp lại
     // nếu có 2+ bản ghi cùng 1 ngày (VD do trước đây từng bị lỗi tách buổi
@@ -200,6 +218,7 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
       byNo: noGroups,
       teacherNames: [...teacherDayStudents.keys()].sort((a, b) => a.localeCompare(b, 'vi')),
       totalRows: filtered.length,
+      duplicateCount: filtered.filter((r) => r.isDuplicateDay).length,
     }
   }, [cls, month, studentFilter, teacherFilter, search])
 
@@ -397,6 +416,17 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
         </div>
       )}
 
+      {duplicateCount > 0 && (
+        <div
+          className="rounded-2xl px-4 py-3 text-sm"
+          style={{ background: C.rose + '14', border: `1px solid ${C.rose}44`, color: '#9F1239' }}
+        >
+          ⚠ Phát hiện {duplicateCount} buổi bị <b>chấm trùng ngày</b> (1 em có 2+ bản ghi khác số buổi trong cùng 1
+          ngày — thường do chấm nhầm 2 lần). Các dòng này được tô đỏ trong bảng "Chi tiết theo Buổi" bên dưới — bấm
+          vào xem kỹ rồi tự Xóa bớt bản dư (không tự xóa giúp vì không chắc bản nào đúng).
+        </div>
+      )}
+
       <div className="grid gap-3 md:grid-cols-2">
         <Card className="p-3">
           <div className="mb-1.5 text-xs font-bold uppercase" style={{ color: C.muted }}>Tổng theo học sinh</div>
@@ -485,7 +515,13 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
                             {d.rows.map((r) => {
                               const st = ATTEND_STYLE[r.attendance]
                               return (
-                                <tr key={r.sessionId} style={{ borderTop: `1px solid ${C.line}` }}>
+                                <tr
+                                  key={r.sessionId}
+                                  style={{
+                                    borderTop: `1px solid ${C.line}`,
+                                    background: r.isDuplicateDay ? C.rose + '14' : undefined,
+                                  }}
+                                >
                                   <td
                                     className="py-2 pl-6 pr-3 font-bold"
                                     style={{ width: 70, color: r.no !== g.no ? C.gold : C.ink }}
@@ -505,7 +541,14 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
                                   <td className="py-2 px-3" style={{ width: 90, color: r.recordedAt ? C.ink : C.muted }}>
                                     {r.recordedAt ? viDateTime(r.recordedAt).split(' ')[1] : '—'}
                                   </td>
-                                  <td className="py-2 px-3">{r.studentName}</td>
+                                  <td className="py-2 px-3">
+                                    {r.studentName}
+                                    {r.isDuplicateDay && (
+                                      <span className="ml-1 font-semibold" style={{ color: C.rose }} title="Em này có 2+ bản ghi buổi trong cùng ngày này — khả năng cao chấm trùng">
+                                        ⚠ trùng ngày
+                                      </span>
+                                    )}
+                                  </td>
                                   <td className="py-2 px-3">
                                     <span
                                       className="rounded-full px-2 py-0.5 text-xs font-semibold"
