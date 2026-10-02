@@ -10,8 +10,24 @@ import { viDate } from '@/utils/format'
 
 const fmtVnd = (n: number) => `${n.toLocaleString('vi-VN')}đ`
 
-function todayMonth() {
-  return new Date().toISOString().slice(0, 7)
+// yyyy-mm-dd từ ĐÚNG năm/tháng/ngày LOCAL — không qua toISOString() (đổi
+// sang UTC dễ lùi/lên 1 ngày với giờ Việt Nam UTC+7, đúng kiểu lệch ngày
+// admin đang gặp phải).
+function fmtDate(y: number, m0: number, d: number): string {
+  return `${y}-${String(m0 + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+}
+
+/** Gợi ý mặc định = tháng dương lịch hiện tại — chỉ là điểm bắt đầu tiện
+ *  dùng, admin chỉnh "Từ ngày"/"Đến ngày" tự do để khớp đúng chu kỳ trả
+ *  lương thật (không còn ép cứng theo tháng — xem ghi chú ở
+ *  analyticsController.getBillingReport). */
+function defaultRange() {
+  const now = new Date()
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+  return {
+    from: fmtDate(now.getFullYear(), now.getMonth(), 1),
+    to: fmtDate(now.getFullYear(), now.getMonth(), lastDay),
+  }
 }
 
 /** 1 dòng nhập đơn giá cho 1 lớp — bản nháp tách khỏi giá trị đã lưu, chỉ
@@ -164,16 +180,17 @@ function TeacherDayDetail({ days }: { days: { date: string; totalStudents: numbe
 }
 
 export function AdminBillingPage() {
-  const [month, setMonth] = useState(todayMonth())
+  const [{ from, to }, setRange] = useState(defaultRange())
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const qc = useQueryClient()
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['admin', 'billing', month],
-    queryFn: () => adminService.getBillingReport(month),
+    queryKey: ['admin', 'billing', from, to],
+    queryFn: () => adminService.getBillingReport(from, to),
+    enabled: from <= to,
   })
 
-  const refetch = () => qc.invalidateQueries({ queryKey: ['admin', 'billing', month] })
+  const refetch = () => qc.invalidateQueries({ queryKey: ['admin', 'billing', from, to] })
 
   function toggleExpand(key: string) {
     setExpanded((prev) => {
@@ -189,20 +206,39 @@ export function AdminBillingPage() {
       <div>
         <h2 className="text-lg font-black" style={{ color: C.board }}>Học phí & Lương</h2>
         <p className="text-sm" style={{ color: C.muted }}>
-          Học phí = đơn giá/buổi × số buổi học sinh đã học trong tháng. Lương giáo viên chọn 1 trong 2 cách theo từng lớp:
-          đơn giá cố định/buổi, hoặc đơn giá/học-sinh-có-mặt/buổi (buổi đông lương cao hơn, buổi vắng nhiều lương thấp hơn).
+          Học phí = đơn giá/buổi × số buổi học sinh đã học trong khoảng ngày đã chọn. Lương giáo viên chọn 1 trong 2
+          cách theo từng lớp: đơn giá cố định/buổi, hoặc đơn giá/học-sinh-có-mặt/buổi (buổi đông lương cao hơn, buổi
+          vắng nhiều lương thấp hơn).
         </p>
       </div>
 
-      <Card className="p-3 flex items-center gap-2">
-        <span className="text-sm font-medium" style={{ color: C.muted }}>Tháng:</span>
-        <input
-          type="month"
-          value={month}
-          onChange={(e) => setMonth(e.target.value)}
-          className="rounded-xl px-3 py-2 text-sm font-semibold"
-          style={{ border: `1px solid ${C.line}` }}
-        />
+      <Card className="p-3 space-y-1.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium" style={{ color: C.muted }}>Từ ngày:</span>
+          <input
+            type="date"
+            value={from}
+            onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))}
+            className="rounded-xl px-3 py-2 text-sm font-semibold"
+            style={{ border: `1px solid ${C.line}` }}
+          />
+          <span className="text-sm font-medium" style={{ color: C.muted }}>Đến ngày:</span>
+          <input
+            type="date"
+            value={to}
+            onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))}
+            className="rounded-xl px-3 py-2 text-sm font-semibold"
+            style={{ border: `1px solid ${C.line}` }}
+          />
+          <Btn kind="ghost" size="sm" onClick={() => setRange(defaultRange())}>Về tháng này</Btn>
+        </div>
+        {from > to && (
+          <div className="text-xs" style={{ color: C.red }}>"Từ ngày" phải trước "Đến ngày".</div>
+        )}
+        <div className="text-xs" style={{ color: C.muted }}>
+          Không bắt buộc đúng theo tháng dương lịch — chọn đúng chu kỳ trả lương thật của trung tâm (VD 16 tháng
+          trước – 15 tháng này) để buổi dạy liên tục không bị cắt ngang giữa 2 tháng.
+        </div>
       </Card>
 
       {isLoading && <Card className="p-6 text-center text-sm" style={{ color: C.muted }}>Đang tải...</Card>}
@@ -254,7 +290,7 @@ export function AdminBillingPage() {
           <Card className="overflow-hidden">
             <div className="px-4 py-3" style={{ background: C.board, color: '#fff' }}>
               <div className="flex items-center justify-between">
-                <div className="text-lg font-bold">Học phí học sinh — {month}</div>
+                <div className="text-lg font-bold">Học phí học sinh — {viDate(from)}–{viDate(to)}</div>
                 <div className="text-lg font-black tabular-nums">{fmtVnd(data.studentsTotal)}</div>
               </div>
             </div>
@@ -294,7 +330,7 @@ export function AdminBillingPage() {
           <Card className="overflow-hidden">
             <div className="px-4 py-3" style={{ background: C.board, color: '#fff' }}>
               <div className="flex items-center justify-between">
-                <div className="text-lg font-bold">Lương giáo viên — {month}</div>
+                <div className="text-lg font-bold">Lương giáo viên — {viDate(from)}–{viDate(to)}</div>
                 <div className="text-lg font-black tabular-nums">{fmtVnd(data.teachersTotal)}</div>
               </div>
             </div>

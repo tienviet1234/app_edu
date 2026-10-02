@@ -152,7 +152,8 @@ export interface BillingTeacherRow {
 }
 
 export interface BillingReport {
-  month: string
+  from: string
+  to: string
   classes: BillingClassRow[]
   // Lớp có buổi học trong tháng nhưng chưa gán giáo viên chính thức
   // (Class.teacherId trống) — không tính được lương vì không rõ trả cho ai.
@@ -206,9 +207,12 @@ export const adminService = {
       .get<{ data: TeacherPerfRow[] }>('/analytics/teacher-performance')
       .then((r) => r.data.data),
 
-  getBillingReport: (month: string) =>
+  /** `from`/`to` dạng YYYY-MM-DD, CẢ 2 đầu đều được tính (bao gồm cả ngày
+   *  `to`) — khoảng ngày tự chọn, KHÔNG còn bị ép cứng theo tháng dương lịch
+   *  (lớp dạy liên tục bị cắt ngang ở ranh giới tháng trước đây). */
+  getBillingReport: (from: string, to: string) =>
     api
-      .get<{ data: BillingReport }>('/analytics/billing', { params: { month } })
+      .get<{ data: BillingReport }>('/analytics/billing', { params: { from, to } })
       .then((r) => r.data.data),
 
   createInvite: (body: { note?: string; expireDays?: number }) =>

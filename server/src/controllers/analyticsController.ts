@@ -238,10 +238,19 @@ export async function getTeacherPerformance(_req: Request, res: Response): Promi
   ok(res, result)
 }
 
-// ── GET /analytics/billing?month=YYYY-MM ─────────────────────────────────────
+// ── GET /analytics/billing?from=YYYY-MM-DD&to=YYYY-MM-DD ─────────────────────
 /** Học phí học sinh = đơn giá/buổi (đặt riêng từng lớp) × số buổi em đó có
- *  bản ghi buổi trong tháng — kể cả buổi điểm danh "Vắng" vẫn tính là 1 buổi
- *  (đã lên lịch dạy/học ngày đó), khớp đúng cách "Thống kê buổi" đã đếm.
+ *  bản ghi buổi trong khoảng [from, to] (CẢ 2 đầu) — kể cả buổi điểm danh
+ *  "Vắng" vẫn tính là 1 buổi (đã lên lịch dạy/học ngày đó), khớp đúng cách
+ *  "Thống kê buổi" đã đếm.
+ *
+ *  CỐ Ý dùng khoảng ngày TỰ CHỌN thay vì "tháng dương lịch cứng" (1 đến cuối
+ *  tháng) như trước — lớp dạy LIÊN TỤC không nghỉ đúng theo ranh giới tháng,
+ *  cắt cứng theo 1–31 làm buổi của cùng 1 chu kỳ dạy bị chia đôi giữa "tháng
+ *  này" và "tháng kia", nhìn như thiếu buổi dù giáo viên đã điểm danh/nhập
+ *  điểm đầy đủ. Để admin tự chọn đúng khoảng ngày khớp với chu kỳ trả lương
+ *  thật của trung tâm (mặc định gợi ý tháng dương lịch hiện tại ở frontend,
+ *  nhưng chỉnh được tự do).
  *
  *  Lương giáo viên LUÔN quy về Class.teacherId (giáo viên CHÍNH THỨC của
  *  lớp, chỉ admin gán được ở trang Lớp học) — CỐ Ý KHÔNG dùng
@@ -262,14 +271,20 @@ export async function getTeacherPerformance(_req: Request, res: Response): Promi
  *  Kèm bảng "days" chi tiết từng ngày (sĩ số, có mặt/vắng/muộn/phép, tên học
  *  sinh vắng) để admin đối chiếu trực tiếp với giáo viên khi có thắc mắc. */
 export async function getBillingReport(req: Request, res: Response): Promise<void> {
-  const { month } = req.query as Record<string, string>
-  if (!month || !/^\d{4}-\d{2}$/.test(month)) {
-    badRequest(res, 'month (định dạng YYYY-MM) là bắt buộc.')
+  const { from, to } = req.query as Record<string, string>
+  if (!from || !to || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    badRequest(res, 'from/to (định dạng YYYY-MM-DD) là bắt buộc.')
     return
   }
-  const start = new Date(`${month}-01T00:00:00.000Z`)
-  const end = new Date(start)
-  end.setUTCMonth(end.getUTCMonth() + 1)
+  const start = new Date(`${from}T00:00:00.000Z`)
+  // "to" là ngày CUỐI CÙNG CÒN TÍNH (bao gồm cả ngày đó) — cộng thêm 1 ngày
+  // để dùng làm mốc trên dạng loại trừ ($lt) cho query bên dưới.
+  const end = new Date(`${to}T00:00:00.000Z`)
+  end.setUTCDate(end.getUTCDate() + 1)
+  if (start >= end) {
+    badRequest(res, '"from" phải trước "to".')
+    return
+  }
 
   const classes = await Class.find(
     {},
@@ -433,7 +448,8 @@ export async function getBillingReport(req: Request, res: Response): Promise<voi
   })
 
   ok(res, {
-    month,
+    from,
+    to,
     classes: classes.map((c) => ({
       classId: String(c._id),
       className: c.name,
