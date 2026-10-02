@@ -6,6 +6,8 @@ export interface BottomNavTab {
   key: string
   label: string
   icon: string
+  /** Số lượng cần chú ý (VD khoản học phí đang nợ) — hiện chấm đỏ NHÁY cạnh icon. */
+  badge?: number
 }
 
 interface BottomNavProps {
@@ -21,8 +23,12 @@ export function BottomNav({ primaryTabs, overflowTabs, activeTab, onTabChange }:
 
   const hasOverflow = overflowTabs.length > 0
   const overflowActive = hasOverflow && overflowTabs.some((t) => t.key === activeTab)
-  const notifInPrimary = primaryTabs.some((t) => t.key === 'notifications')
-  const notifInOverflow = overflowTabs.some((t) => t.key === 'notifications')
+
+  function badgeCountFor(t: BottomNavTab): number {
+    if (t.key === 'notifications') return notifCount
+    return t.badge ?? 0
+  }
+  const overflowBadgeCount = overflowTabs.reduce((sum, t) => sum + badgeCountFor(t), 0)
 
   function selectOverflow(key: string) {
     onTabChange(key)
@@ -41,7 +47,7 @@ export function BottomNav({ primaryTabs, overflowTabs, activeTab, onTabChange }:
       >
         {primaryTabs.map((t) => {
           const active = activeTab === t.key
-          const showBadge = t.key === 'notifications' && notifInPrimary && notifCount > 0
+          const count = badgeCountFor(t)
           return (
             <button
               key={t.key}
@@ -54,10 +60,10 @@ export function BottomNav({ primaryTabs, overflowTabs, activeTab, onTabChange }:
             >
               <span className="relative text-lg leading-none">
                 {t.icon}
-                {showBadge && (
+                {count > 0 && (
                   <span
-                    className="absolute -right-1.5 -top-1 h-2 w-2 rounded-full"
-                    style={{ background: C.red }}
+                    className="absolute -right-1.5 -top-1 h-2 w-2 animate-pulse rounded-full"
+                    style={{ background: C.red, boxShadow: '0 0 0 2px #fff' }}
                   />
                 )}
               </span>
@@ -77,10 +83,10 @@ export function BottomNav({ primaryTabs, overflowTabs, activeTab, onTabChange }:
           >
             <span className="relative text-lg leading-none">
               ☰
-              {notifInOverflow && notifCount > 0 && (
+              {overflowBadgeCount > 0 && (
                 <span
-                  className="absolute -right-1.5 -top-1 h-2 w-2 rounded-full"
-                  style={{ background: C.red }}
+                  className="absolute -right-1.5 -top-1 h-2 w-2 animate-pulse rounded-full"
+                  style={{ background: C.red, boxShadow: '0 0 0 2px #fff' }}
                 />
               )}
             </span>
@@ -101,7 +107,7 @@ export function BottomNav({ primaryTabs, overflowTabs, activeTab, onTabChange }:
             <div className="grid grid-cols-4 gap-2">
               {overflowTabs.map((t) => {
                 const active = activeTab === t.key
-                const showBadge = t.key === 'notifications' && notifCount > 0
+                const count = badgeCountFor(t)
                 return (
                   <button
                     key={t.key}
@@ -111,10 +117,10 @@ export function BottomNav({ primaryTabs, overflowTabs, activeTab, onTabChange }:
                   >
                     <span className="relative text-xl leading-none">
                       {t.icon}
-                      {showBadge && (
+                      {count > 0 && (
                         <span
-                          className="absolute -right-1.5 -top-1 h-2 w-2 rounded-full"
-                          style={{ background: C.red }}
+                          className="absolute -right-1.5 -top-1 h-2 w-2 animate-pulse rounded-full"
+                          style={{ background: C.red, boxShadow: '0 0 0 2px #fff' }}
                         />
                       )}
                     </span>

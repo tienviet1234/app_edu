@@ -5,6 +5,9 @@ export interface SidebarTab {
   key: string
   label: string
   icon: string
+  /** Số lượng cần chú ý (VD khoản học phí đang nợ) — hiện chấm đỏ NHÁY
+   *  (animate-pulse) cạnh icon để dễ nhận ra ngay, không cần mở tab mới biết. */
+  badge?: number
 }
 
 interface SidebarProps {
@@ -39,22 +42,39 @@ export function Sidebar({ tabs, activeTab, onTabChange }: SidebarProps) {
             <button
               key={t.key}
               onClick={() => onTabChange(t.key)}
-              title={collapsed ? t.label : undefined}
-              className="flex items-center gap-3 whitespace-nowrap rounded-xl px-2.5 py-2.5 text-sm font-semibold transition-all"
+              title={collapsed ? (t.badge ? `${t.label} (${t.badge})` : t.label) : undefined}
+              className="relative flex items-center gap-3 whitespace-nowrap rounded-xl px-2.5 py-2.5 text-sm font-semibold transition-all"
               style={{
                 background: active ? C.board2 + '15' : 'transparent',
                 color: active ? C.board : C.muted,
                 borderLeft: active ? `3px solid ${C.board2}` : '3px solid transparent',
               }}
             >
-              <span className="shrink-0 text-lg leading-none">{t.icon}</span>
+              <span className="relative shrink-0 text-lg leading-none">
+                {t.icon}
+                {!!t.badge && (
+                  <span
+                    className="absolute -right-1.5 -top-1.5 h-2.5 w-2.5 animate-pulse rounded-full"
+                    style={{ background: C.red, boxShadow: '0 0 0 2px #fff' }}
+                  />
+                )}
+              </span>
               <span
+                className="flex flex-1 items-center justify-between gap-1"
                 style={{
                   opacity: collapsed ? 0 : 1,
                   transition: `opacity var(--transition-base) ${collapsed ? '0ms' : '100ms'}`,
                 }}
               >
                 {t.label}
+                {!!t.badge && (
+                  <span
+                    className="animate-pulse rounded-full px-1.5 text-[10px] font-bold text-white"
+                    style={{ background: C.red }}
+                  >
+                    {t.badge > 9 ? '9+' : t.badge}
+                  </span>
+                )}
               </span>
             </button>
           )

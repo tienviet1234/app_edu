@@ -12,7 +12,7 @@ import { Sidebar } from '@/components/molecules/Sidebar'
 import { BottomNav } from '@/components/molecules/BottomNav'
 import { useAppStore } from '@/store/appStore'
 import { useAuthStore } from '@/store/authStore'
-import { useClasses, useClassStudents, useSessions, useClassScores, usePwaInstall } from '@/hooks'
+import { useClasses, useClassStudents, useSessions, useClassScores, usePwaInstall, useTuitionUnpaidCount } from '@/hooks'
 import { isMongoid } from '@/utils/mongoid'
 import { emptyEntry } from '@/business/seed'
 import { autoLevel, getClassRubric } from '@/constants/rubrics'
@@ -268,7 +268,10 @@ export default function App() {
   // điểm — giáo viên và admin đều thao tác được, không giới hạn riêng ai.
   const [entryJumpTarget, setEntryJumpTarget] = useState<{ studentId: string; no: number } | null>(null)
 
-  const TABS = ALL_TABS.filter((t) => !user || t.roles.includes(user.role))
+  const { data: tuitionSummary } = useTuitionUnpaidCount()
+  const TABS = ALL_TABS
+    .filter((t) => !user || t.roles.includes(user.role))
+    .map((t) => (t.key === 'tuition-report' ? { ...t, badge: tuitionSummary?.unpaidCount } : t))
   const { primary: mobilePrimary, overflow: mobileOverflow } = splitMobileTabs(TABS, user?.role)
 
   // Re-init when user changes so each account gets its own scoped data

@@ -51,4 +51,9 @@ export const tuitionNoticeService = {
   /** Hoàn tác "đã đóng tiền" nếu lỡ bấm nhầm. */
   markUnpaid: (id: string): Promise<TuitionNotice> =>
     api.put(`/tuition-notices/${id}/unpaid`).then((r) => r.data.data),
+
+  /** Đếm nhanh số khoản "đang nợ học phí" trên TẤT CẢ lớp đang dạy — dùng
+   *  để hiện chấm nhắc ở menu, không cần mở từng lớp mới biết. */
+  getSummary: (): Promise<{ unpaidCount: number }> =>
+    api.get('/tuition-notices/summary').then((r) => r.data.data),
 }

@@ -82,6 +82,21 @@ export const listTuitionNotices = asyncHandler(async (req: Request, res: Respons
   ok(res, notices)
 })
 
+/** GET /api/tuition-notices/summary — đếm nhanh số khoản "đang nợ học phí"
+ *  (đã gửi, chưa thu tiền) trên TẤT CẢ lớp giáo viên này dạy (admin: toàn bộ)
+ *  — dùng để hiện chấm/badge nhắc ở menu, không cần giáo viên tự mở từng lớp
+ *  mới biết có khoản nào đang chờ thu hay không. */
+export const getTuitionNoticeSummary = asyncHandler(async (req: Request, res: Response) => {
+  const authReq = req as AuthRequest
+  const filter: Record<string, unknown> = { paymentStatus: 'unpaid' }
+  if (authReq.user?.role !== 'admin') {
+    const ownClasses = await Class.find({ teacherId: authReq.userId }, '_id').lean()
+    filter.classId = { $in: ownClasses.map((c) => c._id) }
+  }
+  const unpaidCount = await TuitionNotice.countDocuments(filter)
+  ok(res, { unpaidCount })
+})
+
 /** PUT /api/tuition-notices/:id/paid — đánh dấu ĐÃ THU ĐƯỢC TIỀN cho đúng kỳ
  *  này — KHÁC "đã gửi" ở trên, ghi nhận lúc phụ huynh THỰC SỰ đóng (có thể
  *  trễ hơn lúc gửi thông báo rất nhiều, hoặc đóng dồn nhiều kỳ 1 lúc — mỗi

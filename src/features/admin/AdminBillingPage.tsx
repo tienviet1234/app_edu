@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminService, type TeacherPayMode } from '@/services/admin'
 import { classService } from '@/services/classes'
+import { teacherPayService } from '@/services/teacherPay'
 import { C } from '@/constants/colors'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
@@ -179,6 +180,65 @@ function TeacherDayDetail({ days }: { days: { date: string; totalStudents: numbe
   )
 }
 
+/** "Đã trả lương" hay chưa cho 1 giáo viên trong đúng khoảng [from,to] đang
+ *  xem — giống hệt kiểu "đã đóng học phí" của TuitionNotice: tạo record MỚI
+ *  khi xác nhận (không có bước nháp riêng), xoá record khi lỡ bấm nhầm (ghi
+ *  nhầm thì xoá rồi đánh dấu lại, không có hàm "sửa"). */
+function TeacherPayAction({
+  teacherId, teacherName, from, to, suggestedAmount, record, onChanged,
+}: {
+  teacherId: string; teacherName: string; from: string; to: string; suggestedAmount: number
+  record: { _id: string; amount: number; paidAt: string } | undefined
+  onChanged: () => void
+}) {
+  const [saving, setSaving] = useState(false)
+
+  async function confirmPaid() {
+    setSaving(true)
+    try {
+      await teacherPayService.markPaid({ teacherId, from, to, amount: suggestedAmount })
+      toast.success(`Đã đánh dấu trả lương cho ${teacherName}.`)
+      onChanged()
+    } catch {
+      toast.error('Lỗi — thử lại.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function undo() {
+    if (!record) return
+    setSaving(true)
+    try {
+      await teacherPayService.remove(record._id)
+      toast.success('Đã hoàn tác.')
+      onChanged()
+    } catch {
+      toast.error('Lỗi — thử lại.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (record) {
+    return (
+      <div className="flex items-center gap-2 text-xs">
+        <span className="font-semibold" style={{ color: C.emerald }}>
+          ✅ Đã trả lương {viDate(record.paidAt.slice(0, 10))}
+        </span>
+        <button disabled={saving} className="shrink-0" style={{ color: C.muted }} onClick={undo}>
+          ↩ Hoàn tác
+        </button>
+      </div>
+    )
+  }
+  return (
+    <Btn kind="solid" size="sm" disabled={saving} onClick={confirmPaid}>
+      {saving ? 'Đang lưu...' : '✅ Đánh dấu đã trả lương'}
+    </Btn>
+  )
+}
+
 export function AdminBillingPage() {
   const [{ from, to }, setRange] = useState(defaultRange())
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -187,6 +247,12 @@ export function AdminBillingPage() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['admin', 'billing', from, to],
     queryFn: () => adminService.getBillingReport(from, to),
+    enabled: from <= to,
+  })
+
+  const { data: payRecords, refetch: refetchPay } = useQuery({
+    queryKey: ['teacher-pay', from, to],
+    queryFn: () => teacherPayService.list(from, to),
     enabled: from <= to,
   })
 
@@ -343,6 +409,17 @@ export function AdminBillingPage() {
                     <div className="flex items-center justify-between">
                       <div className="font-bold text-sm" style={{ color: C.ink }}>{t.teacherName}</div>
                       <div className="font-black tabular-nums" style={{ color: C.board2 }}>{fmtVnd(t.total)}</div>
+                    </div>
+                    <div className="mt-1.5">
+                      <TeacherPayAction
+                        teacherId={t.teacherId}
+                        teacherName={t.teacherName}
+                        from={from}
+                        to={to}
+                        suggestedAmount={t.total}
+                        record={payRecords?.find((r) => r.teacherId === t.teacherId)}
+                        onChanged={refetchPay}
+                      />
                     </div>
                     <div className="mt-1.5 space-y-1">
                       {t.byClass.map((c) => {

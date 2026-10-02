@@ -2,6 +2,7 @@ import type { Request, Response } from 'express'
 import { runReminderCheck } from '../services/reminderService.js'
 import { runDatabaseBackup } from '../services/backupService.js'
 import { runAiPhotoCleanup } from '../services/aiGradedPhotoService.js'
+import { runBillingReminders } from '../services/billingReminderService.js'
 import { ok, unauthorized } from '../utils/response.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
 import { env } from '../config/env.js'
@@ -39,5 +40,16 @@ export const cleanupAiPhotos = asyncHandler(async (req: Request, res: Response) 
     return
   }
   const result = await runAiPhotoCleanup()
+  ok(res, result)
+})
+
+/** POST /api/cron/check-billing-reminders — nhắc học phí chưa thu quá hạn +
+ *  lương giáo viên tháng trước chưa trả, gọi mỗi ngày qua GitHub Actions. */
+export const checkBillingReminders = asyncHandler(async (req: Request, res: Response) => {
+  if (!checkCronSecret(req)) {
+    unauthorized(res, 'Invalid cron secret.')
+    return
+  }
+  const result = await runBillingReminders()
   ok(res, result)
 })
