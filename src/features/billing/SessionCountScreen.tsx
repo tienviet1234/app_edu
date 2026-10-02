@@ -66,6 +66,19 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
   const [addNo, setAddNo] = useState(1)
   const [addDate, setAddDate] = useState(todayISO())
 
+  // Tháng gần nhất THỰC SỰ có buổi học — độc lập với `month` đang chọn. Dùng
+  // để phân biệt "lớp này chưa từng học buổi nào" (trống thật) với "chỉ đang
+  // xem nhầm tháng" (VD vừa sang tháng mới, `month` mặc định = hôm nay nhưng
+  // dữ liệu còn nằm hết ở tháng trước) — tránh giáo viên tưởng mất dữ liệu.
+  const latestMonthWithData = useMemo(() => {
+    let latest = ''
+    cls.students.forEach((st) => st.sessions.forEach((s) => {
+      const m = s.date.slice(0, 7)
+      if (m > latest) latest = m
+    }))
+    return latest || null
+  }, [cls])
+
   const { byDate, byStudent, byTeacher, byNo, teacherNames, totalRows } = useMemo(() => {
     const all: DetailRow[] = []
     cls.students.forEach((st) => {
@@ -365,6 +378,21 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
           </div>
         )}
       </Card>
+
+      {totalRows === 0 && latestMonthWithData && latestMonthWithData !== month && (
+        <div
+          className="flex flex-wrap items-center justify-between gap-2 rounded-2xl px-4 py-3 text-sm"
+          style={{ background: C.gold + '18', border: `1px solid ${C.gold}66` }}
+        >
+          <span style={{ color: '#7A5A05' }}>
+            Tháng {Number(month.slice(5, 7))}/{month.slice(0, 4)} chưa có buổi nào — <b>dữ liệu không mất</b>, chỉ
+            đang xem nhầm tháng thôi.
+          </span>
+          <Btn kind="gold" size="sm" onClick={() => setMonth(latestMonthWithData)}>
+            Xem tháng {Number(latestMonthWithData.slice(5, 7))}/{latestMonthWithData.slice(0, 4)} (có dữ liệu)
+          </Btn>
+        </div>
+      )}
 
       <div className="grid gap-3 md:grid-cols-2">
         <Card className="p-3">
