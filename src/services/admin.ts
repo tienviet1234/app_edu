@@ -209,10 +209,12 @@ export const adminService = {
 
   /** `from`/`to` dạng YYYY-MM-DD, CẢ 2 đầu đều được tính (bao gồm cả ngày
    *  `to`) — khoảng ngày tự chọn, KHÔNG còn bị ép cứng theo tháng dương lịch
-   *  (lớp dạy liên tục bị cắt ngang ở ranh giới tháng trước đây). */
-  getBillingReport: (from: string, to: string) =>
+   *  (lớp dạy liên tục bị cắt ngang ở ranh giới tháng trước đây).
+   *  `teacherId` tùy chọn — thu hẹp kết quả về đúng 1 giáo viên (mỗi cô xem
+   *  lương theo đúng chu kỳ riêng, không dùng chung 1 khoảng ngày). */
+  getBillingReport: (from: string, to: string, teacherId?: string) =>
     api
-      .get<{ data: BillingReport }>('/analytics/billing', { params: { from, to } })
+      .get<{ data: BillingReport }>('/analytics/billing', { params: { from, to, teacherId } })
       .then((r) => r.data.data),
 
   createInvite: (body: { note?: string; expireDays?: number }) =>

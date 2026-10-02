@@ -181,6 +181,115 @@ function TeacherDayDetail({ days }: { days: { date: string; totalStudents: numbe
   )
 }
 
+/** Lương của ĐÚNG 1 giáo viên, với bộ chọn ngày RIÊNG của giáo viên đó — mỗi
+ *  cô có thể có chu kỳ trả lương khác nhau (không dùng chung 1 khoảng ngày
+ *  cho tất cả), nên mỗi thẻ tự quản lý from/to + tự gọi báo cáo riêng (truyền
+ *  teacherId để backend chỉ tính đúng lớp của cô đó). */
+function TeacherSalaryCard({ teacher }: { teacher: { _id: string; name: string } }) {
+  const [{ from, to }, setRange] = useState(defaultRange())
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['admin', 'billing', 'teacher', teacher._id, from, to],
+    queryFn: () => adminService.getBillingReport(from, to, teacher._id),
+    enabled: from <= to,
+  })
+
+  const { data: payRecords, refetch: refetchPay } = useQuery({
+    queryKey: ['teacher-pay', from, to],
+    queryFn: () => teacherPayService.list(from, to),
+    enabled: from <= to,
+  })
+
+  function toggleExpand(key: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const row = data?.teachers.find((t) => t.teacherId === teacher._id)
+
+  return (
+    <div className="p-3" style={{ borderTop: `1px solid ${C.line}` }}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="font-bold text-sm" style={{ color: C.ink }}>{teacher.name}</div>
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <input
+            type="date"
+            value={from}
+            onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))}
+            className="rounded-lg px-2 py-1"
+            style={{ border: `1px solid ${C.line}` }}
+          />
+          <span style={{ color: C.muted }}>–</span>
+          <input
+            type="date"
+            value={to}
+            onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))}
+            className="rounded-lg px-2 py-1"
+            style={{ border: `1px solid ${C.line}` }}
+          />
+          <button className="font-semibold" style={{ color: C.board2 }} onClick={() => setRange(defaultRange())}>
+            Tháng này
+          </button>
+        </div>
+      </div>
+
+      {from > to && <div className="mt-1 text-xs" style={{ color: C.red }}>"Từ ngày" phải trước "Đến ngày".</div>}
+      {isLoading && <div className="mt-1 text-xs" style={{ color: C.muted }}>Đang tải...</div>}
+      {isError && <div className="mt-1 text-xs" style={{ color: C.red }}>Lỗi khi tải — thử lại.</div>}
+
+      {data && !row && (
+        <div className="mt-1 text-xs" style={{ color: C.muted }}>Không có buổi nào trong khoảng ngày này.</div>
+      )}
+
+      {row && (
+        <>
+          <div className="mt-1.5 flex items-center justify-between">
+            <TeacherPayAction
+              teacherId={teacher._id}
+              teacherName={teacher.name}
+              from={from}
+              to={to}
+              suggestedAmount={row.total}
+              record={payRecords?.find((r) => r.teacherId === teacher._id)}
+              onChanged={refetchPay}
+            />
+            <div className="font-black tabular-nums" style={{ color: C.board2 }}>{fmtVnd(row.total)}</div>
+          </div>
+          <div className="mt-1.5 space-y-1">
+            {row.byClass.map((c) => {
+              const key = `${c.classId}:${c.teacherId}`
+              const isOpen = expanded.has(key)
+              return (
+                <div key={key}>
+                  <button
+                    onClick={() => toggleExpand(key)}
+                    className="flex w-full items-center justify-between text-xs text-left"
+                    style={{ color: C.muted }}
+                  >
+                    <span>
+                      {isOpen ? '▾' : '▸'} {c.className} · {c.sessionsCount} buổi ·{' '}
+                      {c.payMode === 'perStudent'
+                        ? `${fmtVnd(c.ratePerStudentSession)}/học sinh có mặt`
+                        : `${fmtVnd(c.ratePerSession)}/buổi`}
+                    </span>
+                    <span className="tabular-nums font-semibold" style={{ color: C.ink }}>{fmtVnd(c.total)}</span>
+                  </button>
+                  {isOpen && <TeacherDayDetail days={c.days} />}
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 /** "Đã trả lương" hay chưa cho 1 giáo viên trong đúng khoảng [from,to] đang
  *  xem — giống hệt kiểu "đã đóng học phí" của TuitionNotice: tạo record MỚI
  *  khi xác nhận (không có bước nháp riêng), xoá record khi lỡ bấm nhầm (ghi
@@ -402,7 +511,6 @@ function SessionMigrationTool() {
 
 export function AdminBillingPage() {
   const [{ from, to }, setRange] = useState(defaultRange())
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const qc = useQueryClient()
 
   const { data, isLoading, isError } = useQuery({
@@ -411,22 +519,16 @@ export function AdminBillingPage() {
     enabled: from <= to,
   })
 
-  const { data: payRecords, refetch: refetchPay } = useQuery({
-    queryKey: ['teacher-pay', from, to],
-    queryFn: () => teacherPayService.list(from, to),
-    enabled: from <= to,
+  // Danh sách giáo viên — ĐỘC LẬP với from/to ở trên, vì mỗi cô xem lương
+  // theo chu kỳ riêng của mình (xem TeacherSalaryCard), không dùng chung 1
+  // khoảng ngày cho tất cả như trước.
+  const { data: teachersData } = useQuery({
+    queryKey: ['admin', 'users', 'teachers-list'],
+    queryFn: () => adminService.listUsers({ role: 'teacher', limit: '100' }),
   })
+  const teachers = teachersData?.items ?? []
 
   const refetch = () => qc.invalidateQueries({ queryKey: ['admin', 'billing', from, to] })
-
-  function toggleExpand(key: string) {
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
 
   return (
     <div className="space-y-4">
@@ -435,13 +537,15 @@ export function AdminBillingPage() {
         <p className="text-sm" style={{ color: C.muted }}>
           Học phí = đơn giá/buổi × số buổi học sinh đã học trong khoảng ngày đã chọn. Lương giáo viên chọn 1 trong 2
           cách theo từng lớp: đơn giá cố định/buổi, hoặc đơn giá/học-sinh-có-mặt/buổi (buổi đông lương cao hơn, buổi
-          vắng nhiều lương thấp hơn).
+          vắng nhiều lương thấp hơn). Mỗi giáo viên xem lương theo đúng chu kỳ riêng của mình ở khung "Lương giáo
+          viên" phía dưới — không nhất thiết trùng ngày với bảng học phí học sinh.
         </p>
       </div>
 
       <SessionMigrationTool />
 
       <Card className="p-3 space-y-1.5">
+        <div className="text-sm font-bold" style={{ color: C.ink }}>Khoảng ngày — Đơn giá & Học phí học sinh</div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium" style={{ color: C.muted }}>Từ ngày:</span>
           <input
@@ -465,8 +569,8 @@ export function AdminBillingPage() {
           <div className="text-xs" style={{ color: C.red }}>"Từ ngày" phải trước "Đến ngày".</div>
         )}
         <div className="text-xs" style={{ color: C.muted }}>
-          Không bắt buộc đúng theo tháng dương lịch — chọn đúng chu kỳ trả lương thật của trung tâm (VD 16 tháng
-          trước – 15 tháng này) để buổi dạy liên tục không bị cắt ngang giữa 2 tháng.
+          Không bắt buộc đúng theo tháng dương lịch — chọn đúng khoảng ngày cần xem để buổi dạy liên tục không bị cắt
+          ngang giữa 2 tháng. Riêng lương giáo viên có bộ chọn ngày RIÊNG ở khung bên dưới (xem ghi chú ở đó).
         </div>
       </Card>
 
@@ -555,62 +659,17 @@ export function AdminBillingPage() {
             )}
           </Card>
 
-          {/* Lương giáo viên */}
+          {/* Lương giáo viên — mỗi cô 1 bộ chọn ngày riêng, không dùng chung
+              khoảng ngày ở trên (chu kỳ trả lương mỗi người có thể khác nhau). */}
           <Card className="overflow-hidden">
             <div className="px-4 py-3" style={{ background: C.board, color: '#fff' }}>
-              <div className="flex items-center justify-between">
-                <div className="text-lg font-bold">Lương giáo viên — {viDate(from)}–{viDate(to)}</div>
-                <div className="text-lg font-black tabular-nums">{fmtVnd(data.teachersTotal)}</div>
-              </div>
+              <div className="text-lg font-bold">Lương giáo viên</div>
+              <div className="text-xs opacity-80">Mỗi giáo viên tự chọn khoảng ngày riêng theo đúng chu kỳ trả lương của cô đó</div>
             </div>
-            {data.teachers.length === 0 ? (
-              <div className="p-6 text-center text-sm" style={{ color: C.muted }}>Chưa có buổi nào trong tháng này.</div>
+            {teachers.length === 0 ? (
+              <div className="p-6 text-center text-sm" style={{ color: C.muted }}>Chưa có giáo viên nào.</div>
             ) : (
-              <div className="divide-y" style={{ borderColor: C.line }}>
-                {data.teachers.map((t) => (
-                  <div key={t.teacherId} className="p-3">
-                    <div className="flex items-center justify-between">
-                      <div className="font-bold text-sm" style={{ color: C.ink }}>{t.teacherName}</div>
-                      <div className="font-black tabular-nums" style={{ color: C.board2 }}>{fmtVnd(t.total)}</div>
-                    </div>
-                    <div className="mt-1.5">
-                      <TeacherPayAction
-                        teacherId={t.teacherId}
-                        teacherName={t.teacherName}
-                        from={from}
-                        to={to}
-                        suggestedAmount={t.total}
-                        record={payRecords?.find((r) => r.teacherId === t.teacherId)}
-                        onChanged={refetchPay}
-                      />
-                    </div>
-                    <div className="mt-1.5 space-y-1">
-                      {t.byClass.map((c) => {
-                        const key = `${c.classId}:${c.teacherId}`
-                        const isOpen = expanded.has(key)
-                        return (
-                          <div key={key}>
-                            <button
-                              onClick={() => toggleExpand(key)}
-                              className="flex w-full items-center justify-between text-xs text-left"
-                              style={{ color: C.muted }}
-                            >
-                              <span>
-                                {isOpen ? '▾' : '▸'} {c.className} · {c.sessionsCount} buổi ·{' '}
-                                {c.payMode === 'perStudent'
-                                  ? `${fmtVnd(c.ratePerStudentSession)}/học sinh có mặt`
-                                  : `${fmtVnd(c.ratePerSession)}/buổi`}
-                              </span>
-                              <span className="tabular-nums font-semibold" style={{ color: C.ink }}>{fmtVnd(c.total)}</span>
-                            </button>
-                            {isOpen && <TeacherDayDetail days={c.days} />}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              teachers.map((t) => <TeacherSalaryCard key={t._id} teacher={t} />)
             )}
           </Card>
         </>

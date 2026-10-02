@@ -272,7 +272,7 @@ export async function getTeacherPerformance(_req: Request, res: Response): Promi
  *  Kèm bảng "days" chi tiết từng ngày (sĩ số, có mặt/vắng/muộn/phép, tên học
  *  sinh vắng) để admin đối chiếu trực tiếp với giáo viên khi có thắc mắc. */
 export async function getBillingReport(req: Request, res: Response): Promise<void> {
-  const { from, to } = req.query as Record<string, string>
+  const { from, to, teacherId } = req.query as Record<string, string>
   if (!from || !to || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
     badRequest(res, 'from/to (định dạng YYYY-MM-DD) là bắt buộc.')
     return
@@ -281,5 +281,8 @@ export async function getBillingReport(req: Request, res: Response): Promise<voi
     badRequest(res, '"from" phải trước "to".')
     return
   }
-  ok(res, await computeBillingReport(from, to))
+  // teacherId tùy chọn — admin xem lương TỪNG GIÁO VIÊN theo đúng chu kỳ
+  // riêng của cô đó (không phải ai cũng trả lương cùng 1 khoảng ngày), xem
+  // ghi chú ở AdminBillingPage.tsx (mỗi giáo viên 1 bộ chọn ngày riêng).
+  ok(res, await computeBillingReport(from, to, teacherId ? { teacherId } : undefined))
 }

@@ -57,25 +57,36 @@ export interface BillingReportResult {
  *  đây là tiền thật). Xem đầy đủ ghi chú nghiệp vụ (vì sao dùng
  *  Class.teacherId chứ không phải ClassSession.createdBy...) ở
  *  analyticsController.getBillingReport. */
-export async function computeBillingReport(from: string, to: string): Promise<BillingReportResult> {
+export async function computeBillingReport(
+  from: string, to: string, opts: { teacherId?: string } = {},
+): Promise<BillingReportResult> {
   const start = new Date(`${from}T00:00:00.000Z`)
   const end = new Date(`${to}T00:00:00.000Z`)
   end.setUTCDate(end.getUTCDate() + 1)
 
+  // teacherId tùy chọn — thu hẹp TOÀN BỘ tính toán về đúng lớp của 1 giáo
+  // viên, dùng khi mỗi cô xem lương theo đúng chu kỳ riêng của mình (xem
+  // AdminBillingPage.tsx: mỗi giáo viên có 1 bộ chọn ngày độc lập, không
+  // dùng chung 1 khoảng ngày cho tất cả).
+  const classFilter: Record<string, unknown> = {}
+  if (opts.teacherId) classFilter.teacherId = new Types.ObjectId(opts.teacherId)
+
   const classes = await Class.find(
-    {},
+    classFilter,
     {
       name: 1, tuitionPerSession: 1, teacherPayPerSession: 1,
       teacherPayMode: 1, teacherPayPerStudentSession: 1, teacherId: 1, teacherName: 1,
     },
   ).lean()
   const classMap = new Map(classes.map((c) => [String(c._id), c]))
+  const classIds = classes.map((c) => c._id)
 
   const sessions = await ClassSession.find(
     {
       scheduledAt: { $gte: start, $lt: end },
       studentId: { $exists: true },
       migratedAt: { $exists: false },
+      ...(opts.teacherId ? { classId: { $in: classIds } } : {}),
     },
     { classId: 1, studentId: 1, scheduledAt: 1 },
   ).lean()
