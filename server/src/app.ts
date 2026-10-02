@@ -28,6 +28,7 @@ import { debtRouter } from './routes/debtRoutes.js'
 import { tuitionNoticeRouter } from './routes/tuitionNoticeRoutes.js'
 import { teacherPayRouter } from './routes/teacherPayRoutes.js'
 import { sessionMigrationRouter } from './routes/sessionMigrationRoutes.js'
+import { sessionDateReconcileRouter } from './routes/sessionDateReconcileRoutes.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { notFound } from './utils/response.js'
 
@@ -106,6 +107,7 @@ app.use('/api/debts', debtRouter)
 app.use('/api/tuition-notices', tuitionNoticeRouter)
 app.use('/api/teacher-pay', teacherPayRouter)
 app.use('/api/admin/session-migration', sessionMigrationRouter)
+app.use('/api/admin/session-date-reconcile', sessionDateReconcileRouter)
 
 app.use((_req, res) => {
   notFound(res, 'Route not found.')

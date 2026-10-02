@@ -4,6 +4,7 @@ import { adminService, type TeacherPayMode } from '@/services/admin'
 import { classService } from '@/services/classes'
 import { teacherPayService } from '@/services/teacherPay'
 import { sessionMigrationService, type ClassMigrationSummary, type RunMigrationResult } from '@/services/sessionMigration'
+import { sessionDateReconcileService, type DateSplitSummary } from '@/services/sessionDateReconcile'
 import { C } from '@/constants/colors'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
@@ -509,6 +510,180 @@ function SessionMigrationTool() {
   )
 }
 
+const DATE_FIX_CONFIRM_PHRASE = 'GOP NGAY'
+
+/** Công cụ rà soát: "Buổi N" của nhiều em trong CÙNG 1 lớp bị lệch sang 2
+ *  ngày gần nhau (thường do giáo viên chấm nối sang hôm sau cho vài em còn
+ *  sót của cùng 1 buổi dạy thật, vì EntryScreen mặc định ngày buổi mới = hôm
+ *  mở app, không phải ngày buổi đang chấm). Gộp lại về đúng ngày đa số em có
+ *  — có thể sửa từng dòng hoặc sửa hàng loạt toàn hệ thống. */
+function SessionDateReconcileTool() {
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [summaries, setSummaries] = useState<DateSplitSummary[] | null>(null)
+  const [confirmText, setConfirmText] = useState('')
+  const [runningAll, setRunningAll] = useState(false)
+  const [runningKey, setRunningKey] = useState<string | null>(null)
+  const [fixedTotal, setFixedTotal] = useState<number | null>(null)
+
+  const totalToFix = summaries?.reduce((a, s) => a + s.sessionIdsToFix.length, 0) ?? 0
+
+  async function doPreview() {
+    setLoading(true)
+    try {
+      const { summaries: res } = await sessionDateReconcileService.preview()
+      setSummaries(res)
+      setFixedTotal(null)
+      if (!res.length) toast.info('Không thấy buổi nào bị tách ngày kiểu này.')
+    } catch {
+      toast.error('Lỗi khi rà soát — thử lại.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function doFixRow(s: DateSplitSummary) {
+    const key = `${s.classId}:${s.lessonNo}`
+    setRunningKey(key)
+    try {
+      const res = await sessionDateReconcileService.run({ classId: s.classId, lessonNo: s.lessonNo })
+      toast.success(`Đã gộp ${res.fixed} buổi của ${s.className} — Buổi ${s.lessonNo} về ${viDate(s.suggestedDate)}.`)
+      setSummaries((prev) => prev?.filter((x) => `${x.classId}:${x.lessonNo}` !== key) ?? null)
+    } catch {
+      toast.error('Lỗi khi sửa dòng này — thử lại.')
+    } finally {
+      setRunningKey(null)
+    }
+  }
+
+  async function doFixAll() {
+    setRunningAll(true)
+    try {
+      const res = await sessionDateReconcileService.run()
+      setFixedTotal(res.fixed)
+      toast.success(`Đã gộp xong ${res.fixed} buổi bị lệch ngày trên toàn hệ thống.`)
+      setSummaries([])
+      setConfirmText('')
+    } catch {
+      toast.error('Lỗi khi sửa hàng loạt — thử lại.')
+    } finally {
+      setRunningAll(false)
+    }
+  }
+
+  return (
+    <Card className="overflow-hidden" style={{ border: `1.5px solid ${C.gold}66` }}>
+      <button
+        className="flex w-full items-center justify-between px-4 py-3 text-left"
+        style={{ background: C.gold + '1a' }}
+        onClick={() => setOpen((x) => !x)}
+      >
+        <div>
+          <div className="text-sm font-bold" style={{ color: '#92400E' }}>
+            ⚠ Rà soát buổi học bị lệch ngày (VD B3 ở cả 19/09 và 20/09)
+          </div>
+          <div className="text-xs" style={{ color: C.muted }}>
+            Thường do chấm nối sang hôm sau cho vài em còn sót — bấm để xem thêm
+          </div>
+        </div>
+        <span style={{ color: C.muted }}>{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <div className="space-y-3 p-4 text-sm">
+          <p style={{ color: C.muted }}>
+            Mỗi học sinh có số buổi riêng — nếu giáo viên chấm dở 1 buổi, đóng app, rồi hôm sau mở lại chấm nốt cho vài
+            em còn lại, các em đó bị gắn NHẦM sang ngày hôm sau dù thực ra cùng 1 buổi dạy. Công cụ này tìm các buổi bị
+            lệch kiểu đó (chỉ xét lệch trong vòng 3 ngày, tránh gộp nhầm 2 buổi dạy thật khác nhau) và gộp lại về đúng
+            ngày mà <b>đa số em</b> đang có — giữ nguyên giờ chấm gốc.
+          </p>
+
+          <Btn kind="ghost" size="sm" disabled={loading} onClick={doPreview}>
+            {loading ? 'Đang rà soát...' : '1. Rà soát toàn hệ thống (an toàn, không ghi gì)'}
+          </Btn>
+
+          {summaries && summaries.length > 0 && (
+            <>
+              <div className="overflow-x-auto rounded-lg" style={{ border: `1px solid ${C.line}` }}>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr style={{ background: C.paper }}>
+                      <th className="py-1.5 px-2 text-left font-semibold" style={{ color: C.muted }}>Lớp</th>
+                      <th className="py-1.5 px-2 text-left font-semibold" style={{ color: C.muted }}>Buổi</th>
+                      <th className="py-1.5 px-2 text-left font-semibold" style={{ color: C.muted }}>Đang lệch</th>
+                      <th className="py-1.5 px-2 text-left font-semibold" style={{ color: C.muted }}>Gộp về</th>
+                      <th className="py-1.5 px-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summaries.map((s) => {
+                      const key = `${s.classId}:${s.lessonNo}`
+                      return (
+                        <tr key={key} style={{ borderTop: `1px solid ${C.line}` }}>
+                          <td className="py-1.5 px-2 font-semibold align-top">{s.className}</td>
+                          <td className="py-1.5 px-2 align-top">Buổi {s.lessonNo}</td>
+                          <td className="py-1.5 px-2 align-top" style={{ color: C.muted }}>
+                            {s.groups.map((g) => (
+                              <div key={g.date}>
+                                {viDate(g.date)}: {g.studentNames.join(', ')}
+                              </div>
+                            ))}
+                          </td>
+                          <td className="py-1.5 px-2 align-top font-semibold" style={{ color: C.emerald }}>
+                            {viDate(s.suggestedDate)}
+                          </td>
+                          <td className="py-1.5 px-2 align-top text-right">
+                            <Btn
+                              kind="ghost" size="sm"
+                              disabled={runningKey === key || runningAll}
+                              onClick={() => doFixRow(s)}
+                            >
+                              {runningKey === key ? 'Đang sửa...' : 'Sửa dòng này'}
+                            </Btn>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="space-y-2 rounded-lg p-3" style={{ background: '#FEF3C7' }}>
+                <div className="text-xs font-semibold" style={{ color: '#92400E' }}>
+                  2. Hoặc sửa hàng loạt TẤT CẢ {summaries.length} dòng ở trên ({totalToFix} buổi) — gõ đúng chữ "
+                  {DATE_FIX_CONFIRM_PHRASE}" rồi bấm nút:
+                </div>
+                <input
+                  type="text"
+                  value={confirmText}
+                  onChange={(e) => setConfirmText(e.target.value)}
+                  placeholder={DATE_FIX_CONFIRM_PHRASE}
+                  className="w-48 rounded-lg px-2 py-1.5 text-sm"
+                  style={{ border: `1px solid ${C.line}` }}
+                />
+                <div>
+                  <Btn
+                    kind="solid" size="sm"
+                    disabled={confirmText.trim() !== DATE_FIX_CONFIRM_PHRASE || runningAll}
+                    onClick={doFixAll}
+                  >
+                    {runningAll ? 'Đang sửa...' : '✅ Sửa tất cả'}
+                  </Btn>
+                </div>
+              </div>
+            </>
+          )}
+
+          {fixedTotal != null && (
+            <div className="rounded-lg p-3 text-xs font-semibold" style={{ background: '#ECFDF5', color: '#065F46' }}>
+              ✅ Đã gộp xong {fixedTotal} buổi. Vào lại "Thống kê buổi" của từng lớp để kiểm tra lại.
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 export function AdminBillingPage() {
   const [{ from, to }, setRange] = useState(defaultRange())
   const qc = useQueryClient()
@@ -543,6 +718,7 @@ export function AdminBillingPage() {
       </div>
 
       <SessionMigrationTool />
+      <SessionDateReconcileTool />
 
       <Card className="p-3 space-y-1.5">
         <div className="text-sm font-bold" style={{ color: C.ink }}>Khoảng ngày — Đơn giá & Học phí học sinh</div>
