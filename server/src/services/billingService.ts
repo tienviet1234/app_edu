@@ -4,8 +4,21 @@ import { ClassSession } from '../models/ClassSession.js'
 import { Score } from '../models/Score.js'
 import { User } from '../models/User.js'
 
+export interface BillingDayStudentRow {
+  studentId: string
+  studentName: string
+  /** Buổi số MẤY của ĐÚNG học sinh này (mỗi em đánh số riêng) — hiện kèm
+   *  ngày để đối chiếu, tránh nhầm "buổi nào" khi xem báo cáo lương. */
+  lessonNo: number
+  attendance: string
+}
+
 export interface BillingDayDetail {
   date: string
+  /** Buổi số phổ biến nhất trong ngày này (đa số học sinh học buổi mấy) —
+   *  dùng hiện nhãn "Buổi N" cạnh ngày; xem `students[].lessonNo` nếu cần
+   *  biết chính xác từng em học buổi mấy (có thể lệch nếu chưa rà soát). */
+  mainLessonNo: number
   totalStudents: number
   attendedStudents: number
   present: number
@@ -13,6 +26,9 @@ export interface BillingDayDetail {
   excused: number
   absent: number
   absentNames: string[]
+  /** Chi tiết TỪNG học sinh ngày này — dùng xuất Excel/đối chiếu chi tiết,
+   *  toàn bộ dựa trên dữ liệu giáo viên đã chấm thật, không tự suy diễn. */
+  students: BillingDayStudentRow[]
 }
 
 export interface BillingTeacherClassRow {
@@ -88,7 +104,7 @@ export async function computeBillingReport(
       migratedAt: { $exists: false },
       ...(opts.teacherId ? { classId: { $in: classIds } } : {}),
     },
-    { classId: 1, studentId: 1, scheduledAt: 1 },
+    { classId: 1, studentId: 1, scheduledAt: 1, lessonNo: 1 },
   ).lean()
 
   const scores = await Score.find(
@@ -98,7 +114,7 @@ export async function computeBillingReport(
   const attendanceBySessionId = new Map(scores.map((sc) => [String(sc.sessionId), sc.attendance as string]))
 
   const studentDayMap = new Map<string, Set<string>>()
-  const classDateMap = new Map<string, Map<string, string>>()
+  const classDateMap = new Map<string, Map<string, { attendance: string; lessonNo: number }>>()
   const allUserIds = new Set<string>()
 
   for (const s of sessions) {
@@ -115,8 +131,8 @@ export async function computeBillingReport(
 
     const attendance = attendanceBySessionId.get(String(s._id)) ?? 'present'
     const cdKey = `${classId}:${dateKey}`
-    const dayMap = classDateMap.get(cdKey) ?? new Map<string, string>()
-    dayMap.set(studentId, attendance)
+    const dayMap = classDateMap.get(cdKey) ?? new Map<string, { attendance: string; lessonNo: number }>()
+    dayMap.set(studentId, { attendance, lessonNo: s.lessonNo ?? 0 })
     classDateMap.set(cdKey, dayMap)
   }
 
@@ -155,19 +171,31 @@ export async function computeBillingReport(
     if (!teacherId) { unassignedClassIds.add(classId); continue }
 
     const entries = [...dayMap.entries()]
-    const present = entries.filter(([, a]) => a === 'present').length
-    const late = entries.filter(([, a]) => a === 'late').length
-    const excused = entries.filter(([, a]) => a === 'excused').length
-    const absent = entries.filter(([, a]) => a === 'absent').length
-    const absentNames = entries.filter(([, a]) => a === 'absent').map(([sid]) => userNameMap.get(sid) ?? '—')
+    const present = entries.filter(([, v]) => v.attendance === 'present').length
+    const late = entries.filter(([, v]) => v.attendance === 'late').length
+    const excused = entries.filter(([, v]) => v.attendance === 'excused').length
+    const absent = entries.filter(([, v]) => v.attendance === 'absent').length
+    const absentNames = entries.filter(([, v]) => v.attendance === 'absent').map(([sid]) => userNameMap.get(sid) ?? '—')
+
+    // Buổi phổ biến nhất trong ngày — đa số em sẽ cùng 1 số buổi; hòa thì lấy
+    // số nhỏ hơn (giống cách SessionCountScreen đang làm, nhất quán 2 nơi).
+    const lessonFreq = new Map<number, number>()
+    entries.forEach(([, v]) => lessonFreq.set(v.lessonNo, (lessonFreq.get(v.lessonNo) ?? 0) + 1))
+    const mainLessonNo = [...lessonFreq.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]?.[0] ?? 0
+
+    const students: BillingDayStudentRow[] = entries
+      .map(([sid, v]) => ({
+        studentId: sid, studentName: userNameMap.get(sid) ?? '—', lessonNo: v.lessonNo, attendance: v.attendance,
+      }))
+      .sort((a, b) => a.studentName.localeCompare(b.studentName, 'vi'))
 
     const key = `${classId}:${teacherId}`
     const dayList = teacherClassDays.get(key) ?? []
     dayList.push({
-      date,
+      date, mainLessonNo,
       totalStudents: entries.length,
       attendedStudents: present + late,
-      present, late, excused, absent, absentNames,
+      present, late, excused, absent, absentNames, students,
     })
     teacherClassDays.set(key, dayList)
   }

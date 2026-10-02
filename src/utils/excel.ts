@@ -331,6 +331,42 @@ export function exportTuitionNotices(
   XLSX.writeFile(wb, `${className}_baocao-hocphi_${today}.xlsx`)
 }
 
+export interface TeacherSalaryClassDay {
+  className: string
+  mainLessonNo: number
+  date: string
+  students: { studentName: string; lessonNo: number; attendance: string }[]
+}
+
+/** Xuất Excel chi tiết lương 1 giáo viên — 1 dòng/buổi/học sinh (Buổi, Ngày,
+ *  Lớp, Học sinh, Điểm danh, Giáo viên) — toàn bộ dựa trên dữ liệu giáo viên
+ *  đã tự chấm thật (điểm danh), không phải số tổng hợp — để đối chiếu công
+ *  dạy chi tiết trước khi trả lương. */
+export function exportTeacherSalaryDetail(teacherName: string, from: string, to: string, byClass: TeacherSalaryClassDay[]): void {
+  const headers = ['Buổi', 'Ngày', 'Lớp', 'Học sinh', 'Điểm danh', 'Giáo viên']
+  const rows: (string | number)[][] = []
+  byClass.forEach((c) => {
+    c.students.forEach((s) => {
+      rows.push([
+        s.lessonNo || c.mainLessonNo || '',
+        viDate(c.date),
+        c.className,
+        s.studentName,
+        ATTEND_LABEL_FULL[s.attendance] ?? s.attendance,
+        teacherName,
+      ])
+    })
+  })
+  rows.sort((a, b) => String(a[1]).localeCompare(String(b[1])) || String(a[2]).localeCompare(String(b[2]), 'vi'))
+
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
+  ws['!cols'] = [{ wch: 7 }, { wch: 12 }, { wch: 20 }, { wch: 20 }, { wch: 10 }, { wch: 18 }]
+
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Chi tiết lương')
+  XLSX.writeFile(wb, `${teacherName}_luong_${from}_${to}.xlsx`.replace(/\s+/g, '_'))
+}
+
 /** Parse first column of uploaded .xlsx/.xls/.csv as student names */
 export async function importStudentNames(file: File): Promise<string[]> {
   const buffer = await file.arrayBuffer()

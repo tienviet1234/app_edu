@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { adminService, type TeacherPayMode } from '@/services/admin'
+import { adminService, type TeacherPayMode, type BillingDayDetail, type BillingTeacherRow } from '@/services/admin'
 import { classService } from '@/services/classes'
 import { teacherPayService } from '@/services/teacherPay'
 import { sessionMigrationService, type ClassMigrationSummary, type RunMigrationResult } from '@/services/sessionMigration'
@@ -146,14 +146,16 @@ function ClassRateRow({
 
 const ATTEND_SHORT: Record<string, string> = { present: 'Có mặt', late: 'Muộn', excused: 'Phép', absent: 'Vắng' }
 
-/** Bảng đối chiếu chi tiết từng ngày đã dạy của 1 lớp — sĩ số, có mặt/vắng,
- *  tên học sinh vắng — để admin so lại với giáo viên khi có thắc mắc về lương. */
-function TeacherDayDetail({ days }: { days: { date: string; totalStudents: number; attendedStudents: number; present: number; late: number; excused: number; absent: number; absentNames: string[] }[] }) {
+/** Bảng đối chiếu chi tiết từng ngày đã dạy của 1 lớp — BUỔI SỐ MẤY kèm
+ *  ngày (tránh nhầm buổi), sĩ số, có mặt/vắng, tên học sinh vắng — để admin
+ *  so lại với giáo viên khi có thắc mắc về lương. */
+function TeacherDayDetail({ days }: { days: BillingDayDetail[] }) {
   return (
     <div className="mt-1.5 overflow-x-auto rounded-lg" style={{ border: `1px solid ${C.line}` }}>
       <table className="w-full text-xs">
         <thead>
           <tr style={{ background: C.paper }}>
+            <th className="py-1.5 px-2 text-left font-semibold" style={{ color: C.muted }}>Buổi</th>
             <th className="py-1.5 px-2 text-left font-semibold" style={{ color: C.muted }}>Ngày</th>
             <th className="py-1.5 px-2 text-right font-semibold" style={{ color: C.muted }}>Sĩ số</th>
             <th className="py-1.5 px-2 text-right font-semibold" style={{ color: C.muted }}>Có mặt</th>
@@ -161,21 +163,28 @@ function TeacherDayDetail({ days }: { days: { date: string; totalStudents: numbe
           </tr>
         </thead>
         <tbody>
-          {days.map((d) => (
-            <tr key={d.date} style={{ borderTop: `1px solid ${C.line}` }}>
-              <td className="py-1.5 px-2 font-semibold">{viDate(d.date)}</td>
-              <td className="py-1.5 px-2 text-right tabular-nums">{d.totalStudents}</td>
-              <td className="py-1.5 px-2 text-right tabular-nums font-semibold" style={{ color: C.emerald }}>
-                {d.attendedStudents}
-              </td>
-              <td className="py-1.5 px-2" style={{ color: C.muted }}>
-                {d.late ? `${d.late} ${ATTEND_SHORT.late.toLowerCase()}` : ''}
-                {d.excused ? `${d.late ? ' · ' : ''}${d.excused} ${ATTEND_SHORT.excused.toLowerCase()}` : ''}
-                {d.absent ? `${d.late || d.excused ? ' · ' : ''}${d.absent} vắng: ${d.absentNames.join(', ')}` : ''}
-                {!d.late && !d.excused && !d.absent ? 'Đầy đủ' : ''}
-              </td>
-            </tr>
-          ))}
+          {days.map((d) => {
+            const mixedNo = d.students.some((s) => s.lessonNo !== d.mainLessonNo)
+            return (
+              <tr key={d.date} style={{ borderTop: `1px solid ${C.line}` }}>
+                <td className="py-1.5 px-2 font-semibold" style={{ color: C.board2 }}>
+                  {d.mainLessonNo || '—'}
+                  {mixedNo && <span style={{ color: C.gold }} title="Có em học buổi khác số với đa số"> *</span>}
+                </td>
+                <td className="py-1.5 px-2 font-semibold">{viDate(d.date)}</td>
+                <td className="py-1.5 px-2 text-right tabular-nums">{d.totalStudents}</td>
+                <td className="py-1.5 px-2 text-right tabular-nums font-semibold" style={{ color: C.emerald }}>
+                  {d.attendedStudents}
+                </td>
+                <td className="py-1.5 px-2" style={{ color: C.muted }}>
+                  {d.late ? `${d.late} ${ATTEND_SHORT.late.toLowerCase()}` : ''}
+                  {d.excused ? `${d.late ? ' · ' : ''}${d.excused} ${ATTEND_SHORT.excused.toLowerCase()}` : ''}
+                  {d.absent ? `${d.late || d.excused ? ' · ' : ''}${d.absent} vắng: ${d.absentNames.join(', ')}` : ''}
+                  {!d.late && !d.excused && !d.absent ? 'Đầy đủ' : ''}
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
@@ -212,6 +221,19 @@ function TeacherSalaryCard({ teacher }: { teacher: { _id: string; name: string }
   }
 
   const row = data?.teachers.find((t) => t.teacherId === teacher._id)
+
+  async function exportExcel(row: BillingTeacherRow) {
+    const { exportTeacherSalaryDetail } = await import('@/utils/excel')
+    const byClass = row.byClass.flatMap((c) =>
+      c.days.map((d: BillingDayDetail) => ({
+        className: c.className,
+        mainLessonNo: d.mainLessonNo,
+        date: d.date,
+        students: d.students.map((s) => ({ studentName: s.studentName, lessonNo: s.lessonNo, attendance: s.attendance })),
+      })),
+    )
+    exportTeacherSalaryDetail(teacher.name, from, to, byClass)
+  }
 
   return (
     <div className="p-3" style={{ borderTop: `1px solid ${C.line}` }}>
@@ -259,7 +281,12 @@ function TeacherSalaryCard({ teacher }: { teacher: { _id: string; name: string }
               record={payRecords?.find((r) => r.teacherId === teacher._id)}
               onChanged={refetchPay}
             />
-            <div className="font-black tabular-nums" style={{ color: C.board2 }}>{fmtVnd(row.total)}</div>
+            <div className="flex items-center gap-2">
+              <button className="text-xs font-semibold" style={{ color: C.board2 }} onClick={() => exportExcel(row)}>
+                📊 Xuất Excel
+              </button>
+              <div className="font-black tabular-nums" style={{ color: C.board2 }}>{fmtVnd(row.total)}</div>
+            </div>
           </div>
           <div className="mt-1.5 space-y-1">
             {row.byClass.map((c) => {

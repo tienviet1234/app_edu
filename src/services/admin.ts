@@ -120,8 +120,18 @@ export interface BillingStudentRow {
   total: number
 }
 
+export interface BillingDayStudentRow {
+  studentId: string
+  studentName: string
+  lessonNo: number
+  attendance: string
+}
+
 export interface BillingDayDetail {
   date: string
+  /** Buổi phổ biến nhất trong ngày này — xem `students[].lessonNo` nếu cần
+   *  biết chính xác từng em học buổi mấy. */
+  mainLessonNo: number
   totalStudents: number
   attendedStudents: number
   present: number
@@ -129,6 +139,7 @@ export interface BillingDayDetail {
   excused: number
   absent: number
   absentNames: string[]
+  students: BillingDayStudentRow[]
 }
 
 export interface BillingTeacherClassRow {
