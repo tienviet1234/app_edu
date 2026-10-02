@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { buildComment } from './report'
+import { buildComment, sessionDetailsOf } from './report'
 import { statsOf } from './stats'
 import { emptyEntry } from './seed'
 import { getRubric } from '@/constants/rubrics'
-import type { ClassData, Session } from '@/types'
+import type { ClassData, Session, Student } from '@/types'
 
 // buildComment() sinh "nhận xét tự động" gửi phụ huynh — cần kiểm tra nó vẫn
 // nêu được chi tiết CỤ THỂ (VD từ vựng cần luyện) chứ không chỉ chung chung,
@@ -47,5 +47,42 @@ describe('buildComment — chi tiết ghi chú cụ thể', () => {
     const r = getRubric(c.level)
     const comment = buildComment('Minh Khôi', s, r)
     expect(comment.length).toBeGreaterThan(0)
+  })
+})
+
+describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình)', () => {
+  it('đánh số LẠI theo kỳ (1,2,3...), lấy đúng bài tập giao + ghi chú từng buổi', () => {
+    const student: Student = {
+      id: 'st1', name: 'Minh Khôi',
+      sessions: [
+        {
+          id: 's1', no: 5, date: '2026-07-30', homework: 'Đọc sách bài tập trang 28',
+          entry: { ...emptyEntry(), attendance: 'present', note: 'ĐÃ LÀM VIDEO', ev: { video: { pronErr: 'make, snowflake, snowman' } } },
+        },
+        {
+          id: 's2', no: 6, date: '2026-08-04', homework: 'Làm sách bài tập trang 29,30',
+          entry: { ...emptyEntry(), attendance: 'absent' },
+        },
+      ],
+    }
+    const rows = sessionDetailsOf(student, 0, 2)
+    expect(rows).toEqual([
+      { no: 1, date: '2026-07-30', homework: 'Đọc sách bài tập trang 28', status: 'ĐÃ LÀM VIDEO; make, snowflake, snowman' },
+      { no: 2, date: '2026-08-04', homework: 'Làm sách bài tập trang 29,30', status: 'Nghỉ không phép' },
+    ])
+  })
+
+  it('chỉ lấy đúng khoảng [from, to), không lấy buổi ngoài kỳ', () => {
+    const student: Student = {
+      id: 'st1', name: 'Test',
+      sessions: Array.from({ length: 10 }, (_, i) => ({
+        id: `s${i}`, no: i + 1, date: '2026-01-01', homework: `HW${i + 1}`,
+        entry: { ...emptyEntry(), attendance: 'present' as const },
+      })),
+    }
+    const rows = sessionDetailsOf(student, 8, 10)
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toMatchObject({ no: 1, homework: 'HW9' })
+    expect(rows[1]).toMatchObject({ no: 2, homework: 'HW10' })
   })
 })

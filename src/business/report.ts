@@ -1,4 +1,4 @@
-import type { Student, StudentStats, DetailBlock, EvidenceItem } from '@/types'
+import type { Student, StudentStats, DetailBlock, EvidenceItem, SessionEntry } from '@/types'
 import { getRubric } from '@/constants/rubrics'
 import { round1 } from '@/utils'
 
@@ -69,6 +69,47 @@ export function detailBlocks(s: StudentStats, r: ReturnType<typeof getRubric>): 
     lines: att.length ? [`Trong kỳ: ${att.join(', ')}.`] : ['Đi học đầy đủ, đúng giờ.'],
   })
   return out
+}
+
+const ATTENDANCE_NOTE: Record<string, string> = {
+  absent: 'Nghỉ không phép',
+  excused: 'Nghỉ có phép',
+  late: 'Đi muộn',
+}
+
+/** Tình hình CỦA ĐÚNG 1 BUỔI — ghép điểm danh + ghi chú tự do + mọi ghi chú
+ *  cụ thể (phát âm sai, dạng bài sai...) giáo viên đã điền NGAY BUỔI ĐÓ. Đây
+ *  là nguyên văn những gì giáo viên gõ, không tự diễn giải thêm. */
+function sessionStatusText(entry: SessionEntry): string {
+  const parts: string[] = []
+  if (ATTENDANCE_NOTE[entry.attendance]) parts.push(ATTENDANCE_NOTE[entry.attendance])
+  if (entry.note?.trim()) parts.push(entry.note.trim())
+  Object.values(entry.ev ?? {}).forEach((compEv) => {
+    Object.values(compEv ?? {}).forEach((v) => {
+      if (typeof v === 'string' && v.trim()) parts.push(v.trim())
+    })
+  })
+  return parts.join('; ')
+}
+
+export interface SessionDetailRow {
+  no: number
+  date: string
+  homework: string
+  status: string
+}
+
+/** Chi tiết TỪNG BUỔI trong kỳ [from, to) — đúng mức chi tiết trung tâm vẫn
+ *  tự ghi tay (bài tập giao buổi nào, buổi đó làm được gì/chưa làm gì) thay
+ *  vì chỉ 1 câu nhận xét tổng hợp chung chung. "no" ở đây đánh số LẠI theo
+ *  đúng kỳ (buổi 1, 2, 3... của kỳ này), không phải số buổi toàn khóa học. */
+export function sessionDetailsOf(student: Pick<Student, 'sessions'>, from: number, to: number): SessionDetailRow[] {
+  return student.sessions.slice(from, to).map((s, i) => ({
+    no: i + 1,
+    date: s.date,
+    homework: s.homework?.trim() ?? '',
+    status: sessionStatusText(s.entry),
+  }))
 }
 
 /** Tìm mục ghi chú cụ thể (VD "Từ phát âm chưa đúng: make, snowflake...")

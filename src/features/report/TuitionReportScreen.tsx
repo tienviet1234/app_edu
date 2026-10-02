@@ -3,7 +3,7 @@ import type { ClassData } from '@/types'
 import { C } from '@/constants/colors'
 import { getClassRubric } from '@/constants/rubrics'
 import { statsOf } from '@/business/stats'
-import { buildComment } from '@/business/report'
+import { buildComment, sessionDetailsOf, type SessionDetailRow } from '@/business/report'
 import { billingPeriodsOf, sessionsBilledOf } from '@/business/tuition'
 import { isMongoid } from '@/utils/mongoid'
 import { viDate } from '@/utils/format'
@@ -29,6 +29,8 @@ interface DueRow {
   finalAmount: string
   adjustmentReason: string
   reportComment: string
+  sessionDetails: SessionDetailRow[]
+  showDetails: boolean
   saving: boolean
 }
 
@@ -115,6 +117,8 @@ export function TuitionReportScreen({ cls }: Props) {
           sessionsBilled, computedAmount,
           finalAmount: String(computedAmount), adjustmentReason: '',
           reportComment: buildComment(st.name, s, r),
+          sessionDetails: sessionDetailsOf(st, p.from, p.to),
+          showDetails: false,
           saving: false,
         })
       })
@@ -204,16 +208,20 @@ export function TuitionReportScreen({ cls }: Props) {
 
   function exportDue() {
     if (!dueRows.length) return
-    exportTuitionNotices(cls.name, dueRows.map((r) => ({
-      studentName: r.studentName,
-      periodLabel: r.periodLabel,
-      sessionsBilled: r.sessionsBilled,
-      ratePerSession: rate ?? 0,
-      finalAmount: Number(r.finalAmount) || 0,
-      adjustmentReason: r.adjustmentReason || undefined,
-      reportComment: r.reportComment,
-      sentAtLabel: '(chưa gửi — bản nháp)',
-    })))
+    exportTuitionNotices(
+      cls.name,
+      dueRows.map((r) => ({
+        studentName: r.studentName,
+        periodLabel: r.periodLabel,
+        sessionsBilled: r.sessionsBilled,
+        ratePerSession: rate ?? 0,
+        finalAmount: Number(r.finalAmount) || 0,
+        adjustmentReason: r.adjustmentReason || undefined,
+        reportComment: r.reportComment,
+        sentAtLabel: '(chưa gửi — bản nháp)',
+      })),
+      dueRows.flatMap((r) => r.sessionDetails.map((d) => ({ studentName: r.studentName, ...d }))),
+    )
   }
 
   if (!isMongoid(cls.id)) {
@@ -242,7 +250,8 @@ export function TuitionReportScreen({ cls }: Props) {
           Tự động xác định học sinh đã đủ mốc "cuối 8/12 buổi" chưa gửi báo cáo — tính sẵn số buổi tính phí
           (chỉ tính buổi có mặt/muộn, không tính buổi nghỉ) × đơn giá {fmtVnd(rate)}/buổi. Bạn xem lại, sửa số
           tiền nếu có ngoại lệ, bấm "Sao chép nội dung" để dán vào Zalo gửi tay (Zalo chưa hỗ trợ gửi thẳng từ
-          web), hoặc xuất Excel cả loạt — xong thì đánh dấu đã gửi để không bị nhắc lại.
+          web), hoặc xuất Excel cả loạt (kèm sheet chi tiết TỪNG BUỔI — bài giao, tình hình) — xong thì đánh dấu
+          đã gửi để không bị nhắc lại.
         </div>
       </Card>
 
@@ -273,6 +282,37 @@ export function TuitionReportScreen({ cls }: Props) {
               <div className="rounded-lg p-2 text-xs" style={{ background: C.paper, color: C.ink }}>
                 {row.reportComment}
               </div>
+
+              {row.sessionDetails.length > 0 && (
+                <div>
+                  <button
+                    type="button"
+                    className="text-xs font-semibold"
+                    style={{ color: C.board2 }}
+                    onClick={() => patchRow(key, (r) => { r.showDetails = !r.showDetails })}
+                  >
+                    {row.showDetails ? '▾' : '▸'} Chi tiết từng buổi ({row.sessionDetails.length})
+                  </button>
+                  {row.showDetails && (
+                    <div className="mt-1.5 space-y-1.5">
+                      {row.sessionDetails.map((d) => (
+                        <div key={d.no} className="rounded-lg p-2 text-xs" style={{ border: `1px solid ${C.line}` }}>
+                          <div className="font-semibold" style={{ color: C.ink }}>
+                            Buổi {d.no} — {viDate(d.date)}
+                          </div>
+                          {d.homework && (
+                            <div className="mt-0.5" style={{ color: C.muted }}>📝 Bài giao: {d.homework}</div>
+                          )}
+                          <div className="mt-0.5" style={{ color: C.ink }}>
+                            {d.status || <span style={{ color: C.muted }}>(chưa có ghi chú buổi này)</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="flex flex-wrap items-end gap-2">
                 <div>
                   <label className="mb-1 block text-xs font-semibold" style={{ color: C.ink }}>Số tiền gửi (VNĐ)</label>

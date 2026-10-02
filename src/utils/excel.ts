@@ -284,12 +284,23 @@ export interface TuitionNoticeRow {
   sentAtLabel: string
 }
 
-/** Xuất Excel "Báo cáo học tập + học phí" — kết hợp cả 2 trong 1 bảng để gửi
- *  phụ huynh, theo đúng mốc "cuối 8/12 buổi" (xem business/tuition.ts). Mỗi
- *  dòng là 1 học sinh đã được đánh dấu "đã gửi" — đây là hồ sơ tiền bạc nên
- *  CHỈ xuất những gì đã thực sự gửi (finalAmount, không phải số tự tính), để
- *  khớp đúng với con số phụ huynh thực nhận. */
-export function exportTuitionNotices(className: string, rows: TuitionNoticeRow[]): void {
+export interface TuitionSessionDetailRow {
+  studentName: string
+  no: number
+  date: string
+  homework: string
+  status: string
+}
+
+/** Xuất Excel "Báo cáo học tập + học phí" — 2 sheet: sheet 1 tổng hợp (1 dòng/
+ *  học sinh, để đối chiếu nhanh tiền), sheet 2 CHI TIẾT TỪNG BUỔI (bài tập
+ *  giao buổi nào, tình hình buổi đó) — đúng mức chi tiết trung tâm vẫn tự ghi
+ *  tay (VD bảng theo dõi từng buổi/tuần), không chỉ 1 câu tổng hợp chung
+ *  chung. Đây là hồ sơ tiền bạc nên sheet 1 CHỈ xuất finalAmount (số tiền
+ *  thực gửi, không phải số tự tính), khớp đúng với con số phụ huynh nhận. */
+export function exportTuitionNotices(
+  className: string, rows: TuitionNoticeRow[], sessionDetails: TuitionSessionDetailRow[] = [],
+): void {
   const headers = [
     'Học sinh', 'Kỳ báo cáo', 'Số buổi tính phí', 'Đơn giá/buổi (VNĐ)',
     'Thành tiền (VNĐ)', 'Lý do điều chỉnh (nếu có)', 'Nhận xét tình hình học tập', 'Ngày gửi',
@@ -307,6 +318,15 @@ export function exportTuitionNotices(className: string, rows: TuitionNoticeRow[]
 
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Báo cáo + học phí')
+
+  if (sessionDetails.length) {
+    const detailHeaders = ['Học sinh', 'Buổi', 'Ngày học', 'Bài tập về nhà', 'Tình hình buổi đó']
+    const detailData = sessionDetails.map((d) => [d.studentName, d.no, viDate(d.date), d.homework, d.status])
+    const detailWs = XLSX.utils.aoa_to_sheet([detailHeaders, ...detailData])
+    detailWs['!cols'] = [{ wch: 20 }, { wch: 6 }, { wch: 12 }, { wch: 34 }, { wch: 50 }]
+    XLSX.utils.book_append_sheet(wb, detailWs, 'Chi tiết từng buổi')
+  }
+
   const today = new Date().toISOString().slice(0, 10)
   XLSX.writeFile(wb, `${className}_baocao-hocphi_${today}.xlsx`)
 }
