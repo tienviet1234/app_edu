@@ -26,6 +26,11 @@ interface DetailRow {
   studentId: string
   studentName: string
   teacherName: string
+  /** `teacherName` có khớp đúng giáo viên CHÍNH THỨC của lớp (cls.teacher)
+   *  không — false khi admin (hoặc người khác) tạo/sửa hộ bản ghi này. Dùng
+   *  để KHÔNG tính nhầm người sửa hộ thành "đã dạy buổi đó" ở các khung tổng
+   *  hợp theo giáo viên. */
+  isOfficialTeacher: boolean
   attendance: AttendanceKey
 }
 
@@ -38,7 +43,11 @@ interface NoDateGroup {
   date: string
   /** Học sinh học hôm đó; `no` khác buổi chính của dòng thì hiện chú thích. */
   students: { name: string; no: number }[]
+  /** Giáo viên chính thức của lớp đã ghi/chấm hôm đó. */
   teachers: string[]
+  /** Người KHÁC (thường là admin) đã tạo/sửa hộ bản ghi hôm đó — không phải
+   *  giáo viên dạy thật, chỉ hiện để minh bạch, không tính là "đã dạy". */
+  editors: string[]
 }
 
 interface NoGroup {
@@ -85,6 +94,7 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
       st.sessions
         .filter((s) => s.date.startsWith(month))
         .forEach((s) => {
+          const teacherName = s.createdByName ?? 'Chưa rõ giáo viên'
           all.push({
             sessionId: s.id,
             no: s.no,
@@ -92,7 +102,8 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
             recordedAt: s.recordedAt,
             studentId: st.id,
             studentName: st.name,
-            teacherName: s.createdByName ?? 'Chưa rõ giáo viên',
+            teacherName,
+            isOfficialTeacher: teacherName === cls.teacher,
             attendance: s.entry.attendance,
           })
         })
@@ -114,6 +125,11 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
       studentDays.set(r.studentId, days)
       studentNameById.set(r.studentId, r.studentName)
 
+      // Chỉ tính vào "Tổng theo giáo viên" khi ĐÚNG là giáo viên chính thức
+      // của lớp — người khác (thường admin) tạo/sửa hộ 1 buổi không phải là
+      // "đã dạy buổi đó", không tính vào đây (xem NoDateGroup.editors để biết
+      // ai đã sửa hộ, tách riêng).
+      if (!r.isOfficialTeacher) return
       const byDay = teacherDayStudents.get(r.teacherName) ?? new Map<string, Set<string>>()
       const names = byDay.get(r.date) ?? new Set<string>()
       names.add(r.studentName)
@@ -144,16 +160,16 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
     // dòng, kèm chú thích số buổi riêng của em — không tách thành dòng mới.
     const byDateAll = new Map<string, DetailRow[]>()
     all.forEach((r) => byDateAll.set(r.date, [...(byDateAll.get(r.date) ?? []), r]))
-    const noDateMap = new Map<number, Map<string, { students: Map<string, number>; teachers: Set<string> }>>()
+    const noDateMap = new Map<number, Map<string, { students: Map<string, number>; teachers: Set<string>; editors: Set<string> }>>()
     byDateAll.forEach((rows, date) => {
       const freq = new Map<number, number>()
       rows.forEach((r) => freq.set(r.no, (freq.get(r.no) ?? 0) + 1))
       const mainNo = [...freq.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0][0]
-      const byDateForNo = noDateMap.get(mainNo) ?? new Map<string, { students: Map<string, number>; teachers: Set<string> }>()
-      const entry = { students: new Map<string, number>(), teachers: new Set<string>() }
+      const byDateForNo = noDateMap.get(mainNo) ?? new Map<string, { students: Map<string, number>; teachers: Set<string>; editors: Set<string> }>()
+      const entry = { students: new Map<string, number>(), teachers: new Set<string>(), editors: new Set<string>() }
       rows.forEach((r) => {
         entry.students.set(r.studentName, r.no)
-        entry.teachers.add(r.teacherName)
+        ;(r.isOfficialTeacher ? entry.teachers : entry.editors).add(r.teacherName)
       })
       byDateForNo.set(date, entry)
       noDateMap.set(mainNo, byDateForNo)
@@ -168,6 +184,7 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
               .map(([name, sNo]) => ({ name, no: sNo }))
               .sort((a, b) => a.name.localeCompare(b.name, 'vi')),
             teachers: [...v.teachers],
+            editors: [...v.editors],
           }))
           .sort((a, b) => a.date.localeCompare(b.date)),
       }))
@@ -479,7 +496,10 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
                     {g.dates.map((d) => (
                       <div key={d.date}>
                         <b style={{ color: C.ink }}>{viDate(d.date)}</b>
-                        {d.teachers.length ? ` · GV: ${d.teachers.join(', ')}` : ''} —{' '}
+                        {d.teachers.length ? ` · GV: ${d.teachers.join(', ')}` : ''}
+                        {d.editors.length ? (
+                          <span style={{ color: C.gold }}> · ✎ sửa bởi: {d.editors.join(', ')} (không phải GV lớp)</span>
+                        ) : ''} —{' '}
                         {d.students.map((s) => (s.no !== g.no ? `${s.name} (Buổi ${s.no})` : s.name)).join(', ')}
                       </div>
                     ))}
@@ -544,7 +564,9 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
                                     {st.label}
                                   </span>
                                 </td>
-                                <td className="py-2 px-3" style={{ color: C.muted }}>{r.teacherName}</td>
+                                <td className="py-2 px-3" style={{ color: r.isOfficialTeacher ? C.muted : C.gold }} title={r.isOfficialTeacher ? undefined : 'Không phải giáo viên chính thức của lớp — người này chỉ tạo/sửa hộ bản ghi'}>
+                                  {r.isOfficialTeacher ? r.teacherName : `✎ ${r.teacherName}`}
+                                </td>
                                 <td className="py-2 px-3 text-right">
                                   <div className="flex justify-end gap-1.5">
                                     <button
