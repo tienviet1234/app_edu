@@ -68,6 +68,18 @@ function findOrCreateSession(c: ClassData, studentId: string, no: number, dateFo
   const student = c.students.find((s) => s.id === studentId)!
   let session = student.sessions.find((s) => s.no === no)
   if (!session) {
+    // 1 học sinh chỉ nên có 1 buổi/1 ngày — nếu em này ĐÃ có 1 buổi khác
+    // đúng ngày này rồi, tạo thêm buổi mới cùng ngày gần như chắc chắn là
+    // chọn nhầm số buổi (chấm trùng), không phải thật sự có 2 buổi khác
+    // nhau cùng ngày. Vẫn cho tạo (không chặn, tránh gián đoạn lúc đang
+    // chấm) nhưng cảnh báo rõ ngay lúc đó để giáo viên tự kiểm tra lại.
+    const sameDateOther = student.sessions.find((s) => s.date === dateForNew && s.no !== no)
+    if (sameDateOther) {
+      toast.error(
+        `⚠ ${student.name} đã có Buổi ${sameDateOther.no} ghi ngày ${viDate(dateForNew)} rồi — Buổi ${no} này cũng cùng ngày đó, có thể bạn chọn nhầm số buổi. Kiểm tra lại trước khi lưu tiếp.`,
+        { persist: true },
+      )
+    }
     // Kế thừa "Số câu" đã đặt cho buổi này ở học sinh khác (nếu có) — để cả
     // lớp nhất quán mà KHÔNG cần tạo sẵn buổi (với điểm danh mặc định) cho
     // mọi học sinh ngay khi chỉ 1 người sửa ô "Số câu".

@@ -281,6 +281,15 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
       toast.error(`${student.name} đã có sẵn Buổi ${addNo} rồi — chọn số buổi khác.`)
       return
     }
+    // 1 học sinh chỉ nên có 1 buổi/1 ngày — cảnh báo rõ nếu ngày này trùng
+    // với 1 buổi khác em đã có, nhưng vẫn cho tạo (có thể cố ý, VD học bù).
+    const sameDateOther = student.sessions.find((s) => s.date === addDate)
+    if (sameDateOther) {
+      toast.error(
+        `⚠ ${student.name} đã có Buổi ${sameDateOther.no} ghi ngày ${viDate(addDate)} rồi — Buổi ${addNo} này cũng cùng ngày đó, kiểm tra lại có bị trùng không.`,
+        { persist: true },
+      )
+    }
     const localId = uid()
     update((c) => {
       const s = c.students.find((y) => y.id === addStudentId)
