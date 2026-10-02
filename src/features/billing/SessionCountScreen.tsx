@@ -41,8 +41,10 @@ interface TeacherDay {
 
 interface NoDateGroup {
   date: string
-  /** Học sinh học hôm đó; `no` khác buổi chính của dòng thì hiện chú thích. */
-  students: { name: string; no: number }[]
+  /** Toàn bộ dòng chi tiết (kèm sessionId để Sửa/Xóa) của ngày này, trong
+   *  nhóm buổi g.no — em nào buổi riêng khác g.no vẫn nằm ở đây (không tách
+   *  dòng), chỉ đánh dấu khác màu ở cột Buổi. */
+  rows: DetailRow[]
   /** Giáo viên chính thức của lớp đã ghi/chấm hôm đó. */
   teachers: string[]
   /** Người KHÁC (thường là admin) đã tạo/sửa hộ bản ghi hôm đó — không phải
@@ -67,9 +69,8 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
   const [studentFilter, setStudentFilter] = useState('all')
   const [teacherFilter, setTeacherFilter] = useState('all')
   const [search, setSearch] = useState('')
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [expandedTeacher, setExpandedTeacher] = useState<string | null>(null)
-  const [expandedNo, setExpandedNo] = useState<number | null>(null)
+  const [expandedNos, setExpandedNos] = useState<Set<number>>(new Set())
   const [showAdd, setShowAdd] = useState(false)
   const [addStudentId, setAddStudentId] = useState(cls.students[0]?.id ?? '')
   const [addNo, setAddNo] = useState(1)
@@ -88,7 +89,7 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
     return latest || null
   }, [cls])
 
-  const { byDate, byStudent, byTeacher, byNo, teacherNames, totalRows } = useMemo(() => {
+  const { byStudent, byTeacher, byNo, teacherNames, totalRows } = useMemo(() => {
     const all: DetailRow[] = []
     cls.students.forEach((st) => {
       st.sessions
@@ -150,46 +151,6 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
       }),
     )
 
-    // Tổng hợp theo SỐ BUỔI — vì mỗi học sinh có số buổi riêng, "Buổi 3" của
-    // em này có thể rơi vào ngày khác hẳn "Buổi 3" của em khác. Gộp lại theo
-    // đúng số buổi, liệt kê rõ từng ngày khác nhau bên trong — tránh nhầm là
-    // dữ liệu trùng/lỗi khi thấy cùng 1 số buổi xuất hiện ở nhiều ngày.
-    //
-    // Dòng của mỗi ngày được xếp theo BUỔI PHỔ BIẾN NHẤT hôm đó (hòa thì lấy
-    // số nhỏ hơn). Em nào hôm đó học buổi khác số đó vẫn ghi chung vào cùng
-    // dòng, kèm chú thích số buổi riêng của em — không tách thành dòng mới.
-    const byDateAll = new Map<string, DetailRow[]>()
-    all.forEach((r) => byDateAll.set(r.date, [...(byDateAll.get(r.date) ?? []), r]))
-    const noDateMap = new Map<number, Map<string, { students: Map<string, number>; teachers: Set<string>; editors: Set<string> }>>()
-    byDateAll.forEach((rows, date) => {
-      const freq = new Map<number, number>()
-      rows.forEach((r) => freq.set(r.no, (freq.get(r.no) ?? 0) + 1))
-      const mainNo = [...freq.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0][0]
-      const byDateForNo = noDateMap.get(mainNo) ?? new Map<string, { students: Map<string, number>; teachers: Set<string>; editors: Set<string> }>()
-      const entry = { students: new Map<string, number>(), teachers: new Set<string>(), editors: new Set<string>() }
-      rows.forEach((r) => {
-        entry.students.set(r.studentName, r.no)
-        ;(r.isOfficialTeacher ? entry.teachers : entry.editors).add(r.teacherName)
-      })
-      byDateForNo.set(date, entry)
-      noDateMap.set(mainNo, byDateForNo)
-    })
-    const noGroups: NoGroup[] = [...noDateMap.entries()]
-      .map(([no, byDateForNo]) => ({
-        no,
-        dates: [...byDateForNo.entries()]
-          .map(([date, v]) => ({
-            date,
-            students: [...v.students.entries()]
-              .map(([name, sNo]) => ({ name, no: sNo }))
-              .sort((a, b) => a.name.localeCompare(b.name, 'vi')),
-            teachers: [...v.teachers],
-            editors: [...v.editors],
-          }))
-          .sort((a, b) => a.date.localeCompare(b.date)),
-      }))
-      .sort((a, b) => a.no - b.no)
-
     const q = search.trim().toLowerCase()
     const filtered = all.filter(
       (r) =>
@@ -198,17 +159,42 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
         (!q || r.studentName.toLowerCase().includes(q) || r.teacherName.toLowerCase().includes(q)),
     )
 
-    const groups = new Map<string, DetailRow[]>()
-    filtered.forEach((r) => {
-      const list = groups.get(r.date) ?? []
-      list.push(r)
-      groups.set(r.date, list)
+    // Chi tiết theo SỐ BUỔI — vì mỗi học sinh có số buổi riêng, "Buổi 3" của
+    // em này có thể rơi vào ngày khác hẳn "Buổi 3" của em khác (hoặc ngược
+    // lại: cùng 1 ngày đi học nhưng ghi buổi khác nhau, VD em học trễ tiến
+    // độ). Gộp lại theo đúng số buổi là nhóm CHÍNH, bên trong liệt kê rõ
+    // từng ngày — chỉ 1 bảng duy nhất, không tách thành nhiều bảng theo ngày
+    // riêng dễ nhìn ra số liệu "không khớp nhau".
+    //
+    // Mỗi ngày được xếp vào nhóm BUỔI PHỔ BIẾN NHẤT hôm đó (hòa thì lấy số
+    // nhỏ hơn). Em nào hôm đó học buổi khác số đó vẫn nằm chung dòng/ngày đó,
+    // chỉ đánh dấu riêng ở cột Buổi (không tách dòng, không tách bảng).
+    const byDateAll = new Map<string, DetailRow[]>()
+    filtered.forEach((r) => byDateAll.set(r.date, [...(byDateAll.get(r.date) ?? []), r]))
+    const noDateMap = new Map<number, Map<string, DetailRow[]>>()
+    byDateAll.forEach((rows, date) => {
+      const freq = new Map<number, number>()
+      rows.forEach((r) => freq.set(r.no, (freq.get(r.no) ?? 0) + 1))
+      const mainNo = [...freq.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0][0]
+      const byDateForNo = noDateMap.get(mainNo) ?? new Map<string, DetailRow[]>()
+      byDateForNo.set(date, rows)
+      noDateMap.set(mainNo, byDateForNo)
     })
-    groups.forEach((list) => list.sort((a, b) => (a.recordedAt ?? '').localeCompare(b.recordedAt ?? '')))
-    const dateGroups = [...groups.entries()].sort((a, b) => b[0].localeCompare(a[0])) // ngày gần nhất lên đầu
+    const noGroups: NoGroup[] = [...noDateMap.entries()]
+      .map(([no, byDateForNo]) => ({
+        no,
+        dates: [...byDateForNo.entries()]
+          .map(([date, rows]) => ({
+            date,
+            rows: [...rows].sort((a, b) => (a.recordedAt ?? '').localeCompare(b.recordedAt ?? '')),
+            teachers: [...new Set(rows.filter((r) => r.isOfficialTeacher).map((r) => r.teacherName))],
+            editors: [...new Set(rows.filter((r) => !r.isOfficialTeacher).map((r) => r.teacherName))],
+          }))
+          .sort((a, b) => b.date.localeCompare(a.date)), // ngày gần nhất lên đầu
+      }))
+      .sort((a, b) => b.no - a.no) // buổi gần nhất (số lớn) lên đầu
 
     return {
-      byDate: dateGroups,
       byStudent: [...studentCount.entries()].sort((a, b) => b[1] - a[1]),
       byTeacher: [...teacherCount.entries()].sort((a, b) => b[1].days - a[1].days),
       byNo: noGroups,
@@ -217,11 +203,11 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
     }
   }, [cls, month, studentFilter, teacherFilter, search])
 
-  function toggleDate(d: string) {
-    setCollapsed((prev) => {
+  function toggleNo(no: number) {
+    setExpandedNos((prev) => {
       const next = new Set(prev)
-      if (next.has(d)) next.delete(d)
-      else next.add(d)
+      if (next.has(no)) next.delete(no)
+      else next.add(no)
       return next
     })
   }
@@ -454,145 +440,110 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
         </Card>
       </div>
 
-      <Card className="p-3">
-        <div className="mb-1.5 flex items-center justify-between">
-          <div className="text-xs font-bold uppercase" style={{ color: C.muted }}>Tổng hợp theo Buổi</div>
-          <div className="text-xs" style={{ color: C.muted }}>Xếp theo buổi phổ biến nhất mỗi ngày · em khác số buổi ghi chú kèm</div>
-        </div>
-        <div className="space-y-1.5">
-          {byNo.length === 0 && <span className="text-sm" style={{ color: C.muted }}>Chưa có buổi nào.</span>}
-          {byNo.map((g) => {
-            const isOpen = expandedNo === g.no
-            // Mỗi số buổi chỉ 1 dòng: tổng số em (mỗi em tính 1 lần dù học
-            // buổi này vào ngày nào) + các ngày khác nhau ghi chung trong
-            // ngoặc — không tách thành nhiều dòng theo ngày.
-            const totalStudents = new Set(g.dates.flatMap((d) => d.students.map((s) => s.name))).size
-            // Em học hôm đó nhưng số buổi riêng khác buổi chính của dòng này.
-            const others = g.dates.flatMap((d) =>
-              d.students.filter((s) => s.no !== g.no).map((s) => `${s.name} (Buổi ${s.no}, ${viDate(d.date)})`),
-            )
-            return (
-              <div key={g.no}>
-                <button
-                  onClick={() => setExpandedNo(isOpen ? null : g.no)}
-                  className="w-full rounded-lg px-3 py-2 text-left text-sm"
-                  style={{ background: C.paper, border: `1px solid ${C.line}` }}
-                >
-                  <span className="font-bold">{isOpen ? '▾' : '▸'} Buổi {g.no}</span>
-                  {' — '}
-                  <b style={{ color: C.board2 }}>{totalStudents} em</b>
-                  <span style={{ color: C.muted }}>
-                    {' · ngày: '}
-                    {g.dates.map((d) => `${viDate(d.date)} (${d.students.length})`).join(' · ')}
-                  </span>
-                  {others.length > 0 && (
-                    <span className="block text-xs" style={{ color: '#7A5A05' }}>
-                      Cùng ngày nhưng số buổi riêng khác: {others.join(' · ')}
-                    </span>
-                  )}
-                </button>
-                {isOpen && (
-                  <div className="mt-1 space-y-0.5 pl-4 text-xs" style={{ color: C.muted }}>
-                    {g.dates.map((d) => (
-                      <div key={d.date}>
-                        <b style={{ color: C.ink }}>{viDate(d.date)}</b>
-                        {d.teachers.length ? ` · GV: ${d.teachers.join(', ')}` : ''}
-                        {d.editors.length ? (
-                          <span style={{ color: C.gold }}> · ✎ sửa bởi: {d.editors.join(', ')} (không phải GV lớp)</span>
-                        ) : ''} —{' '}
-                        {d.students.map((s) => (s.no !== g.no ? `${s.name} (Buổi ${s.no})` : s.name)).join(', ')}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      </Card>
-
       <Card className="overflow-hidden">
         <div className="px-4 py-3" style={{ background: C.board, color: '#fff' }}>
           <div className="text-xs opacity-80">{month} · {totalRows} buổi</div>
-          <div className="text-lg font-bold">Chi tiết từng buổi</div>
+          <div className="text-lg font-bold">Chi tiết theo Buổi</div>
+          <div className="text-xs opacity-80">
+            Gộp theo đúng số buổi — em nào ngày đó ghi buổi khác số buổi chính thì đánh dấu riêng ở cột Buổi, không
+            tách bảng.
+          </div>
         </div>
-        {byDate.length === 0 ? (
+        {byNo.length === 0 ? (
           <div className="p-6 text-center text-sm" style={{ color: C.muted }}>Không có buổi nào khớp với bộ lọc.</div>
         ) : (
-          <div className="max-h-[520px] overflow-y-auto">
-            {byDate.map(([date, dateRows]) => {
-              const isCollapsed = collapsed.has(date)
+          <div className="max-h-[640px] overflow-y-auto">
+            {byNo.map((g) => {
+              const isOpen = expandedNos.has(g.no)
+              const totalStudents = new Set(g.dates.flatMap((d) => d.rows.map((r) => r.studentId))).size
               return (
-                <div key={date} style={{ borderTop: `1px solid ${C.line}` }}>
+                <div key={g.no} style={{ borderTop: `1px solid ${C.line}` }}>
                   <button
-                    onClick={() => toggleDate(date)}
+                    onClick={() => toggleNo(g.no)}
                     className="flex w-full items-center justify-between px-4 py-2 text-left"
                     style={{ background: C.paper }}
                   >
                     <span className="text-sm font-bold" style={{ color: C.ink }}>
-                      {isCollapsed ? '▸' : '▾'} {viDate(date)}
+                      {isOpen ? '▾' : '▸'} Buổi {g.no}
                     </span>
-                    <span className="text-xs" style={{ color: C.muted }}>{dateRows.length} buổi</span>
+                    <span className="text-xs" style={{ color: C.muted }}>
+                      {totalStudents} em · {g.dates.map((d) => viDate(d.date)).join(' · ')}
+                    </span>
                   </button>
-                  {!isCollapsed && (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <tbody>
-                          {dateRows.map((r, i) => {
-                            const st = ATTEND_STYLE[r.attendance]
-                            return (
-                              <tr key={i} style={{ borderTop: `1px solid ${C.line}` }}>
-                                <td className="py-2 pl-6 pr-3 font-bold" style={{ width: 56 }}>B{r.no}</td>
-                                <td className="py-2 px-2" style={{ width: 132 }}>
-                                  <input
-                                    type="date"
-                                    value={r.date}
-                                    onChange={(x) => handleDateChange(r, x.target.value)}
-                                    className="w-full rounded-lg px-1.5 py-1 text-xs"
-                                    style={{ border: `1px solid ${C.line}` }}
-                                  />
-                                </td>
-                                <td className="py-2 px-3" style={{ width: 90, color: r.recordedAt ? C.ink : C.muted }}>
-                                  {r.recordedAt ? viDateTime(r.recordedAt).split(' ')[1] : '—'}
-                                </td>
-                                <td className="py-2 px-3">{r.studentName}</td>
-                                <td className="py-2 px-3">
-                                  <span
-                                    className="rounded-full px-2 py-0.5 text-xs font-semibold"
-                                    style={{ background: st.bg, color: st.fg }}
+                  {isOpen && g.dates.map((d) => (
+                    <div key={d.date}>
+                      <div className="px-4 py-1.5 text-xs font-semibold" style={{ background: '#FAFAFA', color: C.muted }}>
+                        {viDate(d.date)} · {d.rows.length} em
+                        {d.teachers.length ? ` · GV: ${d.teachers.join(', ')}` : ''}
+                        {d.editors.length ? (
+                          <span style={{ color: C.gold }}> · ✎ sửa bởi: {d.editors.join(', ')} (không phải GV lớp)</span>
+                        ) : ''}
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <tbody>
+                            {d.rows.map((r) => {
+                              const st = ATTEND_STYLE[r.attendance]
+                              return (
+                                <tr key={r.sessionId} style={{ borderTop: `1px solid ${C.line}` }}>
+                                  <td
+                                    className="py-2 pl-6 pr-3 font-bold"
+                                    style={{ width: 70, color: r.no !== g.no ? C.gold : C.ink }}
+                                    title={r.no !== g.no ? `Buổi riêng của em này (${r.no}) khác buổi chính (${g.no}) của ngày này` : undefined}
                                   >
-                                    {st.label}
-                                  </span>
-                                </td>
-                                <td className="py-2 px-3" style={{ color: r.isOfficialTeacher ? C.muted : C.gold }} title={r.isOfficialTeacher ? undefined : 'Không phải giáo viên chính thức của lớp — người này chỉ tạo/sửa hộ bản ghi'}>
-                                  {r.isOfficialTeacher ? r.teacherName : `✎ ${r.teacherName}`}
-                                </td>
-                                <td className="py-2 px-3 text-right">
-                                  <div className="flex justify-end gap-1.5">
-                                    <button
-                                      onClick={() => onEditInEntry(r.studentId, r.no)}
-                                      className="rounded-lg px-2 py-1 text-xs font-bold"
-                                      style={{ color: C.board }}
-                                      title="Sửa điểm buổi này"
+                                    B{r.no}{r.no !== g.no ? ' *' : ''}
+                                  </td>
+                                  <td className="py-2 px-2" style={{ width: 132 }}>
+                                    <input
+                                      type="date"
+                                      value={r.date}
+                                      onChange={(x) => handleDateChange(r, x.target.value)}
+                                      className="w-full rounded-lg px-1.5 py-1 text-xs"
+                                      style={{ border: `1px solid ${C.line}` }}
+                                    />
+                                  </td>
+                                  <td className="py-2 px-3" style={{ width: 90, color: r.recordedAt ? C.ink : C.muted }}>
+                                    {r.recordedAt ? viDateTime(r.recordedAt).split(' ')[1] : '—'}
+                                  </td>
+                                  <td className="py-2 px-3">{r.studentName}</td>
+                                  <td className="py-2 px-3">
+                                    <span
+                                      className="rounded-full px-2 py-0.5 text-xs font-semibold"
+                                      style={{ background: st.bg, color: st.fg }}
                                     >
-                                      ✏️ Sửa
-                                    </button>
-                                    <button
-                                      onClick={() => void handleDeleteRow(r)}
-                                      className="rounded-lg px-2 py-1 text-xs font-bold"
-                                      style={{ color: C.red }}
-                                    >
-                                      Xóa
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
+                                      {st.label}
+                                    </span>
+                                  </td>
+                                  <td className="py-2 px-3" style={{ color: r.isOfficialTeacher ? C.muted : C.gold }} title={r.isOfficialTeacher ? undefined : 'Không phải giáo viên chính thức của lớp — người này chỉ tạo/sửa hộ bản ghi'}>
+                                    {r.isOfficialTeacher ? r.teacherName : `✎ ${r.teacherName}`}
+                                  </td>
+                                  <td className="py-2 px-3 text-right">
+                                    <div className="flex justify-end gap-1.5">
+                                      <button
+                                        onClick={() => onEditInEntry(r.studentId, r.no)}
+                                        className="rounded-lg px-2 py-1 text-xs font-bold"
+                                        style={{ color: C.board }}
+                                        title="Sửa điểm buổi này"
+                                      >
+                                        ✏️ Sửa
+                                      </button>
+                                      <button
+                                        onClick={() => void handleDeleteRow(r)}
+                                        className="rounded-lg px-2 py-1 text-xs font-bold"
+                                        style={{ color: C.red }}
+                                      >
+                                        Xóa
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  )}
+                  ))}
                 </div>
               )
             })}
