@@ -139,26 +139,33 @@ export function buildComment(name: string, s: StudentStats, r: ReturnType<typeof
   // lớp có tùy chỉnh thêm/bớt tiêu chí thì monthMax không phải lúc nào cũng
   // là 100, so trực tiếp số tuyệt đối sẽ nhận xét sai cho những lớp đó.
   const pct = s.monthMax > 0 ? (s.monthTotal / s.monthMax) * 100 : 0
-  L.push(
-    pct >= 90
-      ? `${name} có kết quả học tập tốt và duy trì đều đặn.`
-      : pct >= 75
-        ? `${name} học khá ổn định, vẫn còn một vài điểm cần chỉnh.`
-        : `${name} cần cố gắng thêm để theo kịp tiến độ lớp.`,
-  )
-  const top = s.errors.slice(0, 2)
-  if (top.length === 2)
-    L.push(
-      `Con chủ yếu mất điểm ở ${top[0].weak} (${top[0].count} lần) và ${top[1].weak} (${top[1].count} lần).`,
-    )
-  else if (top.length === 1)
-    L.push(`Con chủ yếu mất điểm ở ${top[0].weak} (${top[0].count} lần).`)
-  const fixes = [...new Set(top.map((t) => t.fix).filter(Boolean))]
-  if (fixes.length)
-    L.push(`Tháng tới, cô sẽ tập trung ${fixes.join(' và ')} để giúp con cải thiện kết quả.`)
   const evLine = topEvidenceLine(s, r)
-  if (evLine) L.push(evLine)
+
+  // Dẫn bằng 1 CHI TIẾT CỤ THỂ (ghi chú thật giáo viên đã gõ lúc chấm) nếu
+  // có, thay vì câu đánh giá % chung chung — đọc tự nhiên hơn, tránh kiểu
+  // công thức "khen → chê → dặn" lặp lại y hệt mỗi lần (dễ bị nhận ra là
+  // sinh tự động). Chỉ rơi về câu % khi không có ghi chú cụ thể nào.
+  if (evLine) {
+    L.push(evLine)
+  } else {
+    L.push(
+      pct >= 90
+        ? `${name} làm bài chắc, gần như không sai gì đáng kể trong kỳ này.`
+        : pct >= 75
+          ? `${name} học ổn, vẫn còn vài chỗ chưa chắc.`
+          : `${name} cần ôn lại nhiều, chưa theo kịp tiến độ lớp.`,
+    )
+  }
+
+  const top = s.errors.slice(0, 2)
+  if (top.length) {
+    const weakText = top.map((t) => `${t.weak} (${t.count} lần)`).join(', ')
+    const fix = top[0].fix
+    L.push(fix ? `Hay sai nhất ở ${weakText} — ${fix}.` : `Hay sai nhất ở ${weakText}.`)
+  }
+
   if (s.absent > 0)
-    L.push(`Con nghỉ không phép ${s.absent} buổi, phụ huynh nhắc con đi học đều hơn giúp cô.`)
+    L.push(`Nghỉ không phép ${s.absent} buổi, nhờ phụ huynh nhắc con đi học đều hơn.`)
+
   return L.join(' ')
 }

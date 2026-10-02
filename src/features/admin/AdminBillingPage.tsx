@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminService, type TeacherPayMode } from '@/services/admin'
 import { classService } from '@/services/classes'
 import { teacherPayService } from '@/services/teacherPay'
+import { sessionMigrationService, type ClassMigrationSummary, type RunMigrationResult } from '@/services/sessionMigration'
 import { C } from '@/constants/colors'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
@@ -239,6 +240,166 @@ function TeacherPayAction({
   )
 }
 
+const CONFIRM_PHRASE = 'CHAY THAT'
+
+/** Công cụ 1 lần: dữ liệu buổi học ghi TRƯỚC khi app chuyển sang "mỗi học
+ *  sinh có buổi học riêng" (10/9) vẫn nằm ở dạng "buổi chung" cũ — phần tính
+ *  học phí/lương chỉ đọc buổi đã gắn đúng học sinh nên bỏ sót hết dữ liệu cũ
+ *  (hiện số buổi rất thấp dù thực tế đã chấm rất chi tiết). Migration này
+ *  chuyển dữ liệu cũ sang đúng cấu trúc mới — KHÔNG xóa gì, chỉ thêm bản ghi
+ *  mới + đánh dấu bản cũ đã chuyển. Chạy 1 LẦN DUY NHẤT cho cả hệ thống. */
+function SessionMigrationTool() {
+  const [open, setOpen] = useState(false)
+  const [previewing, setPreviewing] = useState(false)
+  const [preview, setPreview] = useState<ClassMigrationSummary[] | null>(null)
+  const [confirmText, setConfirmText] = useState('')
+  const [running, setRunning] = useState(false)
+  const [result, setResult] = useState<RunMigrationResult | null>(null)
+
+  const pendingTotal = preview?.reduce((a, s) => a + s.sharedSessionsFound, 0) ?? 0
+
+  async function doPreview() {
+    setPreviewing(true)
+    try {
+      const { summaries } = await sessionMigrationService.preview()
+      setPreview(summaries)
+      if (!summaries.length) toast.info('Không có buổi học cũ nào cần chuyển — dữ liệu đã đầy đủ.')
+    } catch {
+      toast.error('Lỗi khi xem trước — thử lại.')
+    } finally {
+      setPreviewing(false)
+    }
+  }
+
+  async function doRun() {
+    setRunning(true)
+    try {
+      const res = await sessionMigrationService.run()
+      setResult(res)
+      if (res.alreadyRan) {
+        toast.info('Migration này đã chạy trước đó rồi — không chạy lại.')
+      } else {
+        toast.success('Đã chuyển xong dữ liệu buổi học cũ sang cấu trúc mới.')
+        setPreview(null)
+        setConfirmText('')
+      }
+    } catch {
+      toast.error('Lỗi khi chạy migration — KHÔNG thử lại ngay, báo cho người phụ trách kỹ thuật kiểm tra trước.', { persist: true })
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  function downloadBackup() {
+    if (!result?.backup) return
+    const blob = new Blob([JSON.stringify(result.backup, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `backup-truoc-migration-${Date.now()}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <Card className="overflow-hidden" style={{ border: `1.5px solid ${C.gold}66` }}>
+      <button
+        className="flex w-full items-center justify-between px-4 py-3 text-left"
+        style={{ background: C.gold + '1a' }}
+        onClick={() => setOpen((x) => !x)}
+      >
+        <div>
+          <div className="text-sm font-bold" style={{ color: '#92400E' }}>
+            ⚠ Chuyển dữ liệu buổi học cũ (chạy 1 lần)
+          </div>
+          <div className="text-xs" style={{ color: C.muted }}>
+            Sửa gốc việc "Số buổi" hiện toàn 1 dù đã chấm chi tiết — bấm để xem thêm
+          </div>
+        </div>
+        <span style={{ color: C.muted }}>{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <div className="space-y-3 p-4 text-sm">
+          <p style={{ color: C.muted }}>
+            Dữ liệu buổi học ghi TRƯỚC ngày app chuyển sang "mỗi học sinh có buổi riêng" vẫn nằm ở dạng cũ (buổi chung
+            cả lớp) — nên phần tính học phí/lương phía trên bỏ sót, chỉ thấy đúng vài buổi mới gần đây. Công cụ này
+            chuyển đúng dữ liệu cũ đó sang cấu trúc mới — <b>không xóa gì</b>, chỉ thêm bản ghi mới + đánh dấu bản cũ
+            đã chuyển. Chỉ cần chạy <b>1 lần duy nhất</b>.
+          </p>
+
+          <Btn kind="ghost" size="sm" disabled={previewing} onClick={doPreview}>
+            {previewing ? 'Đang xem...' : '1. Xem trước (an toàn, không ghi gì)'}
+          </Btn>
+
+          {preview && preview.length > 0 && (
+            <div className="overflow-x-auto rounded-lg" style={{ border: `1px solid ${C.line}` }}>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr style={{ background: C.paper }}>
+                    <th className="py-1.5 px-2 text-left font-semibold" style={{ color: C.muted }}>Lớp</th>
+                    <th className="py-1.5 px-2 text-right font-semibold" style={{ color: C.muted }}>Buổi chung cũ</th>
+                    <th className="py-1.5 px-2 text-right font-semibold" style={{ color: C.muted }}>Sẽ tạo buổi riêng</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.map((s) => (
+                    <tr key={s.classId} style={{ borderTop: `1px solid ${C.line}` }}>
+                      <td className="py-1.5 px-2 font-semibold">{s.className}</td>
+                      <td className="py-1.5 px-2 text-right tabular-nums">{s.sharedSessionsFound}</td>
+                      <td className="py-1.5 px-2 text-right tabular-nums">{s.newDocsCreated}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {preview && pendingTotal > 0 && (
+            <div className="space-y-2 rounded-lg p-3" style={{ background: '#FEF3C7' }}>
+              <div className="text-xs font-semibold" style={{ color: '#92400E' }}>
+                2. Xác nhận chạy thật — gõ đúng chữ "{CONFIRM_PHRASE}" vào ô dưới rồi bấm nút:
+              </div>
+              <input
+                type="text"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                placeholder={CONFIRM_PHRASE}
+                className="w-48 rounded-lg px-2 py-1.5 text-sm"
+                style={{ border: `1px solid ${C.line}` }}
+              />
+              <div>
+                <Btn
+                  kind="solid"
+                  size="sm"
+                  disabled={confirmText.trim() !== CONFIRM_PHRASE || running}
+                  onClick={doRun}
+                >
+                  {running ? 'Đang chạy...' : '✅ Chạy migration thật'}
+                </Btn>
+              </div>
+            </div>
+          )}
+
+          {result && !result.alreadyRan && (
+            <div className="space-y-2 rounded-lg p-3" style={{ background: '#ECFDF5' }}>
+              <div className="text-xs font-semibold" style={{ color: '#065F46' }}>
+                ✅ Đã chuyển xong {result.summaries.reduce((a, s) => a + s.newDocsCreated, 0)} buổi riêng từ{' '}
+                {result.summaries.reduce((a, s) => a + s.sharedSessionsFound, 0)} buổi chung cũ. Quay lại bảng phía
+                trên (chọn lại khoảng ngày) để thấy số buổi đầy đủ.
+              </div>
+              {result.backup && (
+                <button className="text-xs underline" style={{ color: C.muted }} onClick={downloadBackup}>
+                  ⬇ Tải về bản sao lưu dữ liệu trước khi chuyển (JSON)
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 export function AdminBillingPage() {
   const [{ from, to }, setRange] = useState(defaultRange())
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -277,6 +438,8 @@ export function AdminBillingPage() {
           vắng nhiều lương thấp hơn).
         </p>
       </div>
+
+      <SessionMigrationTool />
 
       <Card className="p-3 space-y-1.5">
         <div className="flex flex-wrap items-center gap-2">
