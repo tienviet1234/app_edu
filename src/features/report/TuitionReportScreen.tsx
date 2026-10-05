@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import type { ClassData } from '@/types'
 import { C } from '@/constants/colors'
 import { getClassRubric } from '@/constants/rubrics'
@@ -80,11 +80,13 @@ async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 export function TuitionReportScreen({ cls }: Props) {
+  const r = getClassRubric(cls)
   const [rate, setRate] = useState<number | null>(null)
   const [loadingRate, setLoadingRate] = useState(true)
   const [notices, setNotices] = useState<TuitionNotice[]>([])
   const [dueRows, setDueRows] = useState<DueRow[]>([])
   const [showPaidHistory, setShowPaidHistory] = useState(false)
+  const [expandedOverview, setExpandedOverview] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (!isMongoid(cls.id)) return
@@ -101,7 +103,6 @@ export function TuitionReportScreen({ cls }: Props) {
 
   useEffect(() => {
     if (rate == null) { setDueRows([]); return }
-    const r = getClassRubric(cls)
     const sentKeys = new Set(notices.map((n) => `${n.studentId}:${n.periodFrom}-${n.periodTo}`))
     const rows: DueRow[] = []
     cls.students.forEach((st) => {
@@ -134,8 +135,14 @@ export function TuitionReportScreen({ cls }: Props) {
   const notDueRows = useMemo(
     () => cls.students
       .filter((st) => !dueStudentIds.has(st.id))
-      .map((st) => ({ studentId: st.id, studentName: st.name, progress: currentProgressOf(st, cls.perMonth) }))
-      .filter((r) => r.progress != null),
+      .map((st) => {
+        const progress = currentProgressOf(st, cls.perMonth)
+        if (!progress) return null
+        const to = st.sessions.length
+        const from = to - progress.current
+        return { studentId: st.id, studentName: st.name, progress, from, to }
+      })
+      .filter((x): x is { studentId: string; studentName: string; progress: { current: number; total: number }; from: number; to: number } => x != null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [cls, dueRows],
   )
@@ -239,7 +246,10 @@ export function TuitionReportScreen({ cls }: Props) {
 
   // Bảng "Tổng quan" dùng CHUNG cho cả hiển thị trên màn hình LẪN xuất Excel
   // — tính 1 lần duy nhất ở đây để 2 nơi không bao giờ lệch nhau (trước đây
-  // phải tự nhớ sửa cả 2 chỗ mỗi khi đổi logic, dễ quên 1 nơi).
+  // phải tự nhớ sửa cả 2 chỗ mỗi khi đổi logic, dễ quên 1 nơi). MỌI dòng đều
+  // kèm sessionDetails (kể cả "Chưa tới hạn" — lấy đúng các buổi ĐÃ học
+  // trong kỳ đang dở) để admin/giáo viên đọc được tình hình từng buổi ngay
+  // trên app, không cần tải Excel mới biết.
   const overviewRows = useMemo(() => {
     const unpaid = notices.filter((n) => n.paymentStatus === 'unpaid')
     const paid = notices.filter((n) => n.paymentStatus === 'paid')
@@ -252,79 +262,81 @@ export function TuitionReportScreen({ cls }: Props) {
         finalAmount: fmtVnd(Number(row.finalAmount) || row.computedAmount),
         adjustmentReason: row.adjustmentReason || undefined,
         reportComment: row.reportComment,
+        sessionDetails: row.sessionDetails,
       })),
-      ...unpaid.map((n) => ({
-        studentId: n.studentId,
-        studentName: cls.students.find((s) => s.id === n.studentId)?.name ?? '(học sinh đã xoá)',
-        status: 'Đang nợ (đã gửi, chưa đóng)' as const,
-        periodLabel: n.periodLabel,
-        sessionsBilled: String(n.sessionsBilled),
-        finalAmount: fmtVnd(n.finalAmount),
-        adjustmentReason: n.adjustmentReason,
-        reportComment: n.reportComment,
-      })),
-      ...paid.map((n) => ({
-        studentId: n.studentId,
-        studentName: cls.students.find((s) => s.id === n.studentId)?.name ?? '(học sinh đã xoá)',
-        status: 'Đã đóng xong' as const,
-        periodLabel: n.periodLabel,
-        sessionsBilled: String(n.sessionsBilled),
-        finalAmount: fmtVnd(n.finalAmount),
-        adjustmentReason: n.adjustmentReason,
-        reportComment: n.reportComment,
-      })),
-      ...notDueRows.map((nd) => ({
-        studentId: nd.studentId, studentName: nd.studentName,
-        status: 'Chưa tới hạn' as const,
-        periodLabel: '—',
-        sessionsBilled: `${nd.progress!.current}/${nd.progress!.total}`,
-        finalAmount: '—',
-        adjustmentReason: undefined as string | undefined,
-        reportComment: '—',
-      })),
+      ...unpaid.map((n) => {
+        const st = cls.students.find((s) => s.id === n.studentId)
+        return {
+          studentId: n.studentId, studentName: st?.name ?? '(học sinh đã xoá)',
+          status: 'Đang nợ (đã gửi, chưa đóng)' as const,
+          periodLabel: n.periodLabel,
+          sessionsBilled: String(n.sessionsBilled),
+          finalAmount: fmtVnd(n.finalAmount),
+          adjustmentReason: n.adjustmentReason,
+          reportComment: n.reportComment,
+          sessionDetails: st ? sessionDetailsOf(st, n.periodFrom, n.periodTo, r) : [],
+        }
+      }),
+      ...paid.map((n) => {
+        const st = cls.students.find((s) => s.id === n.studentId)
+        return {
+          studentId: n.studentId, studentName: st?.name ?? '(học sinh đã xoá)',
+          status: 'Đã đóng xong' as const,
+          periodLabel: n.periodLabel,
+          sessionsBilled: String(n.sessionsBilled),
+          finalAmount: fmtVnd(n.finalAmount),
+          adjustmentReason: n.adjustmentReason,
+          reportComment: n.reportComment,
+          sessionDetails: st ? sessionDetailsOf(st, n.periodFrom, n.periodTo, r) : [],
+        }
+      }),
+      ...notDueRows.map((nd) => {
+        const st = cls.students.find((s) => s.id === nd.studentId)
+        return {
+          studentId: nd.studentId, studentName: nd.studentName,
+          status: 'Chưa tới hạn' as const,
+          periodLabel: `Đang học dở — buổi ${nd.from + 1}–${nd.to}`,
+          sessionsBilled: `${nd.progress.current}/${nd.progress.total}`,
+          finalAmount: '—',
+          adjustmentReason: undefined as string | undefined,
+          reportComment: '—',
+          sessionDetails: st ? sessionDetailsOf(st, nd.from, nd.to, r) : [],
+        }
+      }),
     ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dueRows, notices, notDueRows, cls])
+
+  function toggleOverview(studentId: string) {
+    setExpandedOverview((prev) => {
+      const next = new Set(prev)
+      if (next.has(studentId)) next.delete(studentId)
+      else next.add(studentId)
+      return next
+    })
+  }
 
   /** Xuất Excel "Tổng quan" — gộp CẢ 4 trạng thái đang hiện trên màn hình
    *  (đã tới hạn chưa gửi / đang nợ đã gửi / đã đóng xong / chưa tới hạn),
    *  khớp đúng y như bảng đang hiện trên app — khác nút "Xuất Excel" nhanh
    *  phía trên (chỉ xuất phần "chưa gửi" để chuẩn bị gửi ngay). */
   function exportAll() {
-    const r = getClassRubric(cls)
-    const unpaid = notices.filter((n) => n.paymentStatus === 'unpaid')
-    const paid = notices.filter((n) => n.paymentStatus === 'paid')
-    const sessionDetails = [
-      ...dueRows.flatMap((row) => row.sessionDetails.map((d) => ({ studentName: row.studentName, ...d }))),
-      ...unpaid.flatMap((n) => {
-        const st = cls.students.find((s) => s.id === n.studentId)
-        return st ? sessionDetailsOf(st, n.periodFrom, n.periodTo, r).map((d) => ({ studentName: st.name, ...d })) : []
-      }),
-      ...paid.flatMap((n) => {
-        const st = cls.students.find((s) => s.id === n.studentId)
-        return st ? sessionDetailsOf(st, n.periodFrom, n.periodTo, r).map((d) => ({ studentName: st.name, ...d })) : []
-      }),
-    ]
-    exportTuitionOverview(cls.name, overviewRows, sessionDetails)
+    exportTuitionOverview(
+      cls.name,
+      overviewRows.map(({ sessionDetails: _sd, ...rest }) => rest),
+      overviewRows.flatMap((row) => row.sessionDetails.map((d) => ({ studentName: row.studentName, ...d }))),
+    )
   }
 
-  /** Xuất Excel CHỈ 1 học sinh — dùng khi gửi riêng cho đúng phụ huynh em đó,
-   *  tránh file gộp (nút "Xuất Excel" phía trên) lộ học phí của em khác khi
-   *  gửi nhầm cả file. Vẫn kèm đầy đủ nhận xét + chi tiết từng buổi như file gộp. */
-  function exportOne(row: DueRow) {
-    exportTuitionNotices(
+  /** Xuất Excel CHỈ 1 học sinh (bất kỳ trạng thái nào — đã tới hạn/đang
+   *  nợ/đã đóng/chưa tới hạn) — dùng khi gửi riêng cho đúng phụ huynh em đó,
+   *  tránh file gộp (nút "Xuất Excel Tổng quan") lộ học phí của em khác. */
+  function exportOneRow(row: (typeof overviewRows)[number]) {
+    const { sessionDetails, ...rest } = row
+    exportTuitionOverview(
       `${cls.name}_${row.studentName}`,
-      [{
-        studentName: row.studentName,
-        periodLabel: row.periodLabel,
-        sessionsBilled: row.sessionsBilled,
-        ratePerSession: rate ?? 0,
-        finalAmount: Number(row.finalAmount) || 0,
-        adjustmentReason: row.adjustmentReason || undefined,
-        reportComment: row.reportComment,
-        sentAtLabel: '(chưa gửi — bản nháp)',
-      }],
-      row.sessionDetails.map((d) => ({ studentName: row.studentName, ...d })),
+      [rest],
+      sessionDetails.map((d) => ({ studentName: row.studentName, ...d })),
     )
   }
 
@@ -364,16 +376,18 @@ export function TuitionReportScreen({ cls }: Props) {
           <div className="text-lg font-bold">Tổng quan — {overviewRows.length} học sinh</div>
           <div className="text-xs opacity-80">Đúng nội dung sẽ có trong file Excel khi bấm nút xuất bên dưới</div>
         </div>
-        <div className="max-h-[420px] overflow-auto">
+        <div className="max-h-[520px] overflow-auto">
           <table className="w-full text-xs">
             <thead>
               <tr style={{ background: C.paper }}>
+                <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}></th>
                 <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Học sinh</th>
                 <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Trạng thái</th>
                 <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Kỳ</th>
                 <th className="py-2 px-3 text-right font-semibold" style={{ color: C.muted }}>Số buổi</th>
                 <th className="py-2 px-3 text-right font-semibold" style={{ color: C.muted }}>Số tiền</th>
                 <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Nhận xét</th>
+                <th className="py-2 px-3"></th>
               </tr>
             </thead>
             <tbody>
@@ -382,17 +396,62 @@ export function TuitionReportScreen({ cls }: Props) {
                   r.status === '🔴 Đã tới hạn - chưa gửi' ? '#FEE2E2' :
                   r.status === 'Đang nợ (đã gửi, chưa đóng)' ? '#FFEDD5' :
                   r.status === 'Đã đóng xong' ? '#ECFDF5' : undefined
+                const rowKey = `${r.studentId}-${i}`
+                const isOpen = expandedOverview.has(rowKey)
                 return (
-                  <tr key={`${r.studentId}-${i}`} style={{ borderTop: `1px solid ${C.line}`, background: bg }}>
-                    <td className="py-1.5 px-3 font-semibold" style={{ color: C.ink }}>{r.studentName}</td>
-                    <td className="py-1.5 px-3">{r.status}</td>
-                    <td className="py-1.5 px-3" style={{ color: C.muted }}>{r.periodLabel}</td>
-                    <td className="py-1.5 px-3 text-right tabular-nums">{r.sessionsBilled}</td>
-                    <td className="py-1.5 px-3 text-right tabular-nums font-semibold" style={{ color: C.ink }}>{r.finalAmount}</td>
-                    <td className="py-1.5 px-3 max-w-[280px] truncate" style={{ color: C.muted }} title={r.reportComment}>
-                      {r.reportComment}
-                    </td>
-                  </tr>
+                  <Fragment key={rowKey}>
+                    <tr style={{ borderTop: `1px solid ${C.line}`, background: bg }}>
+                      <td className="py-1.5 pl-3">
+                        {r.sessionDetails.length > 0 && (
+                          <button onClick={() => toggleOverview(rowKey)} style={{ color: C.muted }}>
+                            {isOpen ? '▾' : '▸'}
+                          </button>
+                        )}
+                      </td>
+                      <td className="py-1.5 px-3 font-semibold" style={{ color: C.ink }}>{r.studentName}</td>
+                      <td className="py-1.5 px-3">{r.status}</td>
+                      <td className="py-1.5 px-3" style={{ color: C.muted }}>{r.periodLabel}</td>
+                      <td className="py-1.5 px-3 text-right tabular-nums">{r.sessionsBilled}</td>
+                      <td className="py-1.5 px-3 text-right tabular-nums font-semibold" style={{ color: C.ink }}>{r.finalAmount}</td>
+                      <td className="py-1.5 px-3 max-w-[220px] truncate" style={{ color: C.muted }} title={r.reportComment}>
+                        {r.reportComment}
+                      </td>
+                      <td className="py-1.5 px-3 text-right">
+                        <button className="font-semibold" style={{ color: C.board2 }} onClick={() => exportOneRow(r)}>
+                          📥 Xuất
+                        </button>
+                      </td>
+                    </tr>
+                    {isOpen && (
+                      <tr style={{ background: '#FAFAFA' }}>
+                        <td colSpan={8} className="p-2">
+                          <table className="w-full text-xs" style={{ border: `1px solid ${C.line}` }}>
+                            <thead>
+                              <tr style={{ background: C.paper }}>
+                                <th className="py-1 px-2 text-left" style={{ color: C.muted }}>Buổi</th>
+                                <th className="py-1 px-2 text-left" style={{ color: C.muted }}>Ngày</th>
+                                <th className="py-1 px-2 text-left" style={{ color: C.muted }}>Bài tập về nhà</th>
+                                <th className="py-1 px-2 text-left" style={{ color: C.muted }}>Tình hình buổi đó</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {r.sessionDetails.map((d) => (
+                                <tr key={d.no} style={{ borderTop: `1px solid ${C.line}` }}>
+                                  <td className="py-1 px-2 font-semibold">{d.no}</td>
+                                  <td className="py-1 px-2" style={{ color: C.muted }}>{viDate(d.date)}</td>
+                                  <td className="py-1 px-2" style={{ color: C.muted }}>{d.homework || '—'}</td>
+                                  <td className="py-1 px-2" style={d.isAuto ? { color: C.muted, fontStyle: 'italic' } : { color: C.ink }}>
+                                    {d.status}
+                                    {d.isAuto && <span className="ml-1 not-italic" style={{ color: C.board2 }} title="Tự sinh từ điểm số đã chấm">🤖</span>}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 )
               })}
             </tbody>
@@ -513,7 +572,15 @@ export function TuitionReportScreen({ cls }: Props) {
                   </div>
                 )}
                 <Btn kind="ghost" onClick={() => copyMessage(row)}>📋 Sao chép nội dung</Btn>
-                <Btn kind="ghost" onClick={() => exportOne(row)}>📥 Xuất Excel riêng em này</Btn>
+                <Btn
+                  kind="ghost"
+                  onClick={() => {
+                    const ov = overviewRows.find((o) => o.studentId === row.studentId && o.status === '🔴 Đã tới hạn - chưa gửi')
+                    if (ov) exportOneRow(ov)
+                  }}
+                >
+                  📥 Xuất Excel riêng em này
+                </Btn>
                 <Btn kind="solid" onClick={() => markSent(row)} disabled={row.saving}>
                   {row.saving ? 'Đang lưu...' : '✅ Đánh dấu đã gửi'}
                 </Btn>
