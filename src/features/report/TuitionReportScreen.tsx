@@ -290,10 +290,14 @@ export function TuitionReportScreen({ cls }: Props) {
 
       {dueRows.length > 0 && (
         <div
-          className="animate-pulse rounded-2xl px-4 py-3 text-sm font-bold"
+          className="animate-pulse-red flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold"
           style={{ background: C.red, color: '#fff' }}
         >
-          🔴 {dueRows.length} HỌC SINH ĐÃ TỚI HẠN — cần gửi báo cáo + học phí ngay (xem các thẻ viền đỏ bên dưới)!
+          <span className="animate-blink text-lg leading-none">🔴</span>
+          <span>
+            {dueRows.length} HỌC SINH <span className="animate-blink">ĐÃ TỚI HẠN</span> — cần gửi báo cáo + học phí
+            ngay (xem các thẻ viền đỏ bên dưới)!
+          </span>
         </div>
       )}
 
@@ -311,12 +315,15 @@ export function TuitionReportScreen({ cls }: Props) {
           const finalNum = Number(row.finalAmount)
           const differs = !Number.isNaN(finalNum) && finalNum !== row.computedAmount
           return (
-            <Card key={key} className="p-4 space-y-2" style={{ border: `2px solid ${C.red}`, background: C.red + '0a' }}>
+            <Card
+              key={key} className="animate-pulse-red p-4 space-y-2"
+              style={{ border: `2px solid ${C.red}`, background: C.red + '0a' }}
+            >
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <div className="flex items-center gap-1.5">
                     <span
-                      className="animate-pulse rounded-full px-2 py-0.5 text-[10px] font-bold text-white"
+                      className="animate-blink rounded-full px-2 py-0.5 text-[10px] font-bold text-white"
                       style={{ background: C.red }}
                     >
                       🔴 ĐÃ TỚI HẠN

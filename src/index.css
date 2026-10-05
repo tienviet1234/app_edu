@@ -103,6 +103,19 @@
     60%  { transform: scale(1.05); opacity: 1; }
     100% { transform: scale(1); }
   }
+  /* Chớp nháy THẬT (bật/tắt đột ngột qua opacity, không mờ dần) — dùng cho
+     cảnh báo tiền bạc cần đập vào mắt ngay (VD "đã tới hạn học phí"), khác
+     animate-pulse (Tailwind, mờ dần êm) vốn dễ bị lướt qua không để ý. Dùng
+     opacity (không phải color) để áp được cho MỌI thứ kể cả emoji (emoji
+     không đổi màu theo CSS color). */
+  @keyframes blinkOpacity {
+    0%, 49%   { opacity: 1; }
+    50%, 100% { opacity: 0.25; }
+  }
+  @keyframes pulseRed {
+    0%, 100% { box-shadow: 0 0 0 0 rgb(220 38 38 / 0.55); }
+    50%      { box-shadow: 0 0 0 10px rgb(220 38 38 / 0); }
+  }
 
   .animate-fade-in    { animation: fadeIn var(--transition-base) both; }
   .animate-slide-up   { animation: slideUp var(--transition-base) both; }
@@ -110,6 +123,8 @@
   .animate-scale-in   { animation: scaleIn var(--transition-base) both; }
   .animate-bounce-in  { animation: bounceIn 300ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
   .animate-pulse-gold { animation: pulseGold 2s infinite; }
+  .animate-blink      { animation: blinkOpacity 0.8s step-start infinite; }
+  .animate-pulse-red  { animation: pulseRed 1.3s infinite; }
 
   .card-hover {
     transition: transform var(--transition-fast), box-shadow var(--transition-fast);
