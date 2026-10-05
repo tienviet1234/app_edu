@@ -32,6 +32,11 @@ interface DueRow {
   sessionDetails: SessionDetailRow[]
   showDetails: boolean
   saving: boolean
+  /** 'auto' = tự phát hiện đủ mốc 8/12 buổi (như trước giờ). 'manual' = admin
+   *  tự bấm "Chốt buổi" cho học sinh NGHỈ NGANG (chưa đủ mốc, không còn học
+   *  tiếp) — số tiền vẫn TỰ TÍNH y hệt (số buổi × đơn giá), chỉ khác là áp
+   *  dụng cho khoảng buổi dở dang thay vì đợi đủ. */
+  kind: 'auto' | 'manual'
 }
 
 function fmtVnd(n: number): string {
@@ -43,7 +48,12 @@ function fmtVnd(n: number): string {
  *  (Zalo không có cách mở sẵn khung chat kèm tin nhắn như WhatsApp, nên chưa
  *  làm được nút "gửi thẳng"). */
 function buildZaloMessage(className: string, row: DueRow, rate: number): string {
-  const amount = Number(row.finalAmount) || row.computedAmount
+  // `|| row.computedAmount` (toán tử ||) coi 0 là falsy — nếu admin CỐ Ý
+  // gõ 0đ (VD miễn phí 1 kỳ) thì bị thay nhầm bằng số tự tính, sai hẳn ý
+  // admin. Phải kiểm tra "có phải số hợp lệ không" bằng Number.isFinite,
+  // không dùng || — 0 là số hợp lệ, phải giữ nguyên 0.
+  const finalNum = Number(row.finalAmount)
+  const amount = Number.isFinite(finalNum) ? finalNum : row.computedAmount
   return [
     `📚 BÁO CÁO HỌC TẬP — ${className}`,
     `Con: ${row.studentName}`,
@@ -85,6 +95,10 @@ export function TuitionReportScreen({ cls }: Props) {
   const [loadingRate, setLoadingRate] = useState(true)
   const [notices, setNotices] = useState<TuitionNotice[]>([])
   const [dueRows, setDueRows] = useState<DueRow[]>([])
+  // Các khoản admin TỰ BẤM "Chốt buổi" cho học sinh nghỉ ngang — tách state
+  // riêng vì dueRows bị tính lại (ghi đè) mỗi khi notices/cls đổi, sẽ mất
+  // nếu gộp chung.
+  const [manualRows, setManualRows] = useState<DueRow[]>([])
   const [showPaidHistory, setShowPaidHistory] = useState(false)
   const [expandedOverview, setExpandedOverview] = useState<Set<string>>(new Set())
 
@@ -121,6 +135,7 @@ export function TuitionReportScreen({ cls }: Props) {
           sessionDetails: sessionDetailsOf(st, p.from, p.to, r),
           showDetails: false,
           saving: false,
+          kind: 'auto',
         })
       })
     })
@@ -131,7 +146,7 @@ export function TuitionReportScreen({ cls }: Props) {
   // Học sinh CHƯA tới hạn (còn đang học dở kỳ) — vẫn hiện đầy đủ cả lớp
   // thay vì chỉ hiện em đã tới hạn, để thấy tiến độ ai cũng đang được theo
   // dõi, không phải "biến mất" khỏi màn hình cho tới khi tới hạn.
-  const dueStudentIds = new Set(dueRows.map((r) => r.studentId))
+  const dueStudentIds = new Set([...dueRows, ...manualRows].map((r) => r.studentId))
   const notDueRows = useMemo(
     () => cls.students
       .filter((st) => !dueStudentIds.has(st.id))
@@ -144,11 +159,35 @@ export function TuitionReportScreen({ cls }: Props) {
       })
       .filter((x): x is { studentId: string; studentName: string; progress: { current: number; total: number }; from: number; to: number } => x != null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [cls, dueRows],
+    [cls, dueRows, manualRows],
   )
 
-  function patchRow(key: string, fn: (r: DueRow) => void) {
-    setDueRows((prev) => prev.map((r) => {
+  /** Admin bấm "Chốt buổi" cho 1 học sinh ĐANG "Chưa tới hạn" (thường là nghỉ
+   *  ngang, không học tiếp để đủ mốc) — số tiền vẫn TỰ TÍNH (số buổi hiện có
+   *  × đơn giá), admin chỉ xác nhận chứ không gõ tay số tiền. */
+  function addManualBill(nd: { studentId: string; studentName: string; from: number; to: number }) {
+    if (rate == null) return
+    const st = cls.students.find((s) => s.id === nd.studentId)
+    if (!st) return
+    const sessionsBilled = sessionsBilledOf(st, nd.from, nd.to)
+    const computedAmount = sessionsBilled * rate
+    const s = statsOf(cls, st.sessions.slice(nd.from, nd.to))
+    setManualRows((prev) => [...prev, {
+      studentId: st.id, studentName: st.name,
+      periodFrom: nd.from, periodTo: nd.to,
+      periodLabel: `Nghỉ ngang — buổi ${nd.from + 1}–${nd.to}`,
+      sessionsBilled, computedAmount,
+      finalAmount: String(computedAmount), adjustmentReason: '',
+      reportComment: buildComment(st.name, s, r),
+      sessionDetails: sessionDetailsOf(st, nd.from, nd.to, r),
+      showDetails: false, saving: false, kind: 'manual',
+    }])
+  }
+
+  function patchRow(row: DueRow, fn: (r: DueRow) => void) {
+    const key = `${row.studentId}:${row.periodFrom}-${row.periodTo}`
+    const setter = row.kind === 'manual' ? setManualRows : setDueRows
+    setter((prev) => prev.map((r) => {
       if (`${r.studentId}:${r.periodFrom}-${r.periodTo}` !== key) return r
       const copy = { ...r }
       fn(copy)
@@ -166,8 +205,7 @@ export function TuitionReportScreen({ cls }: Props) {
       toast.error('Số tiền khác số tự tính — bắt buộc ghi lý do điều chỉnh.')
       return
     }
-    const key = `${row.studentId}:${row.periodFrom}-${row.periodTo}`
-    patchRow(key, (r) => { r.saving = true })
+    patchRow(row, (r) => { r.saving = true })
     try {
       const created = await tuitionNoticeService.create({
         classId: cls.id, studentId: row.studentId,
@@ -178,12 +216,17 @@ export function TuitionReportScreen({ cls }: Props) {
         reportComment: row.reportComment,
       })
       setNotices((prev) => [created, ...prev])
+      // "auto" tự biến mất ở lần tính lại dueRows kế tiếp (nhờ sentKeys) —
+      // "manual" không nằm trong luồng đó, phải tự xoá khỏi danh sách chờ.
+      if (row.kind === 'manual') {
+        setManualRows((prev) => prev.filter((r) => r.studentId !== row.studentId || r.periodFrom !== row.periodFrom))
+      }
       toast.success(`Đã đánh dấu gửi cho ${row.studentName}.`)
     } catch (err) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Lỗi khi lưu — thử lại.'
       toast.error(msg)
     } finally {
-      patchRow(key, (r) => { r.saving = false })
+      patchRow(row, (r) => { r.saving = false })
     }
   }
 
@@ -235,13 +278,34 @@ export function TuitionReportScreen({ cls }: Props) {
         periodLabel: r.periodLabel,
         sessionsBilled: r.sessionsBilled,
         ratePerSession: rate ?? 0,
-        finalAmount: Number(r.finalAmount) || 0,
+        finalAmount: Number.isFinite(Number(r.finalAmount)) ? Number(r.finalAmount) : 0,
         adjustmentReason: r.adjustmentReason || undefined,
         reportComment: r.reportComment,
         sentAtLabel: '(chưa gửi — bản nháp)',
       })),
       dueRows.flatMap((r) => r.sessionDetails.map((d) => ({ studentName: r.studentName, ...d }))),
     )
+  }
+
+  /** DueRow ('auto' hoặc 'manual') → dòng dạng Tổng quan — dùng CHUNG cho cả
+   *  bảng Tổng quan LẪN nút "Xuất Excel riêng em này" trong từng thẻ, để 2
+   *  nơi không bao giờ tính lệch nhau. */
+  function dueRowToOverview(row: DueRow) {
+    // Number.isFinite, KHÔNG dùng || — 0 là số hợp lệ (admin có thể cố ý
+    // miễn phí 1 kỳ), dùng || sẽ nhầm 0 thành "chưa nhập" rồi thay bằng số
+    // tự tính, sai hẳn ý admin đã gõ.
+    const finalNum = Number(row.finalAmount)
+    const amount = Number.isFinite(finalNum) ? finalNum : row.computedAmount
+    return {
+      studentId: row.studentId, studentName: row.studentName,
+      status: row.kind === 'manual' ? ('✂️ Chốt buổi (nghỉ ngang) - chưa gửi' as const) : ('🔴 Đã tới hạn - chưa gửi' as const),
+      periodLabel: row.periodLabel,
+      sessionsBilled: String(row.sessionsBilled),
+      finalAmount: fmtVnd(amount),
+      adjustmentReason: row.adjustmentReason || undefined,
+      reportComment: row.reportComment,
+      sessionDetails: row.sessionDetails,
+    }
   }
 
   // Bảng "Tổng quan" dùng CHUNG cho cả hiển thị trên màn hình LẪN xuất Excel
@@ -254,16 +318,7 @@ export function TuitionReportScreen({ cls }: Props) {
     const unpaid = notices.filter((n) => n.paymentStatus === 'unpaid')
     const paid = notices.filter((n) => n.paymentStatus === 'paid')
     return [
-      ...dueRows.map((row) => ({
-        studentId: row.studentId, studentName: row.studentName,
-        status: '🔴 Đã tới hạn - chưa gửi' as const,
-        periodLabel: row.periodLabel,
-        sessionsBilled: String(row.sessionsBilled),
-        finalAmount: fmtVnd(Number(row.finalAmount) || row.computedAmount),
-        adjustmentReason: row.adjustmentReason || undefined,
-        reportComment: row.reportComment,
-        sessionDetails: row.sessionDetails,
-      })),
+      ...[...dueRows, ...manualRows].map(dueRowToOverview),
       ...unpaid.map((n) => {
         const st = cls.students.find((s) => s.id === n.studentId)
         return {
@@ -308,7 +363,7 @@ export function TuitionReportScreen({ cls }: Props) {
       }),
     ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dueRows, notices, notDueRows, cls])
+  }, [dueRows, manualRows, notices, notDueRows, cls])
 
   function toggleOverview(studentId: string) {
     setExpandedOverview((prev) => {
@@ -430,6 +485,15 @@ export function TuitionReportScreen({ cls }: Props) {
                     {isOpen && (
                       <tr style={{ background: '#FAFAFA' }}>
                         <td colSpan={8} className="p-2">
+                          <div
+                            className="mb-1.5 rounded-lg px-3 py-1.5 text-xs font-bold"
+                            style={{
+                              background: r.finalAmount === '—' ? C.paper : C.board + '12',
+                              color: r.finalAmount === '—' ? C.muted : C.board,
+                            }}
+                          >
+                            💰 Tổng tiền kỳ này: {r.finalAmount === '—' ? 'Chưa tới hạn — chờ admin xác nhận khi đủ buổi' : r.finalAmount}
+                          </div>
                           <table className="w-full text-xs" style={{ border: `1px solid ${C.line}` }}>
                             <thead>
                               <tr style={{ background: C.paper }}>
@@ -437,6 +501,7 @@ export function TuitionReportScreen({ cls }: Props) {
                                 <th className="py-1 px-2 text-left" style={{ color: C.muted }}>Ngày</th>
                                 <th className="py-1 px-2 text-left" style={{ color: C.muted }}>Bài tập về nhà</th>
                                 <th className="py-1 px-2 text-left" style={{ color: C.muted }}>Nhận xét</th>
+                                <th className="py-1 px-2 text-right" style={{ color: C.muted }}>Số tiền</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -449,6 +514,7 @@ export function TuitionReportScreen({ cls }: Props) {
                                     {d.status}
                                     {d.isAuto && <span className="ml-1 not-italic" style={{ color: C.board2 }} title="Tự sinh từ điểm số đã chấm">🤖</span>}
                                   </td>
+                                  <td className="py-1 px-2 text-right tabular-nums" style={{ color: C.muted }}>{r.finalAmount}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -485,28 +551,29 @@ export function TuitionReportScreen({ cls }: Props) {
         <Btn kind="solid" onClick={exportDue}>📥 Xuất Excel ({dueRows.length} học sinh chưa gửi)</Btn>
       )}
 
-      {dueRows.length === 0 ? (
+      {dueRows.length === 0 && manualRows.length === 0 ? (
         <Card className="p-8 text-center text-sm" style={{ color: C.muted }}>
           Không có học sinh nào đến mốc cần gửi báo cáo + học phí lúc này.
         </Card>
       ) : (
-        dueRows.map((row) => {
+        [...dueRows, ...manualRows].map((row) => {
           const key = `${row.studentId}:${row.periodFrom}-${row.periodTo}`
           const finalNum = Number(row.finalAmount)
           const differs = !Number.isNaN(finalNum) && finalNum !== row.computedAmount
+          const accent = row.kind === 'manual' ? C.gold : C.red
           return (
             <Card
-              key={key} className="animate-pulse-red p-4 space-y-2"
-              style={{ border: `2px solid ${C.red}`, background: C.red + '0a' }}
+              key={key} className={row.kind === 'auto' ? 'animate-pulse-red p-4 space-y-2' : 'p-4 space-y-2'}
+              style={{ border: `2px solid ${accent}`, background: accent + '0a' }}
             >
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <div className="flex items-center gap-1.5">
                     <span
-                      className="animate-blink rounded-full px-2 py-0.5 text-[10px] font-bold text-white"
-                      style={{ background: C.red }}
+                      className={row.kind === 'auto' ? 'animate-blink rounded-full px-2 py-0.5 text-[10px] font-bold text-white' : 'rounded-full px-2 py-0.5 text-[10px] font-bold text-white'}
+                      style={{ background: accent }}
                     >
-                      🔴 ĐÃ TỚI HẠN
+                      {row.kind === 'auto' ? '🔴 ĐÃ TỚI HẠN' : '✂️ CHỐT BUỔI NGHỈ NGANG'}
                     </span>
                     <div className="font-bold" style={{ color: C.ink }}>{row.studentName}</div>
                   </div>
@@ -526,7 +593,7 @@ export function TuitionReportScreen({ cls }: Props) {
                     type="button"
                     className="text-xs font-semibold"
                     style={{ color: C.board2 }}
-                    onClick={() => patchRow(key, (r) => { r.showDetails = !r.showDetails })}
+                    onClick={() => patchRow(row, (r) => { r.showDetails = !r.showDetails })}
                   >
                     {row.showDetails ? '▾' : '▸'} Chi tiết từng buổi ({row.sessionDetails.length})
                   </button>
@@ -556,7 +623,7 @@ export function TuitionReportScreen({ cls }: Props) {
                   <label className="mb-1 block text-xs font-semibold" style={{ color: C.ink }}>Số tiền gửi (VNĐ)</label>
                   <input
                     type="number" min={0} value={row.finalAmount}
-                    onChange={(e) => patchRow(key, (r) => { r.finalAmount = e.target.value })}
+                    onChange={(e) => patchRow(row, (r) => { r.finalAmount = e.target.value })}
                     placeholder="VD: 450000"
                     className="w-32 rounded-xl px-3 py-2 text-sm text-right" style={{ border: `1px solid ${C.line}` }}
                   />
@@ -569,7 +636,7 @@ export function TuitionReportScreen({ cls }: Props) {
                     </label>
                     <input
                       type="text" value={row.adjustmentReason}
-                      onChange={(e) => patchRow(key, (r) => { r.adjustmentReason = e.target.value })}
+                      onChange={(e) => patchRow(row, (r) => { r.adjustmentReason = e.target.value })}
                       placeholder="VD: giảm giá học bù, nghỉ dịch..."
                       className="w-full rounded-xl px-3 py-2 text-sm"
                       style={{ border: `1px solid ${C.red}` }}
@@ -577,13 +644,7 @@ export function TuitionReportScreen({ cls }: Props) {
                   </div>
                 )}
                 <Btn kind="ghost" onClick={() => copyMessage(row)}>📋 Sao chép nội dung</Btn>
-                <Btn
-                  kind="ghost"
-                  onClick={() => {
-                    const ov = overviewRows.find((o) => o.studentId === row.studentId && o.status === '🔴 Đã tới hạn - chưa gửi')
-                    if (ov) exportOneRow(ov)
-                  }}
-                >
+                <Btn kind="ghost" onClick={() => exportOneRow(dueRowToOverview(row))}>
                   📥 Xuất Excel riêng em này
                 </Btn>
                 <Btn kind="solid" onClick={() => markSent(row)} disabled={row.saving}>
@@ -596,18 +657,30 @@ export function TuitionReportScreen({ cls }: Props) {
       )}
 
       {notDueRows.length > 0 && (
-        <Card className="p-3">
-          <div className="mb-1.5 text-xs font-bold uppercase" style={{ color: C.muted }}>
+        <Card className="p-3 space-y-1.5">
+          <div className="text-xs font-bold uppercase" style={{ color: C.muted }}>
             Chưa tới hạn ({notDueRows.length}) — đang học dở kỳ
+          </div>
+          <div className="text-xs" style={{ color: C.muted }}>
+            Học sinh nghỉ ngang, không học tiếp để đủ mốc? Bấm "✂️ Chốt buổi" để tính tiền đúng số buổi đã học (tự
+            tính, không gõ tay) — xem thẻ vàng xuất hiện bên trên.
           </div>
           <div className="flex flex-wrap gap-1.5">
             {notDueRows.map((r) => (
               <span
                 key={r.studentId}
-                className="rounded-lg px-2 py-1 text-xs font-semibold"
+                className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold"
                 style={{ background: C.paper, border: `1px solid ${C.line}`, color: C.muted }}
               >
                 {r.studentName}: <b style={{ color: C.board2 }}>{r.progress!.current}/{r.progress!.total}</b> buổi
+                <button
+                  className="rounded px-1.5 py-0.5 font-semibold"
+                  style={{ color: C.gold, border: `1px solid ${C.gold}66` }}
+                  title="Học sinh nghỉ ngang — chốt tiền đúng số buổi đã học"
+                  onClick={() => addManualBill(r)}
+                >
+                  ✂️ Chốt buổi
+                </button>
               </span>
             ))}
           </div>

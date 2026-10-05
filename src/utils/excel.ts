@@ -368,7 +368,7 @@ export interface TuitionOverviewRow {
   /** Khớp ĐÚNG 4 trạng thái hiện trên màn Báo cáo + Học phí — xuất Excel
    *  phải nhìn y hệt những gì admin đang xem trên app, không phải 1 bản rút
    *  gọn khác. */
-  status: '🔴 Đã tới hạn - chưa gửi' | 'Đang nợ (đã gửi, chưa đóng)' | 'Đã đóng xong' | 'Chưa tới hạn'
+  status: '🔴 Đã tới hạn - chưa gửi' | '✂️ Chốt buổi (nghỉ ngang) - chưa gửi' | 'Đang nợ (đã gửi, chưa đóng)' | 'Đã đóng xong' | 'Chưa tới hạn'
   periodLabel: string
   sessionsBilled: string
   finalAmount: string
