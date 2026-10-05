@@ -163,7 +163,15 @@ export function sessionDetailsOf(
     let auto = ''
     if (!status && r) {
       auto = autoSessionStatus(s, r)
-      if (!auto && s.entry.attendance === 'present') auto = 'Có đi học — buổi này chưa được chấm điểm chi tiết.'
+      // Vẫn không có gì (chưa chấm điểm mục nào) — dùng BÀI TẬP ĐÃ GIAO hôm
+      // đó (s.homework, dữ liệu thật giáo viên tự ghi khi giao bài) ghép
+      // thành câu đầy đủ, thay vì chỉ báo "chưa chấm điểm" cụt lủn.
+      if (!auto && s.entry.attendance === 'present') {
+        const hw = s.homework?.trim()
+        auto = hw
+          ? `Hôm nay cô giao: ${hw}. Con đi học đầy đủ, đúng giờ.`
+          : `Con đi học đầy đủ, đúng giờ buổi ${i + 1}.`
+      }
     }
     return {
       no: i + 1,
