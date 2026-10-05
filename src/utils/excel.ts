@@ -3,6 +3,7 @@ import type { AppData, ClassData } from '@/types'
 import { getClassRubric } from '@/constants/rubrics'
 import { statsOf } from '@/business/stats'
 import { rankingOf } from '@/business/ranking'
+import { buildComment, sessionDetailsOf } from '@/business/report'
 import { sessionScore, compScore, sessionComps } from '@/business/scoring'
 import { round1, viDate, viDateTime } from '@/utils/format'
 
@@ -12,7 +13,11 @@ export interface ExportPeriod {
   label: string
 }
 
-/** Export scores for all students in a class period as .xlsx.
+/** Export scores for all students in a class period as .xlsx — sheet 1 tổng
+ *  hợp (1 dòng/học sinh, có nhận xét), sheet 2 CHI TIẾT TỪNG BUỔI (bài tập
+ *  giao buổi nào, tình hình buổi đó) — đúng mức chi tiết như "Xuất Excel
+ *  Tổng quan" bên Báo cáo + Học phí, chỉ khác là KHÔNG có cột tiền (màn Báo
+ *  cáo này không tính học phí).
  *  p.from/p.to là chỉ số buổi RIÊNG của từng học sinh (mỗi em có buổi khác
  *  nhau) — áp cùng khoảng chỉ số cho mọi học sinh; xếp hạng dùng chuẩn hiện
  *  tại (không gắn với 1 mốc ngày cụ thể của kỳ, để đơn giản và luôn nhất quán). */
@@ -29,6 +34,7 @@ export function exportScores(cls: ClassData, p: ExportPeriod): void {
     'Xếp hạng',
     'Chuỗi',
     'BTVN',
+    'Nhận xét',
   ]
 
   const rows = cls.students.map((st, i) => {
@@ -47,6 +53,7 @@ export function exportScores(cls: ClassData, p: ExportPeriod): void {
       // hwRate đã là % (0–100) sẵn — nhân lại *100 ở đây từng khiến cột này
       // hiện tới hàng nghìn %.
       `${Math.round(s.hwRate)}%`,
+      buildComment(st.name, s, r),
     ]
   })
 
@@ -65,10 +72,23 @@ export function exportScores(cls: ClassData, p: ExportPeriod): void {
     { wch: 8 },
     { wch: 8 },
     { wch: 8 },
+    { wch: 50 },
   ]
 
   const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, p.label.replace(/[\\/?*[\]:]/g, '_'))
+  XLSX.utils.book_append_sheet(wb, ws, p.label.replace(/[\\/?*[\]:]/g, '_').slice(0, 31))
+
+  const sessionDetails = cls.students.flatMap((st) =>
+    sessionDetailsOf(st, p.from, p.to, r).map((d) => ({ studentName: st.name, ...d })),
+  )
+  if (sessionDetails.length) {
+    const detailHeaders = ['Học sinh', 'Buổi', 'Ngày học', 'Bài tập về nhà', 'Tình hình buổi đó']
+    const detailData = sessionDetails.map((d) => [d.studentName, d.no, viDate(d.date), d.homework, d.status])
+    const detailWs = XLSX.utils.aoa_to_sheet([detailHeaders, ...detailData])
+    detailWs['!cols'] = [{ wch: 20 }, { wch: 6 }, { wch: 12 }, { wch: 34 }, { wch: 50 }]
+    XLSX.utils.book_append_sheet(wb, detailWs, 'Chi tiết từng buổi')
+  }
+
   XLSX.writeFile(wb, `${cls.name}_${p.label}_diemso.xlsx`)
 }
 
