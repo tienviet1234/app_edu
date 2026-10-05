@@ -7,7 +7,7 @@ import { buildComment, sessionDetailsOf, type SessionDetailRow } from '@/busines
 import { billingPeriodsOf, sessionsBilledOf, currentProgressOf } from '@/business/tuition'
 import { isMongoid } from '@/utils/mongoid'
 import { viDate } from '@/utils/format'
-import { exportTuitionNotices } from '@/utils/excel'
+import { exportTuitionNotices, exportTuitionOverview } from '@/utils/excel'
 import { classService } from '@/services/classes'
 import { tuitionNoticeService, type TuitionNotice } from '@/services/tuitionNotices'
 import { Card } from '@/components/atoms/Card'
@@ -237,6 +237,69 @@ export function TuitionReportScreen({ cls }: Props) {
     )
   }
 
+  /** Xuất Excel "Tổng quan" — gộp CẢ 4 trạng thái đang hiện trên màn hình
+   *  (đã tới hạn chưa gửi / đang nợ đã gửi / đã đóng xong / chưa tới hạn),
+   *  khớp đúng y như những gì đang nhìn thấy trên app — khác nút "Xuất
+   *  Excel" nhanh phía trên (chỉ xuất phần "chưa gửi" để chuẩn bị gửi ngay). */
+  function exportAll() {
+    const r = getClassRubric(cls)
+    const unpaid = notices.filter((n) => n.paymentStatus === 'unpaid')
+    const paid = notices.filter((n) => n.paymentStatus === 'paid')
+
+    const rows = [
+      ...dueRows.map((row) => ({
+        studentName: row.studentName,
+        status: '🔴 Đã tới hạn - chưa gửi' as const,
+        periodLabel: row.periodLabel,
+        sessionsBilled: String(row.sessionsBilled),
+        finalAmount: fmtVnd(Number(row.finalAmount) || row.computedAmount),
+        adjustmentReason: row.adjustmentReason || undefined,
+        reportComment: row.reportComment,
+      })),
+      ...unpaid.map((n) => ({
+        studentName: cls.students.find((s) => s.id === n.studentId)?.name ?? '(học sinh đã xoá)',
+        status: 'Đang nợ (đã gửi, chưa đóng)' as const,
+        periodLabel: n.periodLabel,
+        sessionsBilled: String(n.sessionsBilled),
+        finalAmount: fmtVnd(n.finalAmount),
+        adjustmentReason: n.adjustmentReason,
+        reportComment: n.reportComment,
+      })),
+      ...paid.map((n) => ({
+        studentName: cls.students.find((s) => s.id === n.studentId)?.name ?? '(học sinh đã xoá)',
+        status: 'Đã đóng xong' as const,
+        periodLabel: n.periodLabel,
+        sessionsBilled: String(n.sessionsBilled),
+        finalAmount: fmtVnd(n.finalAmount),
+        adjustmentReason: n.adjustmentReason,
+        reportComment: n.reportComment,
+      })),
+      ...notDueRows.map((nd) => ({
+        studentName: nd.studentName,
+        status: 'Chưa tới hạn' as const,
+        periodLabel: '—',
+        sessionsBilled: `${nd.progress!.current}/${nd.progress!.total}`,
+        finalAmount: '—',
+        adjustmentReason: undefined,
+        reportComment: '—',
+      })),
+    ]
+
+    const sessionDetails = [
+      ...dueRows.flatMap((row) => row.sessionDetails.map((d) => ({ studentName: row.studentName, ...d }))),
+      ...unpaid.flatMap((n) => {
+        const st = cls.students.find((s) => s.id === n.studentId)
+        return st ? sessionDetailsOf(st, n.periodFrom, n.periodTo, r).map((d) => ({ studentName: st.name, ...d })) : []
+      }),
+      ...paid.flatMap((n) => {
+        const st = cls.students.find((s) => s.id === n.studentId)
+        return st ? sessionDetailsOf(st, n.periodFrom, n.periodTo, r).map((d) => ({ studentName: st.name, ...d })) : []
+      }),
+    ]
+
+    exportTuitionOverview(cls.name, rows, sessionDetails)
+  }
+
   /** Xuất Excel CHỈ 1 học sinh — dùng khi gửi riêng cho đúng phụ huynh em đó,
    *  tránh file gộp (nút "Xuất Excel" phía trên) lộ học phí của em khác khi
    *  gửi nhầm cả file. Vẫn kèm đầy đủ nhận xét + chi tiết từng buổi như file gộp. */
@@ -287,6 +350,10 @@ export function TuitionReportScreen({ cls }: Props) {
           đã gửi để không bị nhắc lại.
         </div>
       </Card>
+
+      <Btn kind="ghost" onClick={exportAll}>
+        📊 Xuất Excel Tổng quan (toàn lớp — đủ cả 4 trạng thái như đang xem trên màn hình)
+      </Btn>
 
       {dueRows.length > 0 && (
         <div

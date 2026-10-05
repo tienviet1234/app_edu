@@ -331,6 +331,50 @@ export function exportTuitionNotices(
   XLSX.writeFile(wb, `${className}_baocao-hocphi_${today}.xlsx`)
 }
 
+export interface TuitionOverviewRow {
+  studentName: string
+  /** Khớp ĐÚNG 4 trạng thái hiện trên màn Báo cáo + Học phí — xuất Excel
+   *  phải nhìn y hệt những gì admin đang xem trên app, không phải 1 bản rút
+   *  gọn khác. */
+  status: '🔴 Đã tới hạn - chưa gửi' | 'Đang nợ (đã gửi, chưa đóng)' | 'Đã đóng xong' | 'Chưa tới hạn'
+  periodLabel: string
+  sessionsBilled: string
+  finalAmount: string
+  adjustmentReason?: string
+  reportComment: string
+}
+
+/** Xuất Excel "Tổng quan" — gộp CẢ 4 trạng thái đang hiện trên màn hình (đã
+ *  tới hạn chưa gửi / đang nợ đã gửi / đã đóng xong / chưa tới hạn), đúng y
+ *  như những gì admin nhìn thấy trên app, không chỉ phần "chưa gửi" như nút
+ *  xuất nhanh trước đây. Sheet 2 chi tiết từng buổi gộp của TẤT CẢ học sinh
+ *  có kỳ cụ thể (bỏ qua "Chưa tới hạn" vì chưa có kỳ nào để chi tiết). */
+export function exportTuitionOverview(
+  className: string, rows: TuitionOverviewRow[], sessionDetails: TuitionSessionDetailRow[] = [],
+): void {
+  const headers = ['Học sinh', 'Trạng thái', 'Kỳ báo cáo', 'Số buổi', 'Số tiền (VNĐ)', 'Lý do điều chỉnh (nếu có)', 'Nhận xét tình hình học tập']
+  const data = rows.map((r) => [
+    r.studentName, r.status, r.periodLabel, r.sessionsBilled, r.finalAmount, r.adjustmentReason ?? '', r.reportComment,
+  ])
+
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...data])
+  ws['!cols'] = [{ wch: 20 }, { wch: 24 }, { wch: 16 }, { wch: 10 }, { wch: 14 }, { wch: 28 }, { wch: 50 }]
+
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Tổng quan')
+
+  if (sessionDetails.length) {
+    const detailHeaders = ['Học sinh', 'Buổi', 'Ngày học', 'Bài tập về nhà', 'Tình hình buổi đó']
+    const detailData = sessionDetails.map((d) => [d.studentName, d.no, viDate(d.date), d.homework, d.status])
+    const detailWs = XLSX.utils.aoa_to_sheet([detailHeaders, ...detailData])
+    detailWs['!cols'] = [{ wch: 20 }, { wch: 6 }, { wch: 12 }, { wch: 34 }, { wch: 50 }]
+    XLSX.utils.book_append_sheet(wb, detailWs, 'Chi tiết từng buổi')
+  }
+
+  const today = new Date().toISOString().slice(0, 10)
+  XLSX.writeFile(wb, `${className}_tongquan-hocphi_${today}.xlsx`)
+}
+
 export interface TeacherSalaryClassDay {
   className: string
   mainLessonNo: number
