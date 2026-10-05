@@ -82,7 +82,7 @@ export function exportScores(cls: ClassData, p: ExportPeriod): void {
     sessionDetailsOf(st, p.from, p.to, r).map((d) => ({ studentName: st.name, ...d })),
   )
   if (sessionDetails.length) {
-    const detailHeaders = ['Học sinh', 'Buổi', 'Ngày học', 'Bài tập về nhà', 'Tình hình buổi đó']
+    const detailHeaders = ['Học sinh', 'Buổi', 'Ngày học', 'Bài tập về nhà', 'Nhận xét']
     const detailData = sessionDetails.map((d) => [d.studentName, d.no, viDate(d.date), d.homework, d.status])
     const detailWs = XLSX.utils.aoa_to_sheet([detailHeaders, ...detailData])
     detailWs['!cols'] = [{ wch: 20 }, { wch: 6 }, { wch: 12 }, { wch: 34 }, { wch: 50 }]
@@ -340,7 +340,7 @@ export function exportTuitionNotices(
   XLSX.utils.book_append_sheet(wb, ws, 'Báo cáo + học phí')
 
   if (sessionDetails.length) {
-    const detailHeaders = ['Học sinh', 'Buổi', 'Ngày học', 'Bài tập về nhà', 'Tình hình buổi đó']
+    const detailHeaders = ['Học sinh', 'Buổi', 'Ngày học', 'Bài tập về nhà', 'Nhận xét']
     const detailData = sessionDetails.map((d) => [d.studentName, d.no, viDate(d.date), d.homework, d.status])
     const detailWs = XLSX.utils.aoa_to_sheet([detailHeaders, ...detailData])
     detailWs['!cols'] = [{ wch: 20 }, { wch: 6 }, { wch: 12 }, { wch: 34 }, { wch: 50 }]
@@ -384,7 +384,7 @@ export function exportTuitionOverview(
   XLSX.utils.book_append_sheet(wb, ws, 'Tổng quan')
 
   if (sessionDetails.length) {
-    const detailHeaders = ['Học sinh', 'Buổi', 'Ngày học', 'Bài tập về nhà', 'Tình hình buổi đó']
+    const detailHeaders = ['Học sinh', 'Buổi', 'Ngày học', 'Bài tập về nhà', 'Nhận xét']
     const detailData = sessionDetails.map((d) => [d.studentName, d.no, viDate(d.date), d.homework, d.status])
     const detailWs = XLSX.utils.aoa_to_sheet([detailHeaders, ...detailData])
     detailWs['!cols'] = [{ wch: 20 }, { wch: 6 }, { wch: 12 }, { wch: 34 }, { wch: 50 }]

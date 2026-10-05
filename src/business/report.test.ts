@@ -105,6 +105,24 @@ describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình
     expect(rows[0].status).toContain('còn thiếu viết sạch đẹp')
   })
 
+  it('tiêu chí "thái độ" (c.stars) không dùng khuôn "ĐÃ LÀM X" (sai ngữ pháp, nghe như máy sinh)', () => {
+    const r = getRubric('secondary')
+    const student: Student = {
+      id: 'st1', name: 'Minh Khôi',
+      sessions: [{
+        id: 's1', no: 1, date: '2026-01-01',
+        entry: { ...emptyEntry(), attendance: 'present', ticks: { attitude: ['a_speak', 'a_focus'] } },
+      }],
+    }
+    const rows = sessionDetailsOf(student, 0, 1, r)
+    expect(rows[0].isAuto).toBe(true)
+    expect(rows[0].status).not.toContain('ĐÃ LÀM')
+    expect(rows[0].status).not.toContain('CHƯA LÀM')
+    // Thiếu "Hợp tác/Chuẩn bị bài/Tự giác sửa lỗi" — phải nêu đúng tên việc còn thiếu.
+    expect(rows[0].status).toContain('Cần cải thiện')
+    expect(rows[0].status.toLowerCase()).toContain('hợp tác')
+  })
+
   it('buổi có mặt nhưng chưa chấm điểm gì cả — vẫn ghi rõ có đi học, không để trống, không lặp bài giao', () => {
     const r = getRubric('secondary')
     const student: Student = {

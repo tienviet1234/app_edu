@@ -142,6 +142,19 @@ function autoSessionStatus(session: Session, r: ReturnType<typeof getRubric>): s
       const checked = e.ticks[c.key] ?? []
       const items = c.items ?? []
       const missing = items.filter((it) => !checked.includes(it.id))
+      // Tiêu chí kiểu "thái độ/tinh thần" (c.stars, VD Thái độ học tập) —
+      // không ai "LÀM" thái độ cả, chỉ "CÓ"/"thể hiện" được. Khuôn "ĐÃ LÀM X"
+      // nghe sai ngữ pháp, giống máy sinh — liệt kê thẳng các biểu hiện thay
+      // vì ép vào khuôn chung với Bài tập về nhà/Video.
+      if (c.stars) {
+        if (checked.length && !missing.length) {
+          const got = checked.map((id) => items.find((it) => it.id === id)?.label.toLowerCase()).filter(Boolean)
+          parts.push(`${got.join(', ')}.`)
+        } else if (missing.length) {
+          parts.push(`Cần cải thiện: ${missing.map((it) => it.label.toLowerCase()).join(', ')}.`)
+        }
+        return
+      }
       if (!missing.length) parts.push(`ĐÃ LÀM ${label} ĐẦY ĐỦ.`)
       else if (!checked.length) parts.push(`CHƯA LÀM ${label}.`)
       else parts.push(`ĐÃ LÀM ${label}: còn thiếu ${missing.map((it) => it.label.toLowerCase()).join(', ')}.`)

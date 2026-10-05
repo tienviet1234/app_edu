@@ -297,9 +297,12 @@ export function TuitionReportScreen({ cls }: Props) {
           status: 'Chưa tới hạn' as const,
           periodLabel: `Đang học dở — buổi ${nd.from + 1}–${nd.to}`,
           sessionsBilled: `${nd.progress.current}/${nd.progress.total}`,
+          // Vẫn là CỘT TIỀN (chừa chỗ sẵn) — chỉ là chưa có số vì chưa đủ mốc
+          // 8/12 buổi, không phải cột khác hẳn. Khi đủ buổi, dòng này tự
+          // chuyển qua nhóm "Đã tới hạn" và có số tiền thật ngay.
           finalAmount: '—',
           adjustmentReason: undefined as string | undefined,
-          reportComment: '—',
+          reportComment: 'Chưa tới hạn — chưa có nhận xét kỳ này',
           sessionDetails: st ? sessionDetailsOf(st, nd.from, nd.to, r) : [],
         }
       }),
@@ -431,7 +434,7 @@ export function TuitionReportScreen({ cls }: Props) {
                                 <th className="py-1 px-2 text-left" style={{ color: C.muted }}>Buổi</th>
                                 <th className="py-1 px-2 text-left" style={{ color: C.muted }}>Ngày</th>
                                 <th className="py-1 px-2 text-left" style={{ color: C.muted }}>Bài tập về nhà</th>
-                                <th className="py-1 px-2 text-left" style={{ color: C.muted }}>Tình hình buổi đó</th>
+                                <th className="py-1 px-2 text-left" style={{ color: C.muted }}>Nhận xét</th>
                               </tr>
                             </thead>
                             <tbody>
