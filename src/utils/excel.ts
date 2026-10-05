@@ -76,8 +76,10 @@ export function exportScores(cls: ClassData, p: ExportPeriod): void {
   ]
 
   const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, p.label.replace(/[\\/?*[\]:]/g, '_').slice(0, 31))
 
+  // "Chi tiết từng buổi" (nội dung đáng xem nhất) lên TRƯỚC — Excel luôn mở
+  // vào sheet đầu tiên khi mở file, để sheet tổng hợp (chỉ vài dòng, dễ nhìn
+  // "cụt" nếu ít học sinh) lên trước dễ gây cảm giác file không có gì chi tiết.
   const sessionDetails = cls.students.flatMap((st) =>
     sessionDetailsOf(st, p.from, p.to, r).map((d) => ({ studentName: st.name, ...d })),
   )
@@ -88,6 +90,8 @@ export function exportScores(cls: ClassData, p: ExportPeriod): void {
     detailWs['!cols'] = [{ wch: 20 }, { wch: 6 }, { wch: 12 }, { wch: 34 }, { wch: 50 }]
     XLSX.utils.book_append_sheet(wb, detailWs, 'Chi tiết từng buổi')
   }
+
+  XLSX.utils.book_append_sheet(wb, ws, p.label.replace(/[\\/?*[\]:]/g, '_').slice(0, 31))
 
   XLSX.writeFile(wb, `${cls.name}_${p.label}_diemso.xlsx`)
 }
@@ -310,6 +314,11 @@ export interface TuitionSessionDetailRow {
   date: string
   homework: string
   status: string
+  /** Số tiền của ĐÚNG kỳ chứa buổi này (lặp lại trên mọi buổi cùng kỳ của 1
+   *  học sinh) — tùy chọn, chỉ dùng ở sheet "Tổng quan" (xuất Excel Báo cáo
+   *  + Học phí). Để trống/'—' khi học sinh chưa tới hạn tính phí — không
+   *  tự tính/bịa ra số, chỉ hiện khi admin đã xác nhận số tiền thật. */
+  amount?: string
 }
 
 /** Xuất Excel "Báo cáo học tập + học phí" — 2 sheet: sheet 1 tổng hợp (1 dòng/
@@ -337,8 +346,9 @@ export function exportTuitionNotices(
   ]
 
   const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, 'Báo cáo + học phí')
 
+  // "Chi tiết từng buổi" lên TRƯỚC (Excel mở vào sheet đầu tiên) — sheet
+  // tổng hợp đứng trước dễ gây cảm giác file không có gì chi tiết.
   if (sessionDetails.length) {
     const detailHeaders = ['Học sinh', 'Buổi', 'Ngày học', 'Bài tập về nhà', 'Nhận xét']
     const detailData = sessionDetails.map((d) => [d.studentName, d.no, viDate(d.date), d.homework, d.status])
@@ -346,6 +356,8 @@ export function exportTuitionNotices(
     detailWs['!cols'] = [{ wch: 20 }, { wch: 6 }, { wch: 12 }, { wch: 34 }, { wch: 50 }]
     XLSX.utils.book_append_sheet(wb, detailWs, 'Chi tiết từng buổi')
   }
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Báo cáo + học phí')
 
   const today = new Date().toISOString().slice(0, 10)
   XLSX.writeFile(wb, `${className}_baocao-hocphi_${today}.xlsx`)
@@ -368,7 +380,10 @@ export interface TuitionOverviewRow {
  *  tới hạn chưa gửi / đang nợ đã gửi / đã đóng xong / chưa tới hạn), đúng y
  *  như những gì admin nhìn thấy trên app, không chỉ phần "chưa gửi" như nút
  *  xuất nhanh trước đây. Sheet 2 chi tiết từng buổi gộp của TẤT CẢ học sinh
- *  có kỳ cụ thể (bỏ qua "Chưa tới hạn" vì chưa có kỳ nào để chi tiết). */
+ *  có dữ liệu buổi học (kể cả "Chưa tới hạn" — lấy các buổi đã học trong kỳ
+ *  đang dở). Mở file lên nhảy thẳng vào sheet "Chi tiết từng buổi" nếu có
+ *  (nội dung chính, đáng xem nhất) — sheet "Tổng quan" chỉ 1 dòng/em nên
+ *  đứng yên ở đó dễ gây cảm giác "không có gì chi tiết" khi mở ra. */
 export function exportTuitionOverview(
   className: string, rows: TuitionOverviewRow[], sessionDetails: TuitionSessionDetailRow[] = [],
 ): void {
@@ -381,15 +396,22 @@ export function exportTuitionOverview(
   ws['!cols'] = [{ wch: 20 }, { wch: 24 }, { wch: 16 }, { wch: 10 }, { wch: 14 }, { wch: 28 }, { wch: 50 }]
 
   const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, 'Tổng quan')
 
+  // "Chi tiết từng buổi" lên TRƯỚC (Excel mở vào sheet đầu tiên) — với export
+  // 1 học sinh, sheet "Tổng quan" chỉ có 1 dòng, đứng trước dễ gây cảm giác
+  // file không có gì chi tiết dù sheet 2 đã có đầy đủ.
   if (sessionDetails.length) {
-    const detailHeaders = ['Học sinh', 'Buổi', 'Ngày học', 'Bài tập về nhà', 'Nhận xét']
-    const detailData = sessionDetails.map((d) => [d.studentName, d.no, viDate(d.date), d.homework, d.status])
+    // Cột "Số tiền" lặp lại số tiền của ĐÚNG kỳ chứa buổi đó trên mọi dòng
+    // cùng kỳ — để trống khi học sinh chưa tới hạn tính phí (không tự bịa
+    // số, chỉ hiện khi đã có số tiền thật từ sheet "Tổng quan").
+    const detailHeaders = ['Học sinh', 'Buổi', 'Ngày học', 'Bài tập về nhà', 'Nhận xét', 'Số tiền (VNĐ)']
+    const detailData = sessionDetails.map((d) => [d.studentName, d.no, viDate(d.date), d.homework, d.status, d.amount ?? ''])
     const detailWs = XLSX.utils.aoa_to_sheet([detailHeaders, ...detailData])
-    detailWs['!cols'] = [{ wch: 20 }, { wch: 6 }, { wch: 12 }, { wch: 34 }, { wch: 50 }]
+    detailWs['!cols'] = [{ wch: 20 }, { wch: 6 }, { wch: 12 }, { wch: 34 }, { wch: 50 }, { wch: 14 }]
     XLSX.utils.book_append_sheet(wb, detailWs, 'Chi tiết từng buổi')
   }
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Tổng quan')
 
   const today = new Date().toISOString().slice(0, 10)
   XLSX.writeFile(wb, `${className}_tongquan-hocphi_${today}.xlsx`)

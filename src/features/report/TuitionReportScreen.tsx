@@ -327,7 +327,9 @@ export function TuitionReportScreen({ cls }: Props) {
     exportTuitionOverview(
       cls.name,
       overviewRows.map(({ sessionDetails: _sd, ...rest }) => rest),
-      overviewRows.flatMap((row) => row.sessionDetails.map((d) => ({ studentName: row.studentName, ...d }))),
+      overviewRows.flatMap((row) =>
+        row.sessionDetails.map((d) => ({ studentName: row.studentName, amount: row.finalAmount, ...d })),
+      ),
     )
   }
 
@@ -339,7 +341,7 @@ export function TuitionReportScreen({ cls }: Props) {
     exportTuitionOverview(
       `${cls.name}_${row.studentName}`,
       [rest],
-      sessionDetails.map((d) => ({ studentName: row.studentName, ...d })),
+      sessionDetails.map((d) => ({ studentName: row.studentName, amount: row.finalAmount, ...d })),
     )
   }
 

@@ -134,7 +134,10 @@ describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình
     }
     const rows = sessionDetailsOf(student, 0, 1, r)
     expect(rows[0].isAuto).toBe(true)
-    expect(rows[0].status).toBe('CÓ ĐI HỌC ĐẦY ĐỦ, ĐÚNG GIỜ.')
+    // Viết thường (không hoa toàn câu) vì đây là tình huống bình thường,
+    // không có trạng thái "ĐÃ LÀM/CHƯA LÀM" nào đáng nhấn mạnh — tránh nghe
+    // cứng nhắc/máy sinh như câu toàn chữ hoa trước đây.
+    expect(['Đi học đầy đủ, đúng giờ.', 'Buổi học diễn ra bình thường, đi học đúng giờ.', 'Đi học bình thường, không có gì đặc biệt.']).toContain(rows[0].status)
     // Bài giao đã có sẵn ở field `homework` riêng (UI tự hiện 1 dòng khác) —
     // không cần lặp lại nội dung đó trong `status`.
     expect(rows[0].status).not.toContain('Làm bài tập trang 12')

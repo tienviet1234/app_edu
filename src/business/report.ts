@@ -184,8 +184,16 @@ export function sessionDetailsOf(
       auto = autoSessionStatus(s, r)
       // Vẫn không có gì (chưa chấm điểm mục nào) — "Bài giao" đã hiện riêng
       // 1 dòng khác ở UI (xem TuitionReportScreen), không lặp lại ở đây —
-      // chỉ cần xác nhận có đi học, đúng giọng ngắn gọn như GV thật vẫn viết.
-      if (!auto && s.entry.attendance === 'present') auto = 'CÓ ĐI HỌC ĐẦY ĐỦ, ĐÚNG GIỜ.'
+      // chỉ cần xác nhận có đi học. Đây là tình huống BÌNH THƯỜNG (không có
+      // gì đáng chú ý) nên viết thường, không hoa toàn bộ như các câu có
+      // trạng thái cụ thể (ĐÃ LÀM/CHƯA LÀM) — viết hoa hết 1 câu không có gì
+      // đặc biệt sẽ nghe cứng nhắc, giống máy sinh. Đổi luân phiên theo buổi
+      // để 2 buổi liền kề không lặp y hệt 1 câu (vẫn đúng sự thật, chỉ khác
+      // cách diễn đạt).
+      if (!auto && s.entry.attendance === 'present') {
+        const variants = ['Đi học đầy đủ, đúng giờ.', 'Buổi học diễn ra bình thường, đi học đúng giờ.', 'Đi học bình thường, không có gì đặc biệt.']
+        auto = variants[i % variants.length]
+      }
     }
     return {
       no: i + 1,
