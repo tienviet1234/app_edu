@@ -156,7 +156,15 @@ export function sessionDetailsOf(
 ): SessionDetailRow[] {
   return student.sessions.slice(from, to).map((s, i) => {
     const status = sessionStatusText(s.entry)
-    const auto = !status && r ? autoSessionStatus(s, r) : ''
+    // Buổi có mặt nhưng CHƯA CHẤM ĐIỂM gì cả (chỉ điểm danh) thì
+    // autoSessionStatus() cũng không có số liệu nào để dựa vào — vẫn phải
+    // ghi rõ tình trạng thay vì để trống (không fabricate điểm/nhận xét,
+    // chỉ nói đúng sự thật: có đi học, chưa có dữ liệu chấm).
+    let auto = ''
+    if (!status && r) {
+      auto = autoSessionStatus(s, r)
+      if (!auto && s.entry.attendance === 'present') auto = 'Có đi học — buổi này chưa được chấm điểm chi tiết.'
+    }
     return {
       no: i + 1,
       date: s.date,

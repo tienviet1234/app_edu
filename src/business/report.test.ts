@@ -106,6 +106,20 @@ describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình
     expect(rows[0].status).toContain('chưa đạt: viết sạch đẹp')
   })
 
+  it('buổi có mặt nhưng chưa chấm điểm gì cả — vẫn ghi rõ tình trạng, không để trống', () => {
+    const r = getRubric('secondary')
+    const student: Student = {
+      id: 'st1', name: 'Minh Khôi',
+      sessions: [{
+        id: 's1', no: 1, date: '2026-01-01',
+        entry: { ...emptyEntry(), attendance: 'present' }, // chỉ điểm danh, chưa chấm gì
+      }],
+    }
+    const rows = sessionDetailsOf(student, 0, 1, r)
+    expect(rows[0].isAuto).toBe(true)
+    expect(rows[0].status).toContain('chưa được chấm điểm chi tiết')
+  })
+
   it('buổi ĐÃ có ghi chú thật của giáo viên — không đụng vào, dù có truyền rubric', () => {
     const r = getRubric('secondary')
     const student: Student = {
