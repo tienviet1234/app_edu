@@ -29,3 +29,21 @@ export function sessionsBilledOf(student: Pick<Student, 'sessions'>, from: numbe
     .filter((s) => s.entry.attendance === 'present' || s.entry.attendance === 'late')
     .length
 }
+
+/** Tiến độ buổi học của kỳ ĐANG DỞ (chưa đủ mốc 8/12 để tính phí) — dùng để
+ *  vẫn hiện được TẤT CẢ học sinh trên màn Báo cáo + Học phí (không chỉ em
+ *  nào đã tới hạn), tránh cảm giác "lớp này chưa ai cần quan tâm" khi thật
+ *  ra cả lớp vẫn đang học dở kỳ. `current` = số buổi đã có trong kỳ dở này
+ *  (kể cả buổi nghỉ — đếm theo đúng "đã ghi buổi" để thấy tiến độ thời gian,
+ *  khác với sessionsBilledOf chỉ đếm buổi tính tiền). Trả về null nếu học
+ *  sinh đang NẰM ĐÚNG ở ranh giới 1 kỳ vừa xong (billingPeriodsOf đã có kỳ
+ *  đó rồi, không cần hiện tiến độ trùng). */
+export function currentProgressOf(
+  student: Pick<Student, 'sessions'>, perMonth: number,
+): { current: number; total: number } | null {
+  const n = student.sessions.length
+  const blockSize = perMonth === 8 ? 8 : 12
+  const current = n % blockSize
+  if (current === 0) return null // n=0 (chưa học buổi nào) hoặc vừa đúng 1 kỳ (đã có trong billingPeriodsOf)
+  return { current, total: blockSize }
+}

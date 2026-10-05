@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ClassData } from '@/types'
 import { C } from '@/constants/colors'
 import { getClassRubric } from '@/constants/rubrics'
 import { statsOf } from '@/business/stats'
 import { buildComment, sessionDetailsOf, type SessionDetailRow } from '@/business/report'
-import { billingPeriodsOf, sessionsBilledOf } from '@/business/tuition'
+import { billingPeriodsOf, sessionsBilledOf, currentProgressOf } from '@/business/tuition'
 import { isMongoid } from '@/utils/mongoid'
 import { viDate } from '@/utils/format'
 import { exportTuitionNotices } from '@/utils/excel'
@@ -126,6 +126,19 @@ export function TuitionReportScreen({ cls }: Props) {
     setDueRows(rows)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rate, notices, cls])
+
+  // Học sinh CHƯA tới hạn (còn đang học dở kỳ) — vẫn hiện đầy đủ cả lớp
+  // thay vì chỉ hiện em đã tới hạn, để thấy tiến độ ai cũng đang được theo
+  // dõi, không phải "biến mất" khỏi màn hình cho tới khi tới hạn.
+  const dueStudentIds = new Set(dueRows.map((r) => r.studentId))
+  const notDueRows = useMemo(
+    () => cls.students
+      .filter((st) => !dueStudentIds.has(st.id))
+      .map((st) => ({ studentId: st.id, studentName: st.name, progress: currentProgressOf(st, cls.perMonth) }))
+      .filter((r) => r.progress != null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cls, dueRows],
+  )
 
   function patchRow(key: string, fn: (r: DueRow) => void) {
     setDueRows((prev) => prev.map((r) => {
@@ -276,6 +289,15 @@ export function TuitionReportScreen({ cls }: Props) {
       </Card>
 
       {dueRows.length > 0 && (
+        <div
+          className="animate-pulse rounded-2xl px-4 py-3 text-sm font-bold"
+          style={{ background: C.red, color: '#fff' }}
+        >
+          🔴 {dueRows.length} HỌC SINH ĐÃ TỚI HẠN — cần gửi báo cáo + học phí ngay (xem các thẻ viền đỏ bên dưới)!
+        </div>
+      )}
+
+      {dueRows.length > 0 && (
         <Btn kind="solid" onClick={exportDue}>📥 Xuất Excel ({dueRows.length} học sinh chưa gửi)</Btn>
       )}
 
@@ -289,10 +311,18 @@ export function TuitionReportScreen({ cls }: Props) {
           const finalNum = Number(row.finalAmount)
           const differs = !Number.isNaN(finalNum) && finalNum !== row.computedAmount
           return (
-            <Card key={key} className="p-4 space-y-2">
+            <Card key={key} className="p-4 space-y-2" style={{ border: `2px solid ${C.red}`, background: C.red + '0a' }}>
               <div className="flex items-center justify-between gap-2">
                 <div>
-                  <div className="font-bold" style={{ color: C.ink }}>{row.studentName}</div>
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className="animate-pulse rounded-full px-2 py-0.5 text-[10px] font-bold text-white"
+                      style={{ background: C.red }}
+                    >
+                      🔴 ĐÃ TỚI HẠN
+                    </span>
+                    <div className="font-bold" style={{ color: C.ink }}>{row.studentName}</div>
+                  </div>
                   <div className="text-xs" style={{ color: C.muted }}>{row.periodLabel} — {row.sessionsBilled} buổi tính phí</div>
                 </div>
                 <div className="text-right text-xs" style={{ color: C.muted }}>
@@ -368,6 +398,25 @@ export function TuitionReportScreen({ cls }: Props) {
             </Card>
           )
         })
+      )}
+
+      {notDueRows.length > 0 && (
+        <Card className="p-3">
+          <div className="mb-1.5 text-xs font-bold uppercase" style={{ color: C.muted }}>
+            Chưa tới hạn ({notDueRows.length}) — đang học dở kỳ
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {notDueRows.map((r) => (
+              <span
+                key={r.studentId}
+                className="rounded-lg px-2 py-1 text-xs font-semibold"
+                style={{ background: C.paper, border: `1px solid ${C.line}`, color: C.muted }}
+              >
+                {r.studentName}: <b style={{ color: C.board2 }}>{r.progress!.current}/{r.progress!.total}</b> buổi
+              </span>
+            ))}
+          </div>
+        </Card>
       )}
 
       {(() => {
