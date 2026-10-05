@@ -110,35 +110,41 @@ export interface SessionDetailRow {
  *  (VD không tự đoán từ phát âm sai cụ thể, chỉ nói đúng tên tiêu chí bị
  *  trừ điểm). Dùng làm fallback khi buổi đó không có ghi chú tự do/evidence
  *  nào (xem sessionDetailsOf) — không áp dụng cho tiêu chí dạng 'score'
- *  (mini test/nghe) vì không có nhãn "đạt/chưa đạt" tự nhiên để ghép câu. */
+ *  (mini test/nghe) vì không có nhãn "đạt/chưa đạt" tự nhiên để ghép câu.
+ *
+ *  Giọng văn PHẢI khớp cách giáo viên trung tâm vẫn tự viết tay (xem ảnh mẫu
+ *  thật trong trao đổi): viết HOA từ khóa trạng thái "ĐÃ LÀM"/"CHƯA LÀM",
+ *  câu ngắn, không phải văn viết đầy đủ chủ-vị kiểu báo cáo. */
 function autoSessionStatus(session: Session, r: ReturnType<typeof getRubric>): string {
   const e = session.entry
   const parts: string[] = []
   sessionComps(r, session).forEach((c) => {
     if (!compHasData(c, e)) return
+    const label = c.label.toUpperCase()
     if (c.type === 'choice') {
       const opt = c.options?.find((o) => o.id === e.choice[c.key])
       if (!opt) return
-      const full = opt.pts >= c.max
-      parts.push(full ? `${c.label}: ${opt.label}.` : `${c.label}: ${opt.label}${opt.err?.fix ? ` — cần ${opt.err.fix}` : ''}.`)
+      if (opt.pts >= c.max) parts.push(`ĐÃ LÀM ${label}.`)
+      else if (opt.pts <= 0) parts.push(`CHƯA LÀM ${label}.`)
+      else parts.push(`${label} CHƯA ĐẦY ĐỦ${opt.err?.fix ? ` — cần ${opt.err.fix}` : ''}.`)
     } else if (c.type === 'parts') {
       if (e.skip[c.key]) {
-        const fix = c.zeroErr?.fix
-        parts.push(`${c.label}: ${c.zeroLabel ?? 'không làm'}${fix ? ` — cần ${fix}` : ''}.`)
+        parts.push(`CHƯA LÀM ${label}.`)
         return
       }
       const m = e.parts[c.key] ?? {}
       const ok = (c.parts ?? []).filter((p) => (Number(m[p.id]) || 0) >= p.max)
       const weak = (c.parts ?? []).filter((p) => (Number(m[p.id]) || 0) < p.max)
-      if (ok.length) parts.push(`${c.label}: ${ok.map((p) => p.label.toLowerCase()).join(', ')} đạt.`)
-      weak.forEach((p) => parts.push(p.fix ? `${p.label}: cần ${p.fix}.` : `${p.label}: chưa đạt.`))
+      if (!weak.length) parts.push(`ĐÃ LÀM ${label} ĐẦY ĐỦ.`)
+      else if (!ok.length) parts.push(`CHƯA LÀM ${label}.`)
+      else parts.push(`ĐÃ LÀM ${label}: cần ${weak.map((p) => p.fix ?? p.label.toLowerCase()).join(', ')}.`)
     } else if (c.type === 'ticks') {
       const checked = e.ticks[c.key] ?? []
       const items = c.items ?? []
-      const ok = items.filter((it) => checked.includes(it.id))
       const missing = items.filter((it) => !checked.includes(it.id))
-      if (ok.length) parts.push(`${c.label}: ${ok.map((it) => it.label.toLowerCase()).join(', ')} đạt.`)
-      if (missing.length) parts.push(`${c.label} chưa đạt: ${missing.map((it) => it.label.toLowerCase()).join(', ')}.`)
+      if (!missing.length) parts.push(`ĐÃ LÀM ${label} ĐẦY ĐỦ.`)
+      else if (!checked.length) parts.push(`CHƯA LÀM ${label}.`)
+      else parts.push(`ĐÃ LÀM ${label}: còn thiếu ${missing.map((it) => it.label.toLowerCase()).join(', ')}.`)
     }
   })
   return parts.join(' ')
@@ -163,15 +169,10 @@ export function sessionDetailsOf(
     let auto = ''
     if (!status && r) {
       auto = autoSessionStatus(s, r)
-      // Vẫn không có gì (chưa chấm điểm mục nào) — dùng BÀI TẬP ĐÃ GIAO hôm
-      // đó (s.homework, dữ liệu thật giáo viên tự ghi khi giao bài) ghép
-      // thành câu đầy đủ, thay vì chỉ báo "chưa chấm điểm" cụt lủn.
-      if (!auto && s.entry.attendance === 'present') {
-        const hw = s.homework?.trim()
-        auto = hw
-          ? `Hôm nay cô giao: ${hw}. Con đi học đầy đủ, đúng giờ.`
-          : `Con đi học đầy đủ, đúng giờ buổi ${i + 1}.`
-      }
+      // Vẫn không có gì (chưa chấm điểm mục nào) — "Bài giao" đã hiện riêng
+      // 1 dòng khác ở UI (xem TuitionReportScreen), không lặp lại ở đây —
+      // chỉ cần xác nhận có đi học, đúng giọng ngắn gọn như GV thật vẫn viết.
+      if (!auto && s.entry.attendance === 'present') auto = 'CÓ ĐI HỌC ĐẦY ĐỦ, ĐÚNG GIỜ.'
     }
     return {
       no: i + 1,

@@ -99,14 +99,13 @@ describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình
     }
     const rows = sessionDetailsOf(student, 0, 1, r)
     expect(rows[0].isAuto).toBe(true)
-    // Phải nêu đúng tên việc ĐÃ làm và việc CHƯA làm theo đúng tick thật — không bịa.
-    expect(rows[0].status).toContain('hoàn thành đầy đủ')
-    expect(rows[0].status).toContain('làm đúng yêu cầu')
-    expect(rows[0].status).toContain('nộp đúng hạn')
-    expect(rows[0].status).toContain('chưa đạt: viết sạch đẹp')
+    // Giọng phải khớp cách giáo viên trung tâm tự viết tay (viết HOA từ khóa
+    // trạng thái, ngắn gọn) — không phải văn viết đầy đủ kiểu báo cáo.
+    expect(rows[0].status).toContain('ĐÃ LÀM BÀI TẬP VỀ NHÀ')
+    expect(rows[0].status).toContain('còn thiếu viết sạch đẹp')
   })
 
-  it('buổi có mặt nhưng chưa chấm điểm gì cả — vẫn ghép thành câu từ bài tập ĐÃ GIAO, không để trống', () => {
+  it('buổi có mặt nhưng chưa chấm điểm gì cả — vẫn ghi rõ có đi học, không để trống, không lặp bài giao', () => {
     const r = getRubric('secondary')
     const student: Student = {
       id: 'st1', name: 'Minh Khôi',
@@ -117,22 +116,10 @@ describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình
     }
     const rows = sessionDetailsOf(student, 0, 1, r)
     expect(rows[0].isAuto).toBe(true)
-    expect(rows[0].status).toContain('Làm bài tập trang 12')
-    expect(rows[0].status).toContain('đi học đầy đủ')
-  })
-
-  it('buổi có mặt, chưa chấm điểm, cũng chưa ghi bài tập giao — vẫn không để trống', () => {
-    const r = getRubric('secondary')
-    const student: Student = {
-      id: 'st1', name: 'Minh Khôi',
-      sessions: [{
-        id: 's1', no: 1, date: '2026-01-01',
-        entry: { ...emptyEntry(), attendance: 'present' },
-      }],
-    }
-    const rows = sessionDetailsOf(student, 0, 1, r)
-    expect(rows[0].isAuto).toBe(true)
-    expect(rows[0].status.length).toBeGreaterThan(0)
+    expect(rows[0].status).toBe('CÓ ĐI HỌC ĐẦY ĐỦ, ĐÚNG GIỜ.')
+    // Bài giao đã có sẵn ở field `homework` riêng (UI tự hiện 1 dòng khác) —
+    // không cần lặp lại nội dung đó trong `status`.
+    expect(rows[0].status).not.toContain('Làm bài tập trang 12')
   })
 
   it('buổi ĐÃ có ghi chú thật của giáo viên — không đụng vào, dù có truyền rubric', () => {

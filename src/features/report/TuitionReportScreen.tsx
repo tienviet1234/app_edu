@@ -391,6 +391,7 @@ export function TuitionReportScreen({ cls }: Props) {
                           <b>{st?.name ?? '(học sinh đã xoá)'}</b> — {n.periodLabel} — {fmtVnd(n.finalAmount)}
                           {n.adjustmentReason && <span style={{ color: C.muted }}> ({n.adjustmentReason})</span>}
                           <div style={{ color: C.muted }}>Đã gửi lúc {viDate(n.sentAt.slice(0, 10))} — chưa thu tiền</div>
+                          {n.reportComment && <div className="mt-0.5" style={{ color: C.ink }}>📝 {n.reportComment}</div>}
                         </div>
                         <div className="flex shrink-0 gap-2">
                           <Btn kind="solid" size="sm" onClick={() => markPaid(n)}>✅ Đã đóng tiền</Btn>
@@ -424,6 +425,7 @@ export function TuitionReportScreen({ cls }: Props) {
                             <div style={{ color: C.muted }}>
                               Gửi {viDate(n.sentAt.slice(0, 10))} — đóng {n.paidAt ? viDate(n.paidAt.slice(0, 10)) : '?'}
                             </div>
+                            {n.reportComment && <div className="mt-0.5" style={{ color: C.ink }}>📝 {n.reportComment}</div>}
                           </div>
                           <button className="shrink-0 text-xs" style={{ color: C.muted }} onClick={() => undoPaid(n)}>↩ Hoàn tác đóng</button>
                         </div>
