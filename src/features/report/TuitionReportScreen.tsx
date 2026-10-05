@@ -43,6 +43,12 @@ function fmtVnd(n: number): string {
   return n.toLocaleString('vi-VN') + 'đ'
 }
 
+/** Tiền CỦA ĐÚNG buổi đó — chỉ buổi 'present'/'late' mới tính phí (khớp
+ *  sessionsBilledOf trong business/tuition.ts), buổi nghỉ không tính. */
+function sessionAmount(d: Pick<SessionDetailRow, 'attendance'>, ratePerSession: number): number {
+  return d.attendance === 'present' || d.attendance === 'late' ? ratePerSession : 0
+}
+
 /** Ghép sẵn nội dung tin nhắn gửi phụ huynh (qua Zalo, hoặc bất kỳ kênh nào
  *  giáo viên đang dùng) — chỉ để DÁN RA GỬI TAY, không tự động gửi đi đâu cả
  *  (Zalo không có cách mở sẵn khung chat kèm tin nhắn như WhatsApp, nên chưa
@@ -308,6 +314,7 @@ export function TuitionReportScreen({ cls }: Props) {
       periodLabel: row.periodLabel,
       sessionsBilled: String(row.sessionsBilled),
       finalAmount: fmtVnd(amount),
+      ratePerSession: rate ?? 0,
       adjustmentReason: row.adjustmentReason || undefined,
       reportComment: row.reportComment,
       sessionDetails: row.sessionDetails,
@@ -333,6 +340,7 @@ export function TuitionReportScreen({ cls }: Props) {
           periodLabel: n.periodLabel,
           sessionsBilled: String(n.sessionsBilled),
           finalAmount: fmtVnd(n.finalAmount),
+          ratePerSession: n.ratePerSession,
           adjustmentReason: n.adjustmentReason,
           reportComment: n.reportComment,
           sessionDetails: st ? sessionDetailsOf(st, n.periodFrom, n.periodTo, r) : [],
@@ -346,6 +354,7 @@ export function TuitionReportScreen({ cls }: Props) {
           periodLabel: n.periodLabel,
           sessionsBilled: String(n.sessionsBilled),
           finalAmount: fmtVnd(n.finalAmount),
+          ratePerSession: n.ratePerSession,
           adjustmentReason: n.adjustmentReason,
           reportComment: n.reportComment,
           sessionDetails: st ? sessionDetailsOf(st, n.periodFrom, n.periodTo, r) : [],
@@ -362,6 +371,7 @@ export function TuitionReportScreen({ cls }: Props) {
           // buổi đã học, không để trống — ghi rõ "(tạm tính)" vì CHƯA chốt/
           // gửi, khác hẳn số tiền đã xác nhận ở các trạng thái khác.
           finalAmount: `${fmtVnd(nd.estimatedAmount)} (tạm tính)`,
+          ratePerSession: rate ?? 0,
           adjustmentReason: undefined as string | undefined,
           reportComment: 'Chưa tới hạn — chưa có nhận xét kỳ này',
           sessionDetails: st ? sessionDetailsOf(st, nd.from, nd.to, r) : [],
@@ -380,6 +390,22 @@ export function TuitionReportScreen({ cls }: Props) {
     })
   }
 
+  /** Ghép cột "Số tiền" của sheet chi tiết — tiền ĐÚNG BUỔI đó (buổi nghỉ
+   *  để trống, không tính phí), kèm 1 dòng "TỔNG CỘNG" cộng lại ở cuối mỗi
+   *  học sinh — để phụ huynh tự đối chiếu số buổi × đơn giá ra đúng tổng. */
+  function detailRowsWithTotal(row: (typeof overviewRows)[number]) {
+    if (!row.sessionDetails.length) return []
+    const rows = row.sessionDetails.map((d) => {
+      const billable = d.attendance === 'present' || d.attendance === 'late'
+      return { studentName: row.studentName, ...d, amount: billable ? fmtVnd(sessionAmount(d, row.ratePerSession)) : '' }
+    })
+    const total = row.sessionDetails.reduce((sum, d) => sum + sessionAmount(d, row.ratePerSession), 0)
+    return [
+      ...rows,
+      { studentName: row.studentName, no: '—', date: '', homework: '', status: 'TỔNG CỘNG', isAuto: false, attendance: 'present' as const, amount: fmtVnd(total) },
+    ]
+  }
+
   /** Xuất Excel "Tổng quan" — gộp CẢ 4 trạng thái đang hiện trên màn hình
    *  (đã tới hạn chưa gửi / đang nợ đã gửi / đã đóng xong / chưa tới hạn),
    *  khớp đúng y như bảng đang hiện trên app — khác nút "Xuất Excel" nhanh
@@ -387,10 +413,8 @@ export function TuitionReportScreen({ cls }: Props) {
   function exportAll() {
     exportTuitionOverview(
       cls.name,
-      overviewRows.map(({ sessionDetails: _sd, ...rest }) => rest),
-      overviewRows.flatMap((row) =>
-        row.sessionDetails.map((d) => ({ studentName: row.studentName, amount: row.finalAmount, ...d })),
-      ),
+      overviewRows.map(({ sessionDetails: _sd, ratePerSession: _rp, ...rest }) => rest),
+      overviewRows.flatMap(detailRowsWithTotal),
     )
   }
 
@@ -398,11 +422,11 @@ export function TuitionReportScreen({ cls }: Props) {
    *  nợ/đã đóng/chưa tới hạn) — dùng khi gửi riêng cho đúng phụ huynh em đó,
    *  tránh file gộp (nút "Xuất Excel Tổng quan") lộ học phí của em khác. */
   function exportOneRow(row: (typeof overviewRows)[number]) {
-    const { sessionDetails, ...rest } = row
+    const { sessionDetails: _sd, ratePerSession: _rp, ...rest } = row
     exportTuitionOverview(
       `${cls.name}_${row.studentName}`,
       [rest],
-      sessionDetails.map((d) => ({ studentName: row.studentName, amount: row.finalAmount, ...d })),
+      detailRowsWithTotal(row),
     )
   }
 
@@ -511,19 +535,32 @@ export function TuitionReportScreen({ cls }: Props) {
                               </tr>
                             </thead>
                             <tbody>
-                              {r.sessionDetails.map((d) => (
-                                <tr key={d.no} style={{ borderTop: `1px solid ${C.line}` }}>
-                                  <td className="py-1 px-2 font-semibold">{d.no}</td>
-                                  <td className="py-1 px-2" style={{ color: C.muted }}>{viDate(d.date)}</td>
-                                  <td className="py-1 px-2" style={{ color: C.muted }}>{d.homework || '—'}</td>
-                                  <td className="py-1 px-2" style={d.isAuto ? { color: C.muted, fontStyle: 'italic' } : { color: C.ink }}>
-                                    {d.status}
-                                    {d.isAuto && <span className="ml-1 not-italic" style={{ color: C.board2 }} title="Tự sinh từ điểm số đã chấm">🤖</span>}
-                                  </td>
-                                  <td className="py-1 px-2 text-right tabular-nums" style={{ color: C.muted }}>{r.finalAmount}</td>
-                                </tr>
-                              ))}
+                              {r.sessionDetails.map((d) => {
+                                const billable = d.attendance === 'present' || d.attendance === 'late'
+                                return (
+                                  <tr key={d.no} style={{ borderTop: `1px solid ${C.line}` }}>
+                                    <td className="py-1 px-2 font-semibold">{d.no}</td>
+                                    <td className="py-1 px-2" style={{ color: C.muted }}>{viDate(d.date)}</td>
+                                    <td className="py-1 px-2" style={{ color: C.muted }}>{d.homework || '—'}</td>
+                                    <td className="py-1 px-2" style={d.isAuto ? { color: C.muted, fontStyle: 'italic' } : { color: C.ink }}>
+                                      {d.status}
+                                      {d.isAuto && <span className="ml-1 not-italic" style={{ color: C.board2 }} title="Tự sinh từ điểm số đã chấm">🤖</span>}
+                                    </td>
+                                    <td className="py-1 px-2 text-right tabular-nums" style={{ color: billable ? C.ink : C.muted }}>
+                                      {billable ? fmtVnd(sessionAmount(d, r.ratePerSession)) : '—'}
+                                    </td>
+                                  </tr>
+                                )
+                              })}
                             </tbody>
+                            <tfoot>
+                              <tr style={{ borderTop: `2px solid ${C.line}`, background: C.paper }}>
+                                <td colSpan={4} className="py-1 px-2 text-right font-bold" style={{ color: C.ink }}>Tổng cộng</td>
+                                <td className="py-1 px-2 text-right tabular-nums font-bold" style={{ color: C.ink }}>
+                                  {fmtVnd(r.sessionDetails.reduce((sum, d) => sum + sessionAmount(d, r.ratePerSession), 0))}
+                                </td>
+                              </tr>
+                            </tfoot>
                           </table>
                         </td>
                       </tr>

@@ -67,8 +67,8 @@ describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình
     }
     const rows = sessionDetailsOf(student, 0, 2)
     expect(rows).toEqual([
-      { no: 1, date: '2026-07-30', homework: 'Đọc sách bài tập trang 28', status: 'ĐÃ LÀM VIDEO; make, snowflake, snowman', isAuto: false },
-      { no: 2, date: '2026-08-04', homework: 'Làm sách bài tập trang 29,30', status: 'Nghỉ không phép', isAuto: false },
+      { no: 1, date: '2026-07-30', homework: 'Đọc sách bài tập trang 28', status: 'ĐÃ LÀM VIDEO; make, snowflake, snowman', isAuto: false, attendance: 'present' },
+      { no: 2, date: '2026-08-04', homework: 'Làm sách bài tập trang 29,30', status: 'Nghỉ không phép', isAuto: false, attendance: 'absent' },
     ])
   })
 

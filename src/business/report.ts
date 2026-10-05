@@ -1,4 +1,4 @@
-import type { Student, StudentStats, DetailBlock, EvidenceItem, SessionEntry, Session } from '@/types'
+import type { Student, StudentStats, DetailBlock, EvidenceItem, SessionEntry, Session, AttendanceKey } from '@/types'
 import { getRubric } from '@/constants/rubrics'
 import { round1 } from '@/utils'
 import { compHasData, sessionComps } from './scoring'
@@ -102,6 +102,9 @@ export interface SessionDetailRow {
    *  viên không ghi chú/ghi chú cụ thể gì) — false nếu là nguyên văn giáo
    *  viên tự gõ. Không bao giờ ghi đè lên ghi chú thật, chỉ điền khi trống. */
   isAuto: boolean
+  /** Điểm danh buổi này — dùng để tính tiền ĐÚNG BUỔI (chỉ 'present'/'late'
+   *  mới tính phí, khớp sessionsBilledOf trong business/tuition.ts). */
+  attendance: AttendanceKey
 }
 
 /** Tự ghép 1 câu NGẮN tả tình hình buổi học, CHỈ dựa trên điểm số đã chấm
@@ -201,6 +204,7 @@ export function sessionDetailsOf(
       homework: s.homework?.trim() ?? '',
       status: status || auto,
       isAuto: !status && !!auto,
+      attendance: s.entry.attendance,
     }
   })
 }

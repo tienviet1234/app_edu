@@ -310,7 +310,8 @@ export interface TuitionNoticeRow {
 
 export interface TuitionSessionDetailRow {
   studentName: string
-  no: number
+  /** string chỉ dùng cho dòng tổng hợp "TỔNG CỘNG" chèn cuối mỗi học sinh. */
+  no: number | string
   date: string
   homework: string
   status: string
