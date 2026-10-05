@@ -155,11 +155,17 @@ export function TuitionReportScreen({ cls }: Props) {
         if (!progress) return null
         const to = st.sessions.length
         const from = to - progress.current
-        return { studentId: st.id, studentName: st.name, progress, from, to }
+        // Đơn giá ĐÃ CÓ (trang này chỉ hiện khi rate != null, xem guard bên
+        // dưới) nên tạm tính luôn số tiền theo đúng số buổi ĐÃ học — không để
+        // trống nữa, vì admin đã cập nhật đơn giá thì phải thấy số ngay. Đây
+        // chỉ là TẠM TÍNH (chưa chốt/gửi) — khác với số đã "Chốt buổi" thật.
+        const sessionsBilled = sessionsBilledOf(st, from, to)
+        const estimatedAmount = sessionsBilled * (rate ?? 0)
+        return { studentId: st.id, studentName: st.name, progress, from, to, sessionsBilled, estimatedAmount }
       })
-      .filter((x): x is { studentId: string; studentName: string; progress: { current: number; total: number }; from: number; to: number } => x != null),
+      .filter((x): x is { studentId: string; studentName: string; progress: { current: number; total: number }; from: number; to: number; sessionsBilled: number; estimatedAmount: number } => x != null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [cls, dueRows, manualRows],
+    [cls, dueRows, manualRows, rate],
   )
 
   /** Admin bấm "Chốt buổi" cho 1 học sinh ĐANG "Chưa tới hạn" (thường là nghỉ
@@ -352,10 +358,10 @@ export function TuitionReportScreen({ cls }: Props) {
           status: 'Chưa tới hạn' as const,
           periodLabel: `Đang học dở — buổi ${nd.from + 1}–${nd.to}`,
           sessionsBilled: `${nd.progress.current}/${nd.progress.total}`,
-          // Vẫn là CỘT TIỀN (chừa chỗ sẵn) — chỉ là chưa có số vì chưa đủ mốc
-          // 8/12 buổi, không phải cột khác hẳn. Khi đủ buổi, dòng này tự
-          // chuyển qua nhóm "Đã tới hạn" và có số tiền thật ngay.
-          finalAmount: '—',
+          // Đơn giá đã có (admin đã cập nhật) nên tạm tính luôn theo đúng số
+          // buổi đã học, không để trống — ghi rõ "(tạm tính)" vì CHƯA chốt/
+          // gửi, khác hẳn số tiền đã xác nhận ở các trạng thái khác.
+          finalAmount: `${fmtVnd(nd.estimatedAmount)} (tạm tính)`,
           adjustmentReason: undefined as string | undefined,
           reportComment: 'Chưa tới hạn — chưa có nhận xét kỳ này',
           sessionDetails: st ? sessionDetailsOf(st, nd.from, nd.to, r) : [],
@@ -488,11 +494,11 @@ export function TuitionReportScreen({ cls }: Props) {
                           <div
                             className="mb-1.5 rounded-lg px-3 py-1.5 text-xs font-bold"
                             style={{
-                              background: r.finalAmount === '—' ? C.paper : C.board + '12',
-                              color: r.finalAmount === '—' ? C.muted : C.board,
+                              background: r.status === 'Chưa tới hạn' ? C.gold + '18' : C.board + '12',
+                              color: r.status === 'Chưa tới hạn' ? '#92400E' : C.board,
                             }}
                           >
-                            💰 Tổng tiền kỳ này: {r.finalAmount === '—' ? 'Chưa tới hạn — chờ admin xác nhận khi đủ buổi' : r.finalAmount}
+                            💰 Tổng tiền kỳ này: {r.finalAmount}
                           </div>
                           <table className="w-full text-xs" style={{ border: `1px solid ${C.line}` }}>
                             <thead>
@@ -622,12 +628,12 @@ export function TuitionReportScreen({ cls }: Props) {
                 <div>
                   <label className="mb-1 block text-xs font-semibold" style={{ color: C.ink }}>Số tiền gửi (VNĐ)</label>
                   <input
-                    type="number" min={0} value={row.finalAmount}
-                    onChange={(e) => patchRow(row, (r) => { r.finalAmount = e.target.value })}
-                    placeholder="VD: 450000"
+                    type="text" inputMode="numeric" value={row.finalAmount ? Number(row.finalAmount).toLocaleString('vi-VN') : ''}
+                    onChange={(e) => patchRow(row, (r) => { r.finalAmount = e.target.value.replace(/\D/g, '') })}
+                    placeholder="VD: 450.000"
                     className="w-32 rounded-xl px-3 py-2 text-sm text-right" style={{ border: `1px solid ${C.line}` }}
                   />
-                  <div className="mt-0.5 text-[11px]" style={{ color: C.muted }}>Ghi đủ số 0, không chấm/phẩy — VD 450 nghìn thì gõ 450000</div>
+                  <div className="mt-0.5 text-[11px]" style={{ color: C.muted }}>Tự thêm dấu chấm khi gõ — VD 450 nghìn thì gõ 450000, hiện ra 450.000</div>
                 </div>
                 {differs && (
                   <div className="min-w-0 flex-1">
@@ -673,6 +679,7 @@ export function TuitionReportScreen({ cls }: Props) {
                 style={{ background: C.paper, border: `1px solid ${C.line}`, color: C.muted }}
               >
                 {r.studentName}: <b style={{ color: C.board2 }}>{r.progress!.current}/{r.progress!.total}</b> buổi
+                <span style={{ color: C.gold }}>(~{fmtVnd(r.estimatedAmount)} tạm tính)</span>
                 <button
                   className="rounded px-1.5 py-0.5 font-semibold"
                   style={{ color: C.gold, border: `1px solid ${C.gold}66` }}
