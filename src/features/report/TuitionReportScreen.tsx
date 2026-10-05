@@ -117,7 +117,7 @@ export function TuitionReportScreen({ cls }: Props) {
           sessionsBilled, computedAmount,
           finalAmount: String(computedAmount), adjustmentReason: '',
           reportComment: buildComment(st.name, s, r),
-          sessionDetails: sessionDetailsOf(st, p.from, p.to),
+          sessionDetails: sessionDetailsOf(st, p.from, p.to, r),
           showDetails: false,
           saving: false,
         })
@@ -323,8 +323,9 @@ export function TuitionReportScreen({ cls }: Props) {
                           {d.homework && (
                             <div className="mt-0.5" style={{ color: C.muted }}>📝 Bài giao: {d.homework}</div>
                           )}
-                          <div className="mt-0.5" style={{ color: C.ink }}>
+                          <div className="mt-0.5" style={d.isAuto ? { color: C.muted, fontStyle: 'italic' } : { color: C.ink }}>
                             {d.status || <span style={{ color: C.muted }}>(chưa có ghi chú buổi này)</span>}
+                            {d.isAuto && <span className="ml-1 not-italic" style={{ color: C.board2 }} title="Tự sinh từ điểm số đã chấm, giáo viên không ghi chú buổi này">🤖</span>}
                           </div>
                         </div>
                       ))}

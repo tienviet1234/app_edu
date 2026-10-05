@@ -1,6 +1,7 @@
-import type { Student, StudentStats, DetailBlock, EvidenceItem, SessionEntry } from '@/types'
+import type { Student, StudentStats, DetailBlock, EvidenceItem, SessionEntry, Session } from '@/types'
 import { getRubric } from '@/constants/rubrics'
 import { round1 } from '@/utils'
+import { compHasData, sessionComps } from './scoring'
 
 /** Kỳ báo cáo — theo buổi RIÊNG của đúng 1 học sinh (mỗi em tiến độ khác nhau). */
 export function periodsOf(student: Student, perMonth: number) {
@@ -97,19 +98,73 @@ export interface SessionDetailRow {
   date: string
   homework: string
   status: string
+  /** true nếu `status` do hệ thống TỰ SINH từ điểm số đã chấm (buổi đó giáo
+   *  viên không ghi chú/ghi chú cụ thể gì) — false nếu là nguyên văn giáo
+   *  viên tự gõ. Không bao giờ ghi đè lên ghi chú thật, chỉ điền khi trống. */
+  isAuto: boolean
+}
+
+/** Tự ghép 1 câu NGẮN tả tình hình buổi học, CHỈ dựa trên điểm số đã chấm
+ *  thật (Bài tập về nhà/Video bài nói/các tiêu chí "chọn 1 mức" hay "tích
+ *  việc đã làm" khác) — KHÔNG bịa thêm chi tiết nào giáo viên chưa từng ghi
+ *  (VD không tự đoán từ phát âm sai cụ thể, chỉ nói đúng tên tiêu chí bị
+ *  trừ điểm). Dùng làm fallback khi buổi đó không có ghi chú tự do/evidence
+ *  nào (xem sessionDetailsOf) — không áp dụng cho tiêu chí dạng 'score'
+ *  (mini test/nghe) vì không có nhãn "đạt/chưa đạt" tự nhiên để ghép câu. */
+function autoSessionStatus(session: Session, r: ReturnType<typeof getRubric>): string {
+  const e = session.entry
+  const parts: string[] = []
+  sessionComps(r, session).forEach((c) => {
+    if (!compHasData(c, e)) return
+    if (c.type === 'choice') {
+      const opt = c.options?.find((o) => o.id === e.choice[c.key])
+      if (!opt) return
+      const full = opt.pts >= c.max
+      parts.push(full ? `${c.label}: ${opt.label}.` : `${c.label}: ${opt.label}${opt.err?.fix ? ` — cần ${opt.err.fix}` : ''}.`)
+    } else if (c.type === 'parts') {
+      if (e.skip[c.key]) {
+        const fix = c.zeroErr?.fix
+        parts.push(`${c.label}: ${c.zeroLabel ?? 'không làm'}${fix ? ` — cần ${fix}` : ''}.`)
+        return
+      }
+      const m = e.parts[c.key] ?? {}
+      const ok = (c.parts ?? []).filter((p) => (Number(m[p.id]) || 0) >= p.max)
+      const weak = (c.parts ?? []).filter((p) => (Number(m[p.id]) || 0) < p.max)
+      if (ok.length) parts.push(`${c.label}: ${ok.map((p) => p.label.toLowerCase()).join(', ')} đạt.`)
+      weak.forEach((p) => parts.push(p.fix ? `${p.label}: cần ${p.fix}.` : `${p.label}: chưa đạt.`))
+    } else if (c.type === 'ticks') {
+      const checked = e.ticks[c.key] ?? []
+      const items = c.items ?? []
+      const ok = items.filter((it) => checked.includes(it.id))
+      const missing = items.filter((it) => !checked.includes(it.id))
+      if (ok.length) parts.push(`${c.label}: ${ok.map((it) => it.label.toLowerCase()).join(', ')} đạt.`)
+      if (missing.length) parts.push(`${c.label} chưa đạt: ${missing.map((it) => it.label.toLowerCase()).join(', ')}.`)
+    }
+  })
+  return parts.join(' ')
 }
 
 /** Chi tiết TỪNG BUỔI trong kỳ [from, to) — đúng mức chi tiết trung tâm vẫn
  *  tự ghi tay (bài tập giao buổi nào, buổi đó làm được gì/chưa làm gì) thay
  *  vì chỉ 1 câu nhận xét tổng hợp chung chung. "no" ở đây đánh số LẠI theo
- *  đúng kỳ (buổi 1, 2, 3... của kỳ này), không phải số buổi toàn khóa học. */
-export function sessionDetailsOf(student: Pick<Student, 'sessions'>, from: number, to: number): SessionDetailRow[] {
-  return student.sessions.slice(from, to).map((s, i) => ({
-    no: i + 1,
-    date: s.date,
-    homework: s.homework?.trim() ?? '',
-    status: sessionStatusText(s.entry),
-  }))
+ *  đúng kỳ (buổi 1, 2, 3... của kỳ này), không phải số buổi toàn khóa học.
+ *  `r` (rubric) tùy chọn — truyền vào để TỰ SINH nhận xét cho buổi nào giáo
+ *  viên không ghi chú gì (xem autoSessionStatus); bỏ trống thì giữ hành vi
+ *  cũ (để trống nếu giáo viên chưa ghi, không tự sinh gì). */
+export function sessionDetailsOf(
+  student: Pick<Student, 'sessions'>, from: number, to: number, r?: ReturnType<typeof getRubric>,
+): SessionDetailRow[] {
+  return student.sessions.slice(from, to).map((s, i) => {
+    const status = sessionStatusText(s.entry)
+    const auto = !status && r ? autoSessionStatus(s, r) : ''
+    return {
+      no: i + 1,
+      date: s.date,
+      homework: s.homework?.trim() ?? '',
+      status: status || auto,
+      isAuto: !status && !!auto,
+    }
+  })
 }
 
 /** Tìm mục ghi chú cụ thể (VD "Từ phát âm chưa đúng: make, snowflake...")

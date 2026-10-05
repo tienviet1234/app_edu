@@ -67,8 +67,8 @@ describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình
     }
     const rows = sessionDetailsOf(student, 0, 2)
     expect(rows).toEqual([
-      { no: 1, date: '2026-07-30', homework: 'Đọc sách bài tập trang 28', status: 'ĐÃ LÀM VIDEO; make, snowflake, snowman' },
-      { no: 2, date: '2026-08-04', homework: 'Làm sách bài tập trang 29,30', status: 'Nghỉ không phép' },
+      { no: 1, date: '2026-07-30', homework: 'Đọc sách bài tập trang 28', status: 'ĐÃ LÀM VIDEO; make, snowflake, snowman', isAuto: false },
+      { no: 2, date: '2026-08-04', homework: 'Làm sách bài tập trang 29,30', status: 'Nghỉ không phép', isAuto: false },
     ])
   })
 
@@ -84,5 +84,42 @@ describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình
     expect(rows).toHaveLength(2)
     expect(rows[0]).toMatchObject({ no: 1, homework: 'HW9' })
     expect(rows[1]).toMatchObject({ no: 2, homework: 'HW10' })
+  })
+
+  it('buổi không có ghi chú gì — tự sinh nhận xét từ điểm số thật (đã chấm), đánh dấu isAuto', () => {
+    const r = getRubric('secondary')
+    const student: Student = {
+      id: 'st1', name: 'Minh Khôi',
+      sessions: [{
+        id: 's1', no: 1, date: '2026-01-01',
+        // Chỉ tích 3/4 việc của "Bài tập về nhà" (ticks), không ghi note/ev
+        // gì khác — không có cách nào giáo viên đã "ghi chú" buổi này.
+        entry: { ...emptyEntry(), attendance: 'present', ticks: { hw: ['h_full', 'h_correct', 'h_ontime'] } },
+      }],
+    }
+    const rows = sessionDetailsOf(student, 0, 1, r)
+    expect(rows[0].isAuto).toBe(true)
+    // Phải nêu đúng tên việc ĐÃ làm và việc CHƯA làm theo đúng tick thật — không bịa.
+    expect(rows[0].status).toContain('hoàn thành đầy đủ')
+    expect(rows[0].status).toContain('làm đúng yêu cầu')
+    expect(rows[0].status).toContain('nộp đúng hạn')
+    expect(rows[0].status).toContain('chưa đạt: viết sạch đẹp')
+  })
+
+  it('buổi ĐÃ có ghi chú thật của giáo viên — không đụng vào, dù có truyền rubric', () => {
+    const r = getRubric('secondary')
+    const student: Student = {
+      id: 'st1', name: 'Minh Khôi',
+      sessions: [{
+        id: 's1', no: 1, date: '2026-01-01',
+        entry: {
+          ...emptyEntry(), attendance: 'present', note: 'Hôm nay con học tốt',
+          ticks: { hw: ['h_full'] }, // có điểm số nhưng KHÔNG được dùng để ghi đè note thật
+        },
+      }],
+    }
+    const rows = sessionDetailsOf(student, 0, 1, r)
+    expect(rows[0].status).toBe('Hôm nay con học tốt')
+    expect(rows[0].isAuto).toBe(false)
   })
 })
