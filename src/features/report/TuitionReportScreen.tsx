@@ -237,18 +237,15 @@ export function TuitionReportScreen({ cls }: Props) {
     )
   }
 
-  /** Xuất Excel "Tổng quan" — gộp CẢ 4 trạng thái đang hiện trên màn hình
-   *  (đã tới hạn chưa gửi / đang nợ đã gửi / đã đóng xong / chưa tới hạn),
-   *  khớp đúng y như những gì đang nhìn thấy trên app — khác nút "Xuất
-   *  Excel" nhanh phía trên (chỉ xuất phần "chưa gửi" để chuẩn bị gửi ngay). */
-  function exportAll() {
-    const r = getClassRubric(cls)
+  // Bảng "Tổng quan" dùng CHUNG cho cả hiển thị trên màn hình LẪN xuất Excel
+  // — tính 1 lần duy nhất ở đây để 2 nơi không bao giờ lệch nhau (trước đây
+  // phải tự nhớ sửa cả 2 chỗ mỗi khi đổi logic, dễ quên 1 nơi).
+  const overviewRows = useMemo(() => {
     const unpaid = notices.filter((n) => n.paymentStatus === 'unpaid')
     const paid = notices.filter((n) => n.paymentStatus === 'paid')
-
-    const rows = [
+    return [
       ...dueRows.map((row) => ({
-        studentName: row.studentName,
+        studentId: row.studentId, studentName: row.studentName,
         status: '🔴 Đã tới hạn - chưa gửi' as const,
         periodLabel: row.periodLabel,
         sessionsBilled: String(row.sessionsBilled),
@@ -257,6 +254,7 @@ export function TuitionReportScreen({ cls }: Props) {
         reportComment: row.reportComment,
       })),
       ...unpaid.map((n) => ({
+        studentId: n.studentId,
         studentName: cls.students.find((s) => s.id === n.studentId)?.name ?? '(học sinh đã xoá)',
         status: 'Đang nợ (đã gửi, chưa đóng)' as const,
         periodLabel: n.periodLabel,
@@ -266,6 +264,7 @@ export function TuitionReportScreen({ cls }: Props) {
         reportComment: n.reportComment,
       })),
       ...paid.map((n) => ({
+        studentId: n.studentId,
         studentName: cls.students.find((s) => s.id === n.studentId)?.name ?? '(học sinh đã xoá)',
         status: 'Đã đóng xong' as const,
         periodLabel: n.periodLabel,
@@ -275,16 +274,26 @@ export function TuitionReportScreen({ cls }: Props) {
         reportComment: n.reportComment,
       })),
       ...notDueRows.map((nd) => ({
-        studentName: nd.studentName,
+        studentId: nd.studentId, studentName: nd.studentName,
         status: 'Chưa tới hạn' as const,
         periodLabel: '—',
         sessionsBilled: `${nd.progress!.current}/${nd.progress!.total}`,
         finalAmount: '—',
-        adjustmentReason: undefined,
+        adjustmentReason: undefined as string | undefined,
         reportComment: '—',
       })),
     ]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dueRows, notices, notDueRows, cls])
 
+  /** Xuất Excel "Tổng quan" — gộp CẢ 4 trạng thái đang hiện trên màn hình
+   *  (đã tới hạn chưa gửi / đang nợ đã gửi / đã đóng xong / chưa tới hạn),
+   *  khớp đúng y như bảng đang hiện trên app — khác nút "Xuất Excel" nhanh
+   *  phía trên (chỉ xuất phần "chưa gửi" để chuẩn bị gửi ngay). */
+  function exportAll() {
+    const r = getClassRubric(cls)
+    const unpaid = notices.filter((n) => n.paymentStatus === 'unpaid')
+    const paid = notices.filter((n) => n.paymentStatus === 'paid')
     const sessionDetails = [
       ...dueRows.flatMap((row) => row.sessionDetails.map((d) => ({ studentName: row.studentName, ...d }))),
       ...unpaid.flatMap((n) => {
@@ -296,8 +305,7 @@ export function TuitionReportScreen({ cls }: Props) {
         return st ? sessionDetailsOf(st, n.periodFrom, n.periodTo, r).map((d) => ({ studentName: st.name, ...d })) : []
       }),
     ]
-
-    exportTuitionOverview(cls.name, rows, sessionDetails)
+    exportTuitionOverview(cls.name, overviewRows, sessionDetails)
   }
 
   /** Xuất Excel CHỈ 1 học sinh — dùng khi gửi riêng cho đúng phụ huynh em đó,
@@ -348,6 +356,47 @@ export function TuitionReportScreen({ cls }: Props) {
           tiền nếu có ngoại lệ, bấm "Sao chép nội dung" để dán vào Zalo gửi tay (Zalo chưa hỗ trợ gửi thẳng từ
           web), hoặc xuất Excel cả loạt (kèm sheet chi tiết TỪNG BUỔI — bài giao, tình hình) — xong thì đánh dấu
           đã gửi để không bị nhắc lại.
+        </div>
+      </Card>
+
+      <Card className="overflow-hidden">
+        <div className="px-4 py-3" style={{ background: C.board, color: '#fff' }}>
+          <div className="text-lg font-bold">Tổng quan — {overviewRows.length} học sinh</div>
+          <div className="text-xs opacity-80">Đúng nội dung sẽ có trong file Excel khi bấm nút xuất bên dưới</div>
+        </div>
+        <div className="max-h-[420px] overflow-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr style={{ background: C.paper }}>
+                <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Học sinh</th>
+                <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Trạng thái</th>
+                <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Kỳ</th>
+                <th className="py-2 px-3 text-right font-semibold" style={{ color: C.muted }}>Số buổi</th>
+                <th className="py-2 px-3 text-right font-semibold" style={{ color: C.muted }}>Số tiền</th>
+                <th className="py-2 px-3 text-left font-semibold" style={{ color: C.muted }}>Nhận xét</th>
+              </tr>
+            </thead>
+            <tbody>
+              {overviewRows.map((r, i) => {
+                const bg =
+                  r.status === '🔴 Đã tới hạn - chưa gửi' ? '#FEE2E2' :
+                  r.status === 'Đang nợ (đã gửi, chưa đóng)' ? '#FFEDD5' :
+                  r.status === 'Đã đóng xong' ? '#ECFDF5' : undefined
+                return (
+                  <tr key={`${r.studentId}-${i}`} style={{ borderTop: `1px solid ${C.line}`, background: bg }}>
+                    <td className="py-1.5 px-3 font-semibold" style={{ color: C.ink }}>{r.studentName}</td>
+                    <td className="py-1.5 px-3">{r.status}</td>
+                    <td className="py-1.5 px-3" style={{ color: C.muted }}>{r.periodLabel}</td>
+                    <td className="py-1.5 px-3 text-right tabular-nums">{r.sessionsBilled}</td>
+                    <td className="py-1.5 px-3 text-right tabular-nums font-semibold" style={{ color: C.ink }}>{r.finalAmount}</td>
+                    <td className="py-1.5 px-3 max-w-[280px] truncate" style={{ color: C.muted }} title={r.reportComment}>
+                      {r.reportComment}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       </Card>
 
