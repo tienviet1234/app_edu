@@ -224,6 +224,26 @@ export function TuitionReportScreen({ cls }: Props) {
     )
   }
 
+  /** Xuất Excel CHỈ 1 học sinh — dùng khi gửi riêng cho đúng phụ huynh em đó,
+   *  tránh file gộp (nút "Xuất Excel" phía trên) lộ học phí của em khác khi
+   *  gửi nhầm cả file. Vẫn kèm đầy đủ nhận xét + chi tiết từng buổi như file gộp. */
+  function exportOne(row: DueRow) {
+    exportTuitionNotices(
+      `${cls.name}_${row.studentName}`,
+      [{
+        studentName: row.studentName,
+        periodLabel: row.periodLabel,
+        sessionsBilled: row.sessionsBilled,
+        ratePerSession: rate ?? 0,
+        finalAmount: Number(row.finalAmount) || 0,
+        adjustmentReason: row.adjustmentReason || undefined,
+        reportComment: row.reportComment,
+        sentAtLabel: '(chưa gửi — bản nháp)',
+      }],
+      row.sessionDetails.map((d) => ({ studentName: row.studentName, ...d })),
+    )
+  }
+
   if (!isMongoid(cls.id)) {
     return (
       <Card className="p-6 text-center text-sm" style={{ color: C.muted }}>
@@ -319,8 +339,10 @@ export function TuitionReportScreen({ cls }: Props) {
                   <input
                     type="number" min={0} value={row.finalAmount}
                     onChange={(e) => patchRow(key, (r) => { r.finalAmount = e.target.value })}
+                    placeholder="VD: 450000"
                     className="w-32 rounded-xl px-3 py-2 text-sm text-right" style={{ border: `1px solid ${C.line}` }}
                   />
+                  <div className="mt-0.5 text-[11px]" style={{ color: C.muted }}>Ghi đủ số 0, không chấm/phẩy — VD 450 nghìn thì gõ 450000</div>
                 </div>
                 {differs && (
                   <div className="min-w-0 flex-1">
@@ -337,6 +359,7 @@ export function TuitionReportScreen({ cls }: Props) {
                   </div>
                 )}
                 <Btn kind="ghost" onClick={() => copyMessage(row)}>📋 Sao chép nội dung</Btn>
+                <Btn kind="ghost" onClick={() => exportOne(row)}>📥 Xuất Excel riêng em này</Btn>
                 <Btn kind="solid" onClick={() => markSent(row)} disabled={row.saving}>
                   {row.saving ? 'Đang lưu...' : '✅ Đánh dấu đã gửi'}
                 </Btn>
