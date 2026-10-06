@@ -103,6 +103,10 @@ export interface SessionScoreItem {
    *  Thái độ học tập) — đúng các việc giáo viên ĐÃ TÍCH buổi đó, y hệt mức
    *  chi tiết hiện ở màn nhập điểm (EntryScreen), không chỉ tổng điểm gộp. */
   checkedItems?: { label: string; pts: number }[]
+  /** CHỈ có với tiêu chí dạng "choice" (chọn 1 mức, VD Bài tập về nhà ở Cấp 1)
+   *  — nhãn mô tả ĐẦY ĐỦ của mức giáo viên đã chọn (không chỉ "30/30"), y hệt
+   *  nội dung hiện ở màn nhập điểm. */
+  selectedLabel?: string
 }
 
 export interface SessionDetailRow {
@@ -227,6 +231,12 @@ export function sessionDetailsOf(
           item.checkedItems = (c.items ?? [])
             .filter((it) => checked.includes(it.id))
             .map((it) => ({ label: it.label, pts: it.pts }))
+        } else if (c.type === 'choice') {
+          // Nhãn mô tả đầy đủ của mức ĐÃ CHỌN (VD "Làm đầy đủ tất cả bài được
+          // giao. Bài làm chính xác, chỉ có rất ít lỗi...") — không chỉ số
+          // điểm thô, để khớp đúng nội dung chi tiết giáo viên đã thấy khi chấm.
+          const opt = (c.options ?? []).find((o) => o.id === s.entry.choice[c.key])
+          if (opt) item.selectedLabel = opt.label
         }
         scores.push(item)
       })

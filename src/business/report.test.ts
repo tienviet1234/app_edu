@@ -151,6 +151,21 @@ describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình
     ])
   })
 
+  it('tiêu chí dạng "choice" (VD Bài tập về nhà Cấp 1) trả về nhãn ĐẦY ĐỦ của mức đã chọn, không chỉ điểm thô', () => {
+    const r = getRubric('primary')
+    const student: Student = {
+      id: 'st1', name: 'Phú',
+      sessions: [{
+        id: 's1', no: 1, date: '2026-01-01',
+        entry: { ...emptyEntry(), attendance: 'present', choice: { hw: 'full' } },
+      }],
+    }
+    const rows = sessionDetailsOf(student, 0, 1, r)
+    const hw = rows[0].scores.find((s) => s.key === 'hw')
+    expect(hw?.value).toBe('30/30')
+    expect(hw?.selectedLabel).toBe('Hoàn thành')
+  })
+
   it('chưa chấm mục nào buổi đó thì scores rỗng, không bịa điểm', () => {
     const r = getRubric('secondary')
     const student: Student = {

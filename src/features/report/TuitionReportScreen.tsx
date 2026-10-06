@@ -682,6 +682,9 @@ export function TuitionReportScreen({ cls }: Props) {
                                                   ))}
                                                 </div>
                                               )}
+                                              {s.selectedLabel && (
+                                                <div className="mt-0.5" style={{ color: C.ink }}>{s.selectedLabel}</div>
+                                              )}
                                             </div>
                                           ))}
                                         </div>
@@ -810,6 +813,9 @@ export function TuitionReportScreen({ cls }: Props) {
                                         </Chip>
                                       ))}
                                     </div>
+                                  )}
+                                  {s.selectedLabel && (
+                                    <div className="mt-0.5" style={{ color: C.ink }}>{s.selectedLabel}</div>
                                   )}
                                 </div>
                               ))}

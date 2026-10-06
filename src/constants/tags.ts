@@ -34,6 +34,16 @@ export const AT_TICKS = [
   { id: 'a_fix', label: 'Tự giác sửa lỗi', pts: 2 },
 ]
 
+// Tiêu chí "Thái độ học tập" Cấp 1 — lấy đúng nguyên văn 5 mục giáo viên đã
+// chấm thật (xem trao đổi/ảnh màn hình nhập điểm), không tự viết lại.
+export const AT_TICKS_P = [
+  { id: 'pa_speak', label: 'Chủ động phát biểu, trả lời, hỏi khi chưa hiểu và tham gia hoạt động học', pts: 4 },
+  { id: 'pa_focus', label: 'Chú ý nghe giảng, không làm việc riêng, theo kịp hoạt động của lớp', pts: 4 },
+  { id: 'pa_coop', label: 'Làm việc nghiêm túc với bạn, biết lắng nghe và phối hợp khi học nhóm/đôi', pts: 4 },
+  { id: 'pa_prep', label: 'Có chuẩn bị bài cũ, từ vựng, cấu trúc và tài liệu có yêu cầu trước giờ học', pts: 4 },
+  { id: 'pa_duty', label: 'Có ý thức hoàn thành nhiệm vụ, không cần cô nhắc nhiều; mang đủ tài liệu và thực hiện đúng yêu cầu', pts: 4 },
+]
+
 export const ATTEND = [
   { key: 'present' as const, label: 'Đi học đúng giờ', pts: 10, deduct: 0 },
   { key: 'late' as const, label: 'Đi học muộn', pts: 8, deduct: 2 },

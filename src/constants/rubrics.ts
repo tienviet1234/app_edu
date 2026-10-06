@@ -1,5 +1,5 @@
 import type { RubricDef, ClassData } from '@/types'
-import { MINI_TAGS, LISTEN_TAGS, HW_TICKS_S, AT_TICKS } from './tags'
+import { MINI_TAGS, LISTEN_TAGS, HW_TICKS_S, AT_TICKS, AT_TICKS_P } from './tags'
 
 export const RUBRICS: Record<string, RubricDef> = {
   secondary: {
@@ -103,14 +103,10 @@ export const RUBRICS: Record<string, RubricDef> = {
       {
         key: 'attitude',
         label: 'Thái độ học tập',
-        max: 10,
-        type: 'parts',
-        parts: [
-          { id: 'focus', label: 'Tập trung trong giờ học', max: 4, weak: 'sự tập trung trong giờ', fix: 'rèn sự tập trung cho con' },
-          { id: 'active', label: 'Tích cực tham gia hoạt động', max: 3, weak: 'sự chủ động tham gia', fix: 'khuyến khích con phát biểu nhiều hơn' },
-          { id: 'polite', label: 'Lễ phép, hợp tác với cô và bạn', max: 3, weak: 'nề nếp hợp tác', fix: 'trao đổi thêm với phụ huynh về nề nếp' },
-        ],
-        evidence: [{ key: 'note', type: 'text', label: 'Nhận xét ngắn', ph: 'Tập trung, tích cực phát biểu' }],
+        max: 20,
+        type: 'ticks',
+        items: AT_TICKS_P,
+        stars: true,
       },
     ],
     attendance: { mode: 'deduct', base: 10 },

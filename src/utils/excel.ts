@@ -333,7 +333,9 @@ function scoresCell(scores: SessionScoreItem[] | undefined): string {
     .map((s) => {
       const items = s.checkedItems?.length
         ? ` (${s.checkedItems.map((it) => `✓ ${it.label} ${it.pts}đ`).join('; ')})`
-        : ''
+        : s.selectedLabel
+          ? ` (${s.selectedLabel})`
+          : ''
       return `${s.label}: ${s.value}${items}`
     })
     .join(' | ')
