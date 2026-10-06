@@ -3,7 +3,7 @@ import type { AppData, ClassData } from '@/types'
 import { getClassRubric } from '@/constants/rubrics'
 import { statsOf } from '@/business/stats'
 import { rankingOf } from '@/business/ranking'
-import { buildComment, sessionDetailsOf } from '@/business/report'
+import { buildComment, sessionDetailsOf, type SessionScoreItem } from '@/business/report'
 import { sessionScore, compScore, sessionComps } from '@/business/scoring'
 import { round1, viDate, viDateTime } from '@/utils/format'
 
@@ -84,10 +84,10 @@ export function exportScores(cls: ClassData, p: ExportPeriod): void {
     sessionDetailsOf(st, p.from, p.to, r).map((d) => ({ studentName: st.name, ...d })),
   )
   if (sessionDetails.length) {
-    const detailHeaders = ['Học sinh', 'Buổi', 'Ngày học', 'Bài tập về nhà', 'Nhận xét']
-    const detailData = sessionDetails.map((d) => [d.studentName, d.no, viDate(d.date), homeworkCell(d), d.status])
+    const detailHeaders = ['Học sinh', 'Buổi', 'Ngày học', 'Bài tập về nhà', 'Điểm số', 'Nhận xét']
+    const detailData = sessionDetails.map((d) => [d.studentName, d.no, viDate(d.date), d.homework, scoresCell(d.scores), d.status])
     const detailWs = XLSX.utils.aoa_to_sheet([detailHeaders, ...detailData])
-    detailWs['!cols'] = [{ wch: 20 }, { wch: 6 }, { wch: 12 }, { wch: 34 }, { wch: 50 }]
+    detailWs['!cols'] = [{ wch: 20 }, { wch: 6 }, { wch: 12 }, { wch: 28 }, { wch: 40 }, { wch: 50 }]
     XLSX.utils.book_append_sheet(wb, detailWs, 'Chi tiết từng buổi')
   }
 
@@ -315,10 +315,10 @@ export interface TuitionSessionDetailRow {
   date: string
   homework: string
   status: string
-  /** Điểm BTVN buổi này dạng "15/20" — chỉ có khi giáo viên đã chấm mục này
-   *  (xem SessionDetailRow.homeworkScore), rỗng/undefined thì không ghi gì
-   *  thêm, không bịa điểm cho buổi chưa chấm. */
-  homeworkScore?: string
+  /** Điểm TỪNG tiêu chí đã chấm buổi này (Mini Test/Nghe/BTVN/Thái độ...),
+   *  đúng mức chi tiết như màn nhập điểm (xem SessionScoreItem) — rỗng/
+   *  undefined thì không ghi gì, không bịa điểm cho tiêu chí chưa chấm. */
+  scores?: SessionScoreItem[]
   /** Số tiền của ĐÚNG kỳ chứa buổi này (lặp lại trên mọi buổi cùng kỳ của 1
    *  học sinh) — tùy chọn, chỉ dùng ở sheet "Tổng quan" (xuất Excel Báo cáo
    *  + Học phí). Để trống/'—' khi học sinh chưa tới hạn tính phí — không
@@ -326,11 +326,10 @@ export interface TuitionSessionDetailRow {
   amount?: string
 }
 
-/** Ghép điểm BTVN thật (nếu có chấm) vào sau nội dung bài giao — không bịa
- *  điểm cho buổi chưa chấm (homeworkScore rỗng thì giữ nguyên, không thêm gì). */
-function homeworkCell(d: { homework: string; homeworkScore?: string }): string {
-  if (!d.homeworkScore) return d.homework
-  return d.homework ? `${d.homework} (Điểm: ${d.homeworkScore})` : `(Điểm BTVN: ${d.homeworkScore})`
+/** Ghép tất cả điểm đã chấm buổi đó thành 1 chuỗi "Nhãn: đạt/tối đa, ..." —
+ *  chỉ liệt kê tiêu chí CÓ DỮ LIỆU thật, không bịa điểm cho tiêu chí chưa chấm. */
+function scoresCell(scores: SessionScoreItem[] | undefined): string {
+  return (scores ?? []).map((s) => `${s.label}: ${s.value}`).join(', ')
 }
 
 /** Xuất Excel "Báo cáo học tập + học phí" — 2 sheet: sheet 1 tổng hợp (1 dòng/
@@ -362,10 +361,10 @@ export function exportTuitionNotices(
   // "Chi tiết từng buổi" lên TRƯỚC (Excel mở vào sheet đầu tiên) — sheet
   // tổng hợp đứng trước dễ gây cảm giác file không có gì chi tiết.
   if (sessionDetails.length) {
-    const detailHeaders = ['Học sinh', 'Buổi', 'Ngày học', 'Bài tập về nhà', 'Nhận xét']
-    const detailData = sessionDetails.map((d) => [d.studentName, d.no, viDate(d.date), homeworkCell(d), d.status])
+    const detailHeaders = ['Học sinh', 'Buổi', 'Ngày học', 'Bài tập về nhà', 'Điểm số', 'Nhận xét']
+    const detailData = sessionDetails.map((d) => [d.studentName, d.no, viDate(d.date), d.homework, scoresCell(d.scores), d.status])
     const detailWs = XLSX.utils.aoa_to_sheet([detailHeaders, ...detailData])
-    detailWs['!cols'] = [{ wch: 20 }, { wch: 6 }, { wch: 12 }, { wch: 34 }, { wch: 50 }]
+    detailWs['!cols'] = [{ wch: 20 }, { wch: 6 }, { wch: 12 }, { wch: 28 }, { wch: 40 }, { wch: 50 }]
     XLSX.utils.book_append_sheet(wb, detailWs, 'Chi tiết từng buổi')
   }
 
@@ -416,10 +415,10 @@ export function exportTuitionOverview(
     // Cột "Số tiền" lặp lại số tiền của ĐÚNG kỳ chứa buổi đó trên mọi dòng
     // cùng kỳ — để trống khi học sinh chưa tới hạn tính phí (không tự bịa
     // số, chỉ hiện khi đã có số tiền thật từ sheet "Tổng quan").
-    const detailHeaders = ['Học sinh', 'Buổi', 'Ngày học', 'Bài tập về nhà', 'Nhận xét', 'Số tiền (VNĐ)']
-    const detailData = sessionDetails.map((d) => [d.studentName, d.no, viDate(d.date), homeworkCell(d), d.status, d.amount ?? ''])
+    const detailHeaders = ['Học sinh', 'Buổi', 'Ngày học', 'Bài tập về nhà', 'Điểm số', 'Nhận xét', 'Số tiền (VNĐ)']
+    const detailData = sessionDetails.map((d) => [d.studentName, d.no, viDate(d.date), d.homework, scoresCell(d.scores), d.status, d.amount ?? ''])
     const detailWs = XLSX.utils.aoa_to_sheet([detailHeaders, ...detailData])
-    detailWs['!cols'] = [{ wch: 20 }, { wch: 6 }, { wch: 12 }, { wch: 34 }, { wch: 50 }, { wch: 14 }]
+    detailWs['!cols'] = [{ wch: 20 }, { wch: 6 }, { wch: 12 }, { wch: 28 }, { wch: 40 }, { wch: 50 }, { wch: 14 }]
     XLSX.utils.book_append_sheet(wb, detailWs, 'Chi tiết từng buổi')
   }
 

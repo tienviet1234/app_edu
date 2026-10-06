@@ -67,8 +67,8 @@ describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình
     }
     const rows = sessionDetailsOf(student, 0, 2)
     expect(rows).toEqual([
-      { no: 1, date: '2026-07-30', homework: 'Đọc sách bài tập trang 28', status: 'ĐÃ LÀM VIDEO; make, snowflake, snowman', isAuto: false, attendance: 'present', homeworkScore: '' },
-      { no: 2, date: '2026-08-04', homework: 'Làm sách bài tập trang 29,30', status: 'Nghỉ không phép', isAuto: false, attendance: 'absent', homeworkScore: '' },
+      { no: 1, date: '2026-07-30', homework: 'Đọc sách bài tập trang 28', status: 'ĐÃ LÀM VIDEO; make, snowflake, snowman', isAuto: false, attendance: 'present', scores: [] },
+      { no: 2, date: '2026-08-04', homework: 'Làm sách bài tập trang 29,30', status: 'Nghỉ không phép', isAuto: false, attendance: 'absent', scores: [] },
     ])
   })
 
@@ -103,18 +103,41 @@ describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình
     // trạng thái, ngắn gọn) — không phải văn viết đầy đủ kiểu báo cáo.
     expect(rows[0].status).toContain('ĐÃ LÀM BÀI TẬP VỀ NHÀ')
     expect(rows[0].status).toContain('còn thiếu viết sạch đẹp')
-    // 3/4 việc x 5 điểm = 15, trên tổng 20 điểm của tiêu chí BTVN.
-    expect(rows[0].homeworkScore).toBe('15/20')
+    // 3/4 việc x 5 điểm = 15, trên tổng 20 điểm của tiêu chí BTVN — CHỈ tiêu
+    // chí này có dữ liệu (không chấm Mini/Nghe/Thái độ) nên scores chỉ có 1 mục.
+    expect(rows[0].scores).toEqual([{ key: 'hw', label: 'Bài tập về nhà', value: '15/20' }])
   })
 
-  it('chưa chấm mục BTVN buổi đó thì để trống điểm, không bịa thành 0', () => {
+  it('chấm đủ nhiều tiêu chí 1 buổi — liệt kê ĐẦY ĐỦ từng tiêu chí đã chấm, đúng mức chi tiết như màn nhập điểm', () => {
+    const r = getRubric('secondary')
+    const student: Student = {
+      id: 'st1', name: 'Minh Khôi',
+      sessions: [{
+        id: 's1', no: 1, date: '2026-01-01',
+        entry: {
+          ...emptyEntry(), attendance: 'present',
+          scores: { mini: 5, listen: 11 },
+          ticks: { hw: ['h_full', 'h_correct', 'h_ontime'], attitude: ['a_speak', 'a_focus'] },
+        },
+      }],
+    }
+    const rows = sessionDetailsOf(student, 0, 1, r)
+    expect(rows[0].scores).toEqual([
+      { key: 'mini', label: 'Mini Test', value: '5/40' },
+      { key: 'listen', label: 'Listening', value: '11/20' },
+      { key: 'hw', label: 'Bài tập về nhà', value: '15/20' },
+      { key: 'attitude', label: 'Thái độ học tập', value: '4/10' },
+    ])
+  })
+
+  it('chưa chấm mục nào buổi đó thì scores rỗng, không bịa điểm', () => {
     const r = getRubric('secondary')
     const student: Student = {
       id: 'st1', name: 'Minh Khôi',
       sessions: [{ id: 's1', no: 1, date: '2026-01-01', entry: { ...emptyEntry(), attendance: 'present' } }],
     }
     const rows = sessionDetailsOf(student, 0, 1, r)
-    expect(rows[0].homeworkScore).toBe('')
+    expect(rows[0].scores).toEqual([])
   })
 
   it('tiêu chí "thái độ" (c.stars) không dùng khuôn "ĐÃ LÀM X" (sai ngữ pháp, nghe như máy sinh)', () => {

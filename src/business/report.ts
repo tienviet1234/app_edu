@@ -93,6 +93,14 @@ function sessionStatusText(entry: SessionEntry): string {
   return parts.join('; ')
 }
 
+/** 1 tiêu chí đã chấm điểm trong buổi (Mini Test/Nghe/Bài tập về nhà/Thái độ
+ *  học tập...) — "value" dạng "đạt/tối đa", VD "5/10". */
+export interface SessionScoreItem {
+  key: string
+  label: string
+  value: string
+}
+
 export interface SessionDetailRow {
   no: number
   date: string
@@ -105,9 +113,11 @@ export interface SessionDetailRow {
   /** Điểm danh buổi này — dùng để tính tiền ĐÚNG BUỔI (chỉ 'present'/'late'
    *  mới tính phí, khớp sessionsBilledOf trong business/tuition.ts). */
   attendance: AttendanceKey
-  /** Điểm "Bài tập về nhà" buổi này, dạng "15/20" — rỗng nếu giáo viên chưa
-   *  chấm mục này (compHasData false) hoặc không truyền rubric `r`. */
-  homeworkScore: string
+  /** Điểm TỪNG tiêu chí đã chấm buổi này (Mini Test/Nghe/BTVN/Thái độ...),
+   *  đúng mức chi tiết như màn nhập điểm (EntryScreen) — CHỈ liệt kê tiêu chí
+   *  ĐÃ CÓ DỮ LIỆU thật (compHasData), không bịa điểm cho tiêu chí chưa chấm.
+   *  Rỗng nếu không truyền rubric `r`. */
+  scores: SessionScoreItem[]
 }
 
 /** Tự ghép 1 câu NGẮN tả tình hình buổi học, CHỈ dựa trên điểm số đã chấm
@@ -201,14 +211,14 @@ export function sessionDetailsOf(
         auto = variants[i % variants.length]
       }
     }
-    // Điểm BTVN buổi này — chỉ ghi khi giáo viên ĐÃ CHẤM mục "hw" (compHasData),
-    // không bịa điểm 0 cho buổi chưa chấm (khác hẳn "0 điểm vì làm sai hết").
-    let homeworkScore = ''
+    // Điểm từng tiêu chí buổi này — chỉ ghi tiêu chí ĐÃ CHẤM (compHasData),
+    // không bịa điểm 0 cho tiêu chí chưa chấm (khác hẳn "0 điểm vì làm sai hết").
+    const scores: SessionScoreItem[] = []
     if (r) {
-      const hwComp = sessionComps(r, s).find((c) => c.key === 'hw')
-      if (hwComp && compHasData(hwComp, s.entry)) {
-        homeworkScore = `${compScore(hwComp, s.entry)}/${hwComp.max}`
-      }
+      sessionComps(r, s).forEach((c) => {
+        if (!compHasData(c, s.entry)) return
+        scores.push({ key: c.key, label: c.label, value: `${compScore(c, s.entry)}/${c.max}` })
+      })
     }
     return {
       no: i + 1,
@@ -217,7 +227,7 @@ export function sessionDetailsOf(
       status: status || auto,
       isAuto: !status && !!auto,
       attendance: s.entry.attendance,
-      homeworkScore,
+      scores,
     }
   })
 }

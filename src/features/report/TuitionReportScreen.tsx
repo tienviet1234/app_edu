@@ -542,9 +542,19 @@ export function TuitionReportScreen({ cls }: Props) {
                                     <td className="py-1 px-2 font-semibold">{d.no}</td>
                                     <td className="py-1 px-2" style={{ color: C.muted }}>{viDate(d.date)}</td>
                                     <td className="py-1 px-2" style={{ color: C.muted }}>
-                                      {d.homework || '—'}
-                                      {d.homeworkScore && (
-                                        <span className="ml-1 font-semibold" style={{ color: C.ink }}>({d.homeworkScore})</span>
+                                      <div>{d.homework || '—'}</div>
+                                      {d.scores.length > 0 && (
+                                        <div className="mt-0.5 flex flex-wrap gap-1">
+                                          {d.scores.map((s) => (
+                                            <span
+                                              key={s.key}
+                                              className="rounded px-1 py-0.5 text-[10px] font-semibold"
+                                              style={{ background: C.paper, color: C.ink, border: `1px solid ${C.line}` }}
+                                            >
+                                              {s.label}: {s.value}
+                                            </span>
+                                          ))}
+                                        </div>
                                       )}
                                     </td>
                                     <td className="py-1 px-2" style={d.isAuto ? { color: C.muted, fontStyle: 'italic' } : { color: C.ink }}>
@@ -652,14 +662,20 @@ export function TuitionReportScreen({ cls }: Props) {
                           <div className="font-semibold" style={{ color: C.ink }}>
                             Buổi {d.no} — {viDate(d.date)}
                           </div>
-                          {(d.homework || d.homeworkScore) && (
-                            <div className="mt-0.5" style={{ color: C.muted }}>
-                              {d.homework && <>📝 Bài giao: {d.homework}</>}
-                              {d.homeworkScore && (
-                                <span className="ml-1 font-semibold" style={{ color: C.ink }}>
-                                  {d.homework ? '— ' : ''}Điểm BTVN: {d.homeworkScore}
+                          {d.homework && (
+                            <div className="mt-0.5" style={{ color: C.muted }}>📝 Bài giao: {d.homework}</div>
+                          )}
+                          {d.scores.length > 0 && (
+                            <div className="mt-0.5 flex flex-wrap gap-1">
+                              {d.scores.map((s) => (
+                                <span
+                                  key={s.key}
+                                  className="rounded px-1.5 py-0.5 text-[11px] font-semibold"
+                                  style={{ background: C.paper, color: C.ink, border: `1px solid ${C.line}` }}
+                                >
+                                  {s.label}: {s.value}
                                 </span>
-                              )}
+                              ))}
                             </div>
                           )}
                           <div className="mt-0.5" style={d.isAuto ? { color: C.muted, fontStyle: 'italic' } : { color: C.ink }}>
