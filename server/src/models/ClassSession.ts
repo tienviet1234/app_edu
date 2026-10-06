@@ -26,6 +26,11 @@ export interface IClassSession extends Document {
   // Set on each NEW per-student doc, pointing back to the shared doc it came from.
   legacySharedSessionId?: Types.ObjectId
 
+  // Soft delete — "xóa" chỉ đánh dấu, KHÔNG xóa thật khỏi DB (và không cascade
+  // xóa Score/Attendance) để khôi phục lại được toàn vẹn nếu bấm nhầm. Buổi có
+  // field này bị ẩn khỏi mọi truy vấn mặc định (xem listSessions).
+  deletedAt?: Date
+
   createdAt: Date
   updatedAt: Date
 }
@@ -52,6 +57,7 @@ const classSessionSchema = new Schema<IClassSession>(
     studentId: { type: Schema.Types.ObjectId, ref: 'User', index: true },
     migratedAt: { type: Date },
     legacySharedSessionId: { type: Schema.Types.ObjectId, ref: 'ClassSession' },
+    deletedAt: { type: Date },
   },
   { timestamps: true },
 )

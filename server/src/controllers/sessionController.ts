@@ -2,8 +2,6 @@ import type { Request, Response } from 'express'
 import { Types } from 'mongoose'
 import { ClassSession } from '../models/ClassSession.js'
 import { Class } from '../models/Class.js'
-import { Score } from '../models/Score.js'
-import { Attendance } from '../models/Attendance.js'
 import { created, forbidden, notFound, ok } from '../utils/response.js'
 import { parsePagination } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
@@ -29,6 +27,9 @@ export async function listSessions(req: Request, res: Response): Promise<void> {
     // khỏi client (client chưa hiểu cấu trúc mới cho đến khi Phase 2 lên production).
     // ?includeMigrated=true để công cụ admin/debug xem lại bản gốc nếu cần.
     ...(req.query.includeMigrated === 'true' ? {} : { migratedAt: { $exists: false } }),
+    // Buổi đã "xóa" (soft delete, xem deleteSession) — ẩn mặc định. ?onlyDeleted=true
+    // để màn "Buổi đã xóa" liệt kê đúng các buổi có thể khôi phục.
+    ...(req.query.onlyDeleted === 'true' ? { deletedAt: { $exists: true } } : { deletedAt: { $exists: false } }),
   }
   if (authReq.user?.role === 'teacher') {
     const ownClassIds = await Class.find({ teacherId: authReq.userId }, '_id').lean()
@@ -81,8 +82,11 @@ export async function updateSession(req: Request, res: Response): Promise<void> 
   ok(res, session)
 }
 
-/** DELETE /api/sessions/:id — xóa 1 buổi học riêng của học sinh (và điểm/điểm
- *  danh gắn với nó), dùng khi giáo viên tạo nhầm buổi hoặc muốn xóa hẳn. */
+/** DELETE /api/sessions/:id — "xóa" 1 buổi học riêng của học sinh, dùng khi
+ *  giáo viên tạo nhầm buổi hoặc buổi đó không thực sự diễn ra. SOFT DELETE —
+ *  chỉ đánh dấu `deletedAt`, KHÔNG xóa thật khỏi DB và KHÔNG đụng tới Score/
+ *  Attendance gắn với nó, để khôi phục lại được toàn vẹn 100% qua restoreSession
+ *  nếu bấm nhầm (xem listSessions ẩn các buổi có deletedAt khỏi truy vấn thường). */
 export async function deleteSession(req: Request, res: Response): Promise<void> {
   const authReq = req as AuthRequest
   const session = await ClassSession.findById(req.params.id)
@@ -94,13 +98,30 @@ export async function deleteSession(req: Request, res: Response): Promise<void> 
     forbidden(res, 'You can only delete sessions in your own classes.')
     return
   }
-  await Promise.all([
-    Score.deleteMany({ sessionId: session._id }),
-    Attendance.deleteMany({ sessionId: session._id }),
-  ])
-  await session.deleteOne()
+  session.deletedAt = new Date()
+  await session.save()
   await writeAudit(req, { action: 'session.delete', resource: 'ClassSession', resourceId: String(session._id) })
   ok(res, { deleted: true })
+}
+
+/** POST /api/sessions/:id/restore — khôi phục lại 1 buổi đã "xóa" (gỡ
+ *  `deletedAt`) — điểm/bài tập/ghi chú/điểm danh chưa từng bị động tới nên
+ *  trở lại y hệt trước khi xóa. */
+export async function restoreSession(req: Request, res: Response): Promise<void> {
+  const authReq = req as AuthRequest
+  const session = await ClassSession.findById(req.params.id)
+  if (!session) {
+    notFound(res, 'Session not found.')
+    return
+  }
+  if (!(await canManageSessionOfClass(authReq, session.classId))) {
+    forbidden(res, 'You can only restore sessions in your own classes.')
+    return
+  }
+  session.deletedAt = undefined
+  await session.save()
+  await writeAudit(req, { action: 'session.restore', resource: 'ClassSession', resourceId: String(session._id) })
+  ok(res, session)
 }
 
 export async function completeSession(req: Request, res: Response): Promise<void> {

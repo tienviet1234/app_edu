@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { completeSession, createSession, deleteSession, getSession, listSessions, updateSession } from '../controllers/sessionController.js'
+import { completeSession, createSession, deleteSession, getSession, listSessions, restoreSession, updateSession } from '../controllers/sessionController.js'
 import { authenticate, authorize } from '../middleware/auth.js'
 import { validate } from '../middleware/validate.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
@@ -15,3 +15,4 @@ sessionRouter.get('/:id', validate({ params: idParamsSchema }), asyncHandler(get
 sessionRouter.patch('/:id', authorize('teacher'), validate({ params: idParamsSchema, body: sessionUpdateSchema }), asyncHandler(updateSession))
 sessionRouter.post('/:id/complete', authorize('teacher'), validate({ params: idParamsSchema }), asyncHandler(completeSession))
 sessionRouter.delete('/:id', authorize('teacher'), validate({ params: idParamsSchema }), asyncHandler(deleteSession))
+sessionRouter.post('/:id/restore', authorize('teacher'), validate({ params: idParamsSchema }), asyncHandler(restoreSession))

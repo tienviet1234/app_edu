@@ -17,6 +17,7 @@ import { useClassStudents } from '@/hooks'
 import { useAuthStore } from '@/store/authStore'
 import { isMongoid } from '@/utils/mongoid'
 import { toast } from '@/store/toastStore'
+import { DeletedSessionsPanel } from './DeletedSessionsPanel'
 
 function parseBulk(text: string): ClassData[] {
   return text
@@ -61,6 +62,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
   // Bản nháp đang gõ cho ô "Buổi số" — tách khỏi giá trị đã lưu, chỉ áp dụng
   // lúc rời ô (blur/Enter), tránh vừa gõ số 2 chữ số đã bị coi là đổi buổi.
   const [noDrafts, setNoDrafts] = useState<Record<string, string>>({})
+  const [showDeletedSessions, setShowDeletedSessions] = useState(false)
   const [importError, setImportError] = useState('')
   const xlsxRef = useRef<HTMLInputElement>(null)
   const { user } = useAuthStore()
@@ -615,7 +617,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                   </div>
                 ) : (
                   <>
-                    <div className="mb-2 flex items-center gap-2">
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
                       <span className="text-sm" style={{ color: C.muted }}>Học sinh:</span>
                       <select
                         value={Math.min(sessionStudentIdx, cls.students.length - 1)}
@@ -627,6 +629,9 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                           <option key={s.id} value={i}>{s.name} ({s.sessions.length} buổi)</option>
                         ))}
                       </select>
+                      <Btn onClick={() => setShowDeletedSessions(true)} title="Xem lại và khôi phục các buổi đã xóa của học sinh này">
+                        🗑️ Buổi đã xóa
+                      </Btn>
                     </div>
                     {(() => {
                       const stu = cls.students[Math.min(sessionStudentIdx, cls.students.length - 1)]
@@ -707,7 +712,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                                         className="text-xs font-bold"
                                         style={{ color: C.red }}
                                         onClick={async () => {
-                                          if (!confirm(`Xóa buổi ${ss.no} (${viDate(ss.date)}) của ${stu.name}? Điểm buổi này sẽ mất.`)) return
+                                          if (!confirm(`Xóa buổi ${ss.no} (${viDate(ss.date)}) của ${stu.name}? (có thể khôi phục lại sau ở nút "🗑️ Buổi đã xóa")`)) return
                                           if (isMongoid(ss.id)) {
                                             try {
                                               await sessionService.remove(ss.id)
@@ -716,7 +721,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                                               return
                                             }
                                           }
-                                          toast.success(`Đã xóa Buổi ${ss.no} của ${stu.name}`)
+                                          toast.success(`Đã xóa Buổi ${ss.no} của ${stu.name} — vào "🗑️ Buổi đã xóa" nếu cần khôi phục lại`)
                                           edit((c) => {
                                             const s = c.students.find((y) => y.id === stu.id)
                                             if (!s) return
@@ -742,6 +747,14 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                       )
                     })()}
                   </>
+                )}
+                {showDeletedSessions && cls.students.length > 0 && (
+                  <DeletedSessionsPanel
+                    cls={cls}
+                    studentId={cls.students[Math.min(sessionStudentIdx, cls.students.length - 1)].id}
+                    edit={edit}
+                    onClose={() => setShowDeletedSessions(false)}
+                  />
                 )}
               </div>
             )}

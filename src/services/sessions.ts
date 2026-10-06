@@ -52,6 +52,11 @@ export const sessionService = {
   remove: (id: string) =>
     api.delete<{ data: { deleted: boolean } }>(`/sessions/${id}`).then((r) => r.data.data),
 
+  /** Khôi phục 1 buổi đã "xóa" (soft delete) — điểm/bài tập/ghi chú/điểm danh
+   *  chưa từng bị động tới nên trở lại y hệt trước khi xóa. */
+  restore: (id: string) =>
+    api.post<{ data: ApiSession }>(`/sessions/${id}/restore`, {}).then((r) => r.data.data),
+
   complete: (id: string) =>
     api.post<{ data: ApiSession }>(`/sessions/${id}/complete`, {}).then((r) => r.data.data),
 }
