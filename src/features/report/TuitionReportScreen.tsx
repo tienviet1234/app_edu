@@ -12,6 +12,7 @@ import { classService } from '@/services/classes'
 import { tuitionNoticeService, type TuitionNotice } from '@/services/tuitionNotices'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
+import { Chip } from '@/components/atoms/Chip'
 import { toast } from '@/store/toastStore'
 
 interface Props {
@@ -544,15 +545,22 @@ export function TuitionReportScreen({ cls }: Props) {
                                     <td className="py-1 px-2" style={{ color: C.muted }}>
                                       <div>{d.homework || '—'}</div>
                                       {d.scores.length > 0 && (
-                                        <div className="mt-0.5 flex flex-wrap gap-1">
+                                        <div className="mt-1 space-y-1">
                                           {d.scores.map((s) => (
-                                            <span
-                                              key={s.key}
-                                              className="rounded px-1 py-0.5 text-[10px] font-semibold"
-                                              style={{ background: C.paper, color: C.ink, border: `1px solid ${C.line}` }}
-                                            >
-                                              {s.label}: {s.value}
-                                            </span>
+                                            <div key={s.key}>
+                                              <span className="text-[10px] font-bold uppercase" style={{ color: C.muted }}>
+                                                {s.label}: <span style={{ color: C.ink }}>{s.value}</span>
+                                              </span>
+                                              {s.checkedItems && s.checkedItems.length > 0 && (
+                                                <div className="mt-0.5 flex flex-wrap gap-1">
+                                                  {s.checkedItems.map((it) => (
+                                                    <Chip key={it.label} tone="good" size="sm" on>
+                                                      {it.label} <span className="opacity-60">{it.pts}đ</span>
+                                                    </Chip>
+                                                  ))}
+                                                </div>
+                                              )}
+                                            </div>
                                           ))}
                                         </div>
                                       )}
@@ -666,15 +674,22 @@ export function TuitionReportScreen({ cls }: Props) {
                             <div className="mt-0.5" style={{ color: C.muted }}>📝 Bài giao: {d.homework}</div>
                           )}
                           {d.scores.length > 0 && (
-                            <div className="mt-0.5 flex flex-wrap gap-1">
+                            <div className="mt-1 space-y-1">
                               {d.scores.map((s) => (
-                                <span
-                                  key={s.key}
-                                  className="rounded px-1.5 py-0.5 text-[11px] font-semibold"
-                                  style={{ background: C.paper, color: C.ink, border: `1px solid ${C.line}` }}
-                                >
-                                  {s.label}: {s.value}
-                                </span>
+                                <div key={s.key}>
+                                  <span className="text-[11px] font-bold uppercase" style={{ color: C.muted }}>
+                                    {s.label}: <span style={{ color: C.ink }}>{s.value}</span>
+                                  </span>
+                                  {s.checkedItems && s.checkedItems.length > 0 && (
+                                    <div className="mt-0.5 flex flex-wrap gap-1">
+                                      {s.checkedItems.map((it) => (
+                                        <Chip key={it.label} tone="good" size="sm" on>
+                                          {it.label} <span className="opacity-60">{it.pts}đ</span>
+                                        </Chip>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
                               ))}
                             </div>
                           )}

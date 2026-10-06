@@ -104,8 +104,16 @@ describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình
     expect(rows[0].status).toContain('ĐÃ LÀM BÀI TẬP VỀ NHÀ')
     expect(rows[0].status).toContain('còn thiếu viết sạch đẹp')
     // 3/4 việc x 5 điểm = 15, trên tổng 20 điểm của tiêu chí BTVN — CHỈ tiêu
-    // chí này có dữ liệu (không chấm Mini/Nghe/Thái độ) nên scores chỉ có 1 mục.
-    expect(rows[0].scores).toEqual([{ key: 'hw', label: 'Bài tập về nhà', value: '15/20' }])
+    // chí này có dữ liệu (không chấm Mini/Nghe/Thái độ) nên scores chỉ có 1 mục,
+    // kèm đúng 3 việc đã tích (checkedItems) y hệt màn nhập điểm.
+    expect(rows[0].scores).toEqual([{
+      key: 'hw', label: 'Bài tập về nhà', value: '15/20',
+      checkedItems: [
+        { label: 'Hoàn thành đầy đủ', pts: 5 },
+        { label: 'Làm đúng yêu cầu', pts: 5 },
+        { label: 'Nộp đúng hạn', pts: 5 },
+      ],
+    }])
   })
 
   it('chấm đủ nhiều tiêu chí 1 buổi — liệt kê ĐẦY ĐỦ từng tiêu chí đã chấm, đúng mức chi tiết như màn nhập điểm', () => {
@@ -125,8 +133,21 @@ describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình
     expect(rows[0].scores).toEqual([
       { key: 'mini', label: 'Mini Test', value: '5/40' },
       { key: 'listen', label: 'Listening', value: '11/20' },
-      { key: 'hw', label: 'Bài tập về nhà', value: '15/20' },
-      { key: 'attitude', label: 'Thái độ học tập', value: '4/10' },
+      {
+        key: 'hw', label: 'Bài tập về nhà', value: '15/20',
+        checkedItems: [
+          { label: 'Hoàn thành đầy đủ', pts: 5 },
+          { label: 'Làm đúng yêu cầu', pts: 5 },
+          { label: 'Nộp đúng hạn', pts: 5 },
+        ],
+      },
+      {
+        key: 'attitude', label: 'Thái độ học tập', value: '4/10',
+        checkedItems: [
+          { label: 'Chủ động phát biểu', pts: 2 },
+          { label: 'Tập trung', pts: 2 },
+        ],
+      },
     ])
   })
 

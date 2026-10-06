@@ -329,7 +329,14 @@ export interface TuitionSessionDetailRow {
 /** Ghép tất cả điểm đã chấm buổi đó thành 1 chuỗi "Nhãn: đạt/tối đa, ..." —
  *  chỉ liệt kê tiêu chí CÓ DỮ LIỆU thật, không bịa điểm cho tiêu chí chưa chấm. */
 function scoresCell(scores: SessionScoreItem[] | undefined): string {
-  return (scores ?? []).map((s) => `${s.label}: ${s.value}`).join(', ')
+  return (scores ?? [])
+    .map((s) => {
+      const items = s.checkedItems?.length
+        ? ` (${s.checkedItems.map((it) => `✓ ${it.label} ${it.pts}đ`).join('; ')})`
+        : ''
+      return `${s.label}: ${s.value}${items}`
+    })
+    .join(' | ')
 }
 
 /** Xuất Excel "Báo cáo học tập + học phí" — 2 sheet: sheet 1 tổng hợp (1 dòng/

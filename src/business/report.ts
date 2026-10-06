@@ -99,6 +99,10 @@ export interface SessionScoreItem {
   key: string
   label: string
   value: string
+  /** CHỈ có với tiêu chí dạng "ticks" (tích việc đã làm, VD Bài tập về nhà/
+   *  Thái độ học tập) — đúng các việc giáo viên ĐÃ TÍCH buổi đó, y hệt mức
+   *  chi tiết hiện ở màn nhập điểm (EntryScreen), không chỉ tổng điểm gộp. */
+  checkedItems?: { label: string; pts: number }[]
 }
 
 export interface SessionDetailRow {
@@ -217,7 +221,14 @@ export function sessionDetailsOf(
     if (r) {
       sessionComps(r, s).forEach((c) => {
         if (!compHasData(c, s.entry)) return
-        scores.push({ key: c.key, label: c.label, value: `${compScore(c, s.entry)}/${c.max}` })
+        const item: SessionScoreItem = { key: c.key, label: c.label, value: `${compScore(c, s.entry)}/${c.max}` }
+        if (c.type === 'ticks') {
+          const checked = s.entry.ticks[c.key] ?? []
+          item.checkedItems = (c.items ?? [])
+            .filter((it) => checked.includes(it.id))
+            .map((it) => ({ label: it.label, pts: it.pts }))
+        }
+        scores.push(item)
       })
     }
     return {
