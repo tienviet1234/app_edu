@@ -84,8 +84,12 @@ function findOrCreateSession(c: ClassData, studentId: string, no: number, dateFo
     // lớp nhất quán mà KHÔNG cần tạo sẵn buổi (với điểm danh mặc định) cho
     // mọi học sinh ngay khi chỉ 1 người sửa ô "Số câu".
     const siblingMaxes = c.students.flatMap((s) => s.sessions).find((s) => s.no === no)?.maxes
+    // Tương tự, kế thừa "Bài tập về nhà" đã ghi cho buổi này ở học sinh khác
+    // (cả lớp thường giao chung 1 bài) — giáo viên vẫn sửa thoải mái riêng
+    // cho em nào bài khác, chỉ ảnh hưởng đúng em đó (xem setHomework).
+    const siblingHomework = c.students.flatMap((s) => s.sessions).find((s) => s.no === no && s.homework)?.homework
     session = {
-      id: uid(), no, date: dateForNew, homework: '', entry: emptyEntry(),
+      id: uid(), no, date: dateForNew, homework: siblingHomework ?? '', entry: emptyEntry(),
       createdByName: teacherName, recordedAt: new Date().toISOString(),
       maxes: siblingMaxes ? { ...siblingMaxes } : undefined,
     }
@@ -1001,13 +1005,23 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
               </label>
             </div>
 
-            <input
-              value={session?.homework ?? ''}
-              onChange={(x) => setHomework(x.target.value)}
-              placeholder="Bài tập về nhà riêng cho học sinh này (bỏ trống nếu không có)"
-              className="w-full rounded-xl px-3 py-2 text-sm"
-              style={{ border: `1px solid ${C.line}` }}
-            />
+            <div>
+              <div className="mb-1 flex flex-wrap items-center gap-1.5 text-xs font-bold uppercase" style={{ color: C.muted }}>
+                📝 Bài tập về nhà giao buổi này
+                {!session?.homework?.trim() && (
+                  <span className="inline-flex items-center gap-1 normal-case font-semibold" style={{ color: C.gold }}>
+                    <span className="animate-bounce">👉</span> chưa ghi — nhớ ghi nhé!
+                  </span>
+                )}
+              </div>
+              <input
+                value={session?.homework ?? ''}
+                onChange={(x) => setHomework(x.target.value)}
+                placeholder="VD: Làm trang 12, học thuộc từ vựng Unit 3"
+                className="w-full rounded-xl px-3 py-2 text-sm"
+                style={{ border: `1px solid ${!session?.homework?.trim() ? C.gold : C.line}` }}
+              />
+            </div>
 
             <input
               value={e.note}
