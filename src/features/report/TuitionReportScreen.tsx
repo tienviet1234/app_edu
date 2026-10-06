@@ -108,6 +108,10 @@ export function TuitionReportScreen({ cls }: Props) {
   const [manualRows, setManualRows] = useState<DueRow[]>([])
   const [showPaidHistory, setShowPaidHistory] = useState(false)
   const [expandedOverview, setExpandedOverview] = useState<Set<string>>(new Set())
+  const [showCustomBill, setShowCustomBill] = useState(false)
+  const [customStudentId, setCustomStudentId] = useState('')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
 
   useEffect(() => {
     if (!isMongoid(cls.id)) return
@@ -175,10 +179,12 @@ export function TuitionReportScreen({ cls }: Props) {
     [cls, dueRows, manualRows, rate],
   )
 
-  /** Admin bấm "Chốt buổi" cho 1 học sinh ĐANG "Chưa tới hạn" (thường là nghỉ
-   *  ngang, không học tiếp để đủ mốc) — số tiền vẫn TỰ TÍNH (số buổi hiện có
-   *  × đơn giá), admin chỉ xác nhận chứ không gõ tay số tiền. */
-  function addManualBill(nd: { studentId: string; studentName: string; from: number; to: number }) {
+  /** Admin bấm "Chốt buổi" cho 1 học sinh — ban đầu chỉ dùng cho học sinh ĐANG
+   *  "Chưa tới hạn" nghỉ ngang, giờ dùng chung luôn cho "Chốt buổi tùy chọn"
+   *  (chọn khoảng buổi bất kỳ, không cần đợi nghỉ ngang hay đủ mốc 8/12) —
+   *  số tiền vẫn TỰ TÍNH (số buổi hiện có × đơn giá), admin chỉ xác nhận chứ
+   *  không gõ tay số tiền. `label` tùy chọn để phân biệt 2 nguồn gọi. */
+  function addManualBill(nd: { studentId: string; studentName: string; from: number; to: number }, label?: string) {
     if (rate == null) return
     const st = cls.students.find((s) => s.id === nd.studentId)
     if (!st) return
@@ -188,13 +194,53 @@ export function TuitionReportScreen({ cls }: Props) {
     setManualRows((prev) => [...prev, {
       studentId: st.id, studentName: st.name,
       periodFrom: nd.from, periodTo: nd.to,
-      periodLabel: `Nghỉ ngang — buổi ${nd.from + 1}–${nd.to}`,
+      periodLabel: label ?? `Nghỉ ngang — buổi ${nd.from + 1}–${nd.to}`,
       sessionsBilled, computedAmount,
       finalAmount: String(computedAmount), adjustmentReason: '',
       reportComment: buildComment(st.name, s, r),
       sessionDetails: sessionDetailsOf(st, nd.from, nd.to, r),
       showDetails: false, saving: false, kind: 'manual',
     }])
+  }
+
+  /** Khoảng buổi [periodFrom, periodTo) đã từng chốt/gửi cho 1 học sinh —
+   *  dùng để cảnh báo trùng khi admin tự chọn khoảng buổi tùy ý, tránh thu
+   *  tiền 2 lần cho cùng 1 buổi (cả khoảng đã GỬI THẬT lẫn khoảng đang CHỜ
+   *  gửi trên màn hình này). */
+  const billedRangesOf = (studentId: string): { from: number; to: number; label: string }[] => [
+    ...notices.filter((n) => n.studentId === studentId).map((n) => ({ from: n.periodFrom, to: n.periodTo, label: `đã gửi ${n.periodLabel}` })),
+    ...dueRows.filter((r) => r.studentId === studentId).map((r) => ({ from: r.periodFrom, to: r.periodTo, label: `đang chờ gửi ${r.periodLabel}` })),
+    ...manualRows.filter((r) => r.studentId === studentId).map((r) => ({ from: r.periodFrom, to: r.periodTo, label: `đang chờ gửi ${r.periodLabel}` })),
+  ]
+
+  /** Xem trước "Chốt buổi tùy chọn" — tính tiền theo đúng khoảng buổi admin tự
+   *  chọn (buổi X đến buổi Y, 1-based), kèm cảnh báo nếu trùng khoảng đã chốt/
+   *  gửi trước đó cho CHÍNH học sinh này (tránh thu tiền 2 lần 1 buổi). */
+  const customPreview = useMemo(() => {
+    const st = cls.students.find((s) => s.id === customStudentId)
+    const fromNo = Number(customFrom)
+    const toNo = Number(customTo)
+    if (!st || rate == null) return null
+    if (!customFrom.trim() || !customTo.trim() || !Number.isFinite(fromNo) || !Number.isFinite(toNo)) return null
+    if (fromNo < 1 || toNo < fromNo) return { error: 'Buổi bắt đầu phải ≥ 1 và không lớn hơn buổi kết thúc.' }
+    if (toNo > st.sessions.length) return { error: `${st.name} mới có ${st.sessions.length} buổi — chưa tới buổi ${toNo}.` }
+    const from = fromNo - 1
+    const to = toNo
+    const sessionsBilled = sessionsBilledOf(st, from, to)
+    const amount = sessionsBilled * rate
+    const overlaps = billedRangesOf(st.id).filter((b) => b.from < to && b.to > from)
+    return { studentId: st.id, studentName: st.name, from, to, fromNo, toNo, sessionsBilled, amount, overlaps }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cls, customStudentId, customFrom, customTo, rate, notices, dueRows, manualRows])
+
+  function confirmCustomBill() {
+    if (!customPreview || 'error' in customPreview || customPreview.overlaps.length > 0) return
+    addManualBill(
+      { studentId: customPreview.studentId, studentName: customPreview.studentName, from: customPreview.from, to: customPreview.to },
+      `Buổi ${customPreview.fromNo}–${customPreview.toNo} (tùy chọn)`,
+    )
+    setShowCustomBill(false)
+    setCustomStudentId(''); setCustomFrom(''); setCustomTo('')
   }
 
   function patchRow(row: DueRow, fn: (r: DueRow) => void) {
@@ -462,6 +508,82 @@ export function TuitionReportScreen({ cls }: Props) {
         </div>
       </Card>
 
+      <Card className="p-4 space-y-2">
+        <button
+          type="button"
+          onClick={() => setShowCustomBill((v) => !v)}
+          className="text-sm font-bold"
+          style={{ color: C.board2 }}
+        >
+          {showCustomBill ? '▾' : '▸'} ✂️ Chốt buổi tùy chọn — chọn khoảng buổi bất kỳ cho 1 học sinh
+        </button>
+        {showCustomBill && (
+          <div className="space-y-2">
+            <div className="text-xs" style={{ color: C.muted }}>
+              Dùng khi muốn thu tiền 1 khoảng buổi cụ thể, không cần đợi đủ mốc 8/12 hay học sinh nghỉ ngang —
+              VD thu riêng "buổi 7 đến buổi 12".
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="text-xs" style={{ color: C.muted }}>
+                <div className="mb-1 font-semibold uppercase">Học sinh</div>
+                <select
+                  value={customStudentId}
+                  onChange={(e) => setCustomStudentId(e.target.value)}
+                  className="rounded-xl px-3 py-2 text-sm"
+                  style={{ border: `1px solid ${C.line}` }}
+                >
+                  <option value="">— Chọn học sinh —</option>
+                  {cls.students.map((st) => (
+                    <option key={st.id} value={st.id}>{st.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs" style={{ color: C.muted }}>
+                <div className="mb-1 font-semibold uppercase">Từ buổi</div>
+                <input
+                  type="number" min={1} value={customFrom}
+                  onChange={(e) => setCustomFrom(e.target.value)}
+                  className="w-20 rounded-xl px-3 py-2 text-center text-sm font-bold"
+                  style={{ border: `1px solid ${C.line}` }}
+                />
+              </label>
+              <label className="text-xs" style={{ color: C.muted }}>
+                <div className="mb-1 font-semibold uppercase">Đến buổi</div>
+                <input
+                  type="number" min={1} value={customTo}
+                  onChange={(e) => setCustomTo(e.target.value)}
+                  className="w-20 rounded-xl px-3 py-2 text-center text-sm font-bold"
+                  style={{ border: `1px solid ${C.line}` }}
+                />
+              </label>
+            </div>
+
+            {customPreview && 'error' in customPreview && (
+              <div className="text-xs font-semibold" style={{ color: C.red }}>⚠ {customPreview.error}</div>
+            )}
+            {customPreview && !('error' in customPreview) && (
+              <div className="space-y-1.5">
+                <div className="rounded-lg p-2 text-sm" style={{ background: C.paper, color: C.ink }}>
+                  → {customPreview.sessionsBilled} buổi tính phí × {fmtVnd(rate)} = <b>{fmtVnd(customPreview.amount)}</b>
+                </div>
+                {customPreview.overlaps.map((o, i) => (
+                  <div key={i} className="text-xs font-semibold" style={{ color: C.red }}>
+                    ⚠ Trùng với khoảng {o.label} — chọn lại để tránh thu trùng.
+                  </div>
+                ))}
+                <Btn
+                  kind="gold"
+                  disabled={customPreview.overlaps.length > 0}
+                  onClick={confirmCustomBill}
+                >
+                  ✅ Xác nhận chốt & thêm vào danh sách gửi
+                </Btn>
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+
       <Card className="overflow-hidden">
         <div className="px-4 py-3" style={{ background: C.board, color: '#fff' }}>
           <div className="text-lg font-bold">Tổng quan — {overviewRows.length} học sinh</div>
@@ -639,7 +761,7 @@ export function TuitionReportScreen({ cls }: Props) {
                       className={row.kind === 'auto' ? 'animate-blink rounded-full px-2 py-0.5 text-[10px] font-bold text-white' : 'rounded-full px-2 py-0.5 text-[10px] font-bold text-white'}
                       style={{ background: accent }}
                     >
-                      {row.kind === 'auto' ? '🔴 ĐÃ TỚI HẠN' : '✂️ CHỐT BUỔI NGHỈ NGANG'}
+                      {row.kind === 'auto' ? '🔴 ĐÃ TỚI HẠN' : '✂️ CHỐT BUỔI'}
                     </span>
                     <div className="font-bold" style={{ color: C.ink }}>{row.studentName}</div>
                   </div>

@@ -18,6 +18,7 @@ import { isMongoid } from '@/utils/mongoid'
 import { logActivity } from '@/services/activity'
 import { toast } from '@/store/toastStore'
 import { ImportHomeworkModal } from './ImportHomeworkModal'
+import { ResequenceSessionsModal } from './ResequenceSessionsModal'
 
 interface EntryScreenProps {
   cls: ClassData
@@ -141,6 +142,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   const [backfillProgress, setBackfillProgress] = useState({ done: 0, total: 0 })
   const [showSummary, setShowSummary] = useState(false)
   const [showImport, setShowImport] = useState(false)
+  const [showResequence, setShowResequence] = useState(false)
 
   // Buổi/Ngày khóa mặc định — tránh đổi nhầm do chạm/cuộn màn hình, phải
   // chủ động bấm ✎ Sửa mới mở ra chỉnh được.
@@ -622,6 +624,11 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
               📥 Nhập từ Excel
             </Btn>
           )}
+          {st && (
+            <Btn onClick={() => setShowResequence(true)} title="Sắp xếp lại số buổi đúng theo thứ tự ngày học — dùng khi số buổi bị lệch so với ngày thật">
+              🔧 Sửa số buổi
+            </Btn>
+          )}
           <button
             onClick={toggleGroupMode}
             title="Chọn nhóm học sinh có cùng điểm để áp dụng nhanh"
@@ -1090,6 +1097,15 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
           teacherName={teacherName}
           update={update}
           onClose={() => setShowImport(false)}
+        />
+      )}
+
+      {showResequence && st && (
+        <ResequenceSessionsModal
+          cls={cls}
+          studentId={st.id}
+          update={update}
+          onClose={() => setShowResequence(false)}
         />
       )}
 
