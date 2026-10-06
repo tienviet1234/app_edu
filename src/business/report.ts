@@ -1,7 +1,7 @@
 import type { Student, StudentStats, DetailBlock, EvidenceItem, SessionEntry, Session, AttendanceKey } from '@/types'
 import { getRubric } from '@/constants/rubrics'
 import { round1 } from '@/utils'
-import { compHasData, sessionComps } from './scoring'
+import { compHasData, compScore, sessionComps } from './scoring'
 
 /** Kỳ báo cáo — theo buổi RIÊNG của đúng 1 học sinh (mỗi em tiến độ khác nhau). */
 export function periodsOf(student: Student, perMonth: number) {
@@ -105,6 +105,9 @@ export interface SessionDetailRow {
   /** Điểm danh buổi này — dùng để tính tiền ĐÚNG BUỔI (chỉ 'present'/'late'
    *  mới tính phí, khớp sessionsBilledOf trong business/tuition.ts). */
   attendance: AttendanceKey
+  /** Điểm "Bài tập về nhà" buổi này, dạng "15/20" — rỗng nếu giáo viên chưa
+   *  chấm mục này (compHasData false) hoặc không truyền rubric `r`. */
+  homeworkScore: string
 }
 
 /** Tự ghép 1 câu NGẮN tả tình hình buổi học, CHỈ dựa trên điểm số đã chấm
@@ -198,6 +201,15 @@ export function sessionDetailsOf(
         auto = variants[i % variants.length]
       }
     }
+    // Điểm BTVN buổi này — chỉ ghi khi giáo viên ĐÃ CHẤM mục "hw" (compHasData),
+    // không bịa điểm 0 cho buổi chưa chấm (khác hẳn "0 điểm vì làm sai hết").
+    let homeworkScore = ''
+    if (r) {
+      const hwComp = sessionComps(r, s).find((c) => c.key === 'hw')
+      if (hwComp && compHasData(hwComp, s.entry)) {
+        homeworkScore = `${compScore(hwComp, s.entry)}/${hwComp.max}`
+      }
+    }
     return {
       no: i + 1,
       date: s.date,
@@ -205,6 +217,7 @@ export function sessionDetailsOf(
       status: status || auto,
       isAuto: !status && !!auto,
       attendance: s.entry.attendance,
+      homeworkScore,
     }
   })
 }

@@ -541,7 +541,12 @@ export function TuitionReportScreen({ cls }: Props) {
                                   <tr key={d.no} style={{ borderTop: `1px solid ${C.line}` }}>
                                     <td className="py-1 px-2 font-semibold">{d.no}</td>
                                     <td className="py-1 px-2" style={{ color: C.muted }}>{viDate(d.date)}</td>
-                                    <td className="py-1 px-2" style={{ color: C.muted }}>{d.homework || '—'}</td>
+                                    <td className="py-1 px-2" style={{ color: C.muted }}>
+                                      {d.homework || '—'}
+                                      {d.homeworkScore && (
+                                        <span className="ml-1 font-semibold" style={{ color: C.ink }}>({d.homeworkScore})</span>
+                                      )}
+                                    </td>
                                     <td className="py-1 px-2" style={d.isAuto ? { color: C.muted, fontStyle: 'italic' } : { color: C.ink }}>
                                       {d.status}
                                       {d.isAuto && <span className="ml-1 not-italic" style={{ color: C.board2 }} title="Tự sinh từ điểm số đã chấm">🤖</span>}
@@ -647,8 +652,15 @@ export function TuitionReportScreen({ cls }: Props) {
                           <div className="font-semibold" style={{ color: C.ink }}>
                             Buổi {d.no} — {viDate(d.date)}
                           </div>
-                          {d.homework && (
-                            <div className="mt-0.5" style={{ color: C.muted }}>📝 Bài giao: {d.homework}</div>
+                          {(d.homework || d.homeworkScore) && (
+                            <div className="mt-0.5" style={{ color: C.muted }}>
+                              {d.homework && <>📝 Bài giao: {d.homework}</>}
+                              {d.homeworkScore && (
+                                <span className="ml-1 font-semibold" style={{ color: C.ink }}>
+                                  {d.homework ? '— ' : ''}Điểm BTVN: {d.homeworkScore}
+                                </span>
+                              )}
+                            </div>
                           )}
                           <div className="mt-0.5" style={d.isAuto ? { color: C.muted, fontStyle: 'italic' } : { color: C.ink }}>
                             {d.status || <span style={{ color: C.muted }}>(chưa có ghi chú buổi này)</span>}

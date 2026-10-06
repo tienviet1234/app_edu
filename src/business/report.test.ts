@@ -67,8 +67,8 @@ describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình
     }
     const rows = sessionDetailsOf(student, 0, 2)
     expect(rows).toEqual([
-      { no: 1, date: '2026-07-30', homework: 'Đọc sách bài tập trang 28', status: 'ĐÃ LÀM VIDEO; make, snowflake, snowman', isAuto: false, attendance: 'present' },
-      { no: 2, date: '2026-08-04', homework: 'Làm sách bài tập trang 29,30', status: 'Nghỉ không phép', isAuto: false, attendance: 'absent' },
+      { no: 1, date: '2026-07-30', homework: 'Đọc sách bài tập trang 28', status: 'ĐÃ LÀM VIDEO; make, snowflake, snowman', isAuto: false, attendance: 'present', homeworkScore: '' },
+      { no: 2, date: '2026-08-04', homework: 'Làm sách bài tập trang 29,30', status: 'Nghỉ không phép', isAuto: false, attendance: 'absent', homeworkScore: '' },
     ])
   })
 
@@ -103,6 +103,18 @@ describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình
     // trạng thái, ngắn gọn) — không phải văn viết đầy đủ kiểu báo cáo.
     expect(rows[0].status).toContain('ĐÃ LÀM BÀI TẬP VỀ NHÀ')
     expect(rows[0].status).toContain('còn thiếu viết sạch đẹp')
+    // 3/4 việc x 5 điểm = 15, trên tổng 20 điểm của tiêu chí BTVN.
+    expect(rows[0].homeworkScore).toBe('15/20')
+  })
+
+  it('chưa chấm mục BTVN buổi đó thì để trống điểm, không bịa thành 0', () => {
+    const r = getRubric('secondary')
+    const student: Student = {
+      id: 'st1', name: 'Minh Khôi',
+      sessions: [{ id: 's1', no: 1, date: '2026-01-01', entry: { ...emptyEntry(), attendance: 'present' } }],
+    }
+    const rows = sessionDetailsOf(student, 0, 1, r)
+    expect(rows[0].homeworkScore).toBe('')
   })
 
   it('tiêu chí "thái độ" (c.stars) không dùng khuôn "ĐÃ LÀM X" (sai ngữ pháp, nghe như máy sinh)', () => {
