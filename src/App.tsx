@@ -449,7 +449,7 @@ export default function App() {
           id: as._id,
           no: as.lessonNo ?? student.sessions.length + 1,
           date: as.scheduledAt.slice(0, 10),
-          homework: '',
+          homework: as.notes ?? '',
           createdByName: teacherName,
           recordedAt: as.createdAt,
           entry: score ? toEntry(score) : emptyEntry(),

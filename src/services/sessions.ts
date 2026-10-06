@@ -12,6 +12,9 @@ export interface ApiSession {
   scheduledAt: string
   durationMinutes: number
   status: 'scheduled' | 'completed' | 'cancelled'
+  /** Lưu "Bài tập về nhà" riêng của học sinh buổi này — field tên "notes" có
+   *  sẵn trong model nhưng trước đây không nơi nào dùng tới. */
+  notes?: string
   createdAt: string
   updatedAt: string
 }
@@ -36,6 +39,7 @@ export const sessionService = {
     lessonNo?: number
     scheduledAt?: string
     durationMinutes?: number
+    notes?: string
   }) =>
     api.post<{ data: ApiSession }>('/sessions', body).then((r) => r.data.data),
 

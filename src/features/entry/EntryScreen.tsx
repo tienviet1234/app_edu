@@ -17,6 +17,7 @@ import { scoreService } from '@/services/scores'
 import { isMongoid } from '@/utils/mongoid'
 import { logActivity } from '@/services/activity'
 import { toast } from '@/store/toastStore'
+import { ImportHomeworkModal } from './ImportHomeworkModal'
 
 interface EntryScreenProps {
   cls: ClassData
@@ -139,6 +140,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   const [backfilling, setBackfilling] = useState(false)
   const [backfillProgress, setBackfillProgress] = useState({ done: 0, total: 0 })
   const [showSummary, setShowSummary] = useState(false)
+  const [showImport, setShowImport] = useState(false)
 
   // Buổi/Ngày khóa mặc định — tránh đổi nhầm do chạm/cuộn màn hình, phải
   // chủ động bấm ✎ Sửa mới mở ra chỉnh được.
@@ -289,6 +291,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
           title: `Buổi ${target.no}`,
           lessonNo: target.no,
           scheduledAt: `${target.date}T00:00:00.000Z`,
+          notes: target.homework || undefined,
         })
         sessionId = apiSession._id
         update((c) => {
@@ -297,6 +300,11 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
           if (ss) ss.id = sessionId
         })
         logActivity('session.create', { className: cls.name, sessionNo: target.no, studentName: student.name }, 'ClassSession')
+      } else {
+        // Buổi đã có sẵn trên server — "Bài tập về nhà" trước đây KHÔNG BAO
+        // GIỜ được gửi lên đây cả, nên tải lại trang/đổi máy là mất sạch. Đồng
+        // bộ lại mỗi lần lưu điểm (cùng nhịp với điểm) để không lệch dữ liệu.
+        await sessionService.update(sessionId, { notes: target.homework ?? '' })
       }
       await scoreService.upsert({ classId: cls.id, sessionId, studentId, ...target.entry, total })
       setSyncStatus('saved')
@@ -609,6 +617,11 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
           <Btn onClick={presetClass} title="Đặt sẵn mức đạt cho cả lớp">
             ⚡ Mặc định
           </Btn>
+          {st && (
+            <Btn onClick={() => setShowImport(true)} title="Nhập nhiều buổi (bài tập/ngày học) từ file Excel theo dõi riêng của học sinh này">
+              📥 Nhập từ Excel
+            </Btn>
+          )}
           <button
             onClick={toggleGroupMode}
             title="Chọn nhóm học sinh có cùng điểm để áp dụng nhanh"
@@ -1068,6 +1081,16 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
             </div>
           </div>
         </Card>
+      )}
+
+      {showImport && st && (
+        <ImportHomeworkModal
+          cls={cls}
+          studentId={st.id}
+          teacherName={teacherName}
+          update={update}
+          onClose={() => setShowImport(false)}
+        />
       )}
 
       {/* Xác nhận trước khi lưu & chuyển sang học sinh khác — xem lại 1 lần
