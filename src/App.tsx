@@ -670,7 +670,7 @@ export default function App() {
         {activeTab === 'my-debts' && <StudentDebtScreen />}
         {cls && activeTab === 'board' && <LeaderboardScreen cls={cls} update={updateClass} userId={user?.role === 'student' ? user.id : undefined} />}
         {cls && activeTab === 'report' && <ReportScreen cls={cls} update={updateClass} />}
-        {cls && activeTab === 'tuition-report' && <TuitionReportScreen cls={cls} />}
+        {cls && activeTab === 'tuition-report' && <TuitionReportScreen cls={cls} update={updateClass} />}
         {cls && activeTab === 'billing' && (
           <SessionCountScreen
             cls={cls}

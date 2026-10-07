@@ -14,9 +14,12 @@ import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { Chip } from '@/components/atoms/Chip'
 import { toast } from '@/store/toastStore'
+import { ResequenceSessionsModal } from '@/features/entry/ResequenceSessionsModal'
+import { DeletedSessionsPanel } from '@/features/classes/DeletedSessionsPanel'
 
 interface Props {
   cls: ClassData
+  update: (fn: (c: ClassData) => void) => void
 }
 
 interface DueRow {
@@ -96,7 +99,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
   }
 }
 
-export function TuitionReportScreen({ cls }: Props) {
+export function TuitionReportScreen({ cls, update }: Props) {
   const r = getClassRubric(cls)
   const [rate, setRate] = useState<number | null>(null)
   const [loadingRate, setLoadingRate] = useState(true)
@@ -112,6 +115,8 @@ export function TuitionReportScreen({ cls }: Props) {
   const [customStudentId, setCustomStudentId] = useState('')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
+  const [resequenceStudentId, setResequenceStudentId] = useState<string | null>(null)
+  const [deletedPanelStudentId, setDeletedPanelStudentId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!isMongoid(cls.id)) return
@@ -212,6 +217,20 @@ export function TuitionReportScreen({ cls }: Props) {
     ...dueRows.filter((r) => r.studentId === studentId).map((r) => ({ from: r.periodFrom, to: r.periodTo, label: `đang chờ gửi ${r.periodLabel}` })),
     ...manualRows.filter((r) => r.studentId === studentId).map((r) => ({ from: r.periodFrom, to: r.periodTo, label: `đang chờ gửi ${r.periodLabel}` })),
   ]
+
+  /** Nút "✂️ Chốt buổi" nhanh (mục "Chưa tới hạn") trước đây KHÔNG kiểm tra
+   *  trùng khoảng — nếu học sinh đã có 1 khoản chốt buổi tùy chọn/đã gửi nằm
+   *  TRONG đúng khoảng [0, to) này (VD lỡ chốt nhầm rồi hoàn tác, hoặc chốt
+   *  từng phần trước đó), bấm nút này sẽ tạo thêm 1 khoản MỚI đè lên, dễ thu
+   *  trùng tiền. Giờ luôn cảnh báo rõ trước khi tạo nếu phát hiện trùng. */
+  function confirmAndAddManualBill(nd: { studentId: string; studentName: string; from: number; to: number }) {
+    const overlaps = billedRangesOf(nd.studentId).filter((b) => b.from < nd.to && b.to > nd.from)
+    if (overlaps.length) {
+      const names = overlaps.map((o) => o.label).join(', ')
+      if (!confirm(`${nd.studentName} đã có khoản ${names} — trùng 1 phần với buổi 1-${nd.to} sắp chốt. Vẫn tạo thêm (có thể thu trùng tiền)?`)) return
+    }
+    addManualBill(nd)
+  }
 
   /** Xem trước "Chốt buổi tùy chọn" — tính tiền theo đúng khoảng buổi admin tự
    *  chọn (buổi X đến buổi Y, 1-based), kèm cảnh báo nếu trùng khoảng đã chốt/
@@ -629,9 +648,15 @@ export function TuitionReportScreen({ cls }: Props) {
                       <td className="py-1.5 px-3 max-w-[220px] truncate" style={{ color: C.muted }} title={r.reportComment}>
                         {r.reportComment}
                       </td>
-                      <td className="py-1.5 px-3 text-right">
-                        <button className="font-semibold" style={{ color: C.board2 }} onClick={() => exportOneRow(r)}>
+                      <td className="py-1.5 px-3 text-right whitespace-nowrap">
+                        <button className="font-semibold" style={{ color: C.board2 }} onClick={() => exportOneRow(r)} title="Xuất Excel riêng em này">
                           📥 Xuất
+                        </button>
+                        <button className="ml-2 font-semibold" style={{ color: C.gold }} onClick={() => setResequenceStudentId(r.studentId)} title="Sửa số buổi bị lệch/trùng của em này">
+                          🔧 Sửa buổi
+                        </button>
+                        <button className="ml-2 font-semibold" style={{ color: C.red }} onClick={() => setDeletedPanelStudentId(r.studentId)} title="Xem lại/khôi phục buổi đã xóa của em này">
+                          🗑️ Đã xóa
                         </button>
                       </td>
                     </tr>
@@ -864,6 +889,18 @@ export function TuitionReportScreen({ cls }: Props) {
                 <Btn kind="solid" onClick={() => markSent(row)} disabled={row.saving}>
                   {row.saving ? 'Đang lưu...' : '✅ Đánh dấu đã gửi'}
                 </Btn>
+                {row.kind === 'manual' && (
+                  <button
+                    className="text-xs font-semibold"
+                    style={{ color: C.red }}
+                    onClick={() => {
+                      if (!confirm(`Hủy khoản "Chốt buổi" này cho ${row.studentName}? Chưa gửi gì nên xóa an toàn, không ảnh hưởng dữ liệu khác.`)) return
+                      setManualRows((prev) => prev.filter((r) => !(r.studentId === row.studentId && r.periodFrom === row.periodFrom && r.periodTo === row.periodTo)))
+                    }}
+                  >
+                    🗑️ Hủy khoản này
+                  </button>
+                )}
               </div>
             </Card>
           )
@@ -892,7 +929,7 @@ export function TuitionReportScreen({ cls }: Props) {
                   className="rounded px-1.5 py-0.5 font-semibold"
                   style={{ color: C.gold, border: `1px solid ${C.gold}66` }}
                   title="Học sinh nghỉ ngang — chốt tiền đúng số buổi đã học"
-                  onClick={() => addManualBill(r)}
+                  onClick={() => confirmAndAddManualBill(r)}
                 >
                   ✂️ Chốt buổi
                 </button>
@@ -927,7 +964,7 @@ export function TuitionReportScreen({ cls }: Props) {
                         </div>
                         <div className="flex shrink-0 gap-2">
                           <Btn kind="solid" size="sm" onClick={() => markPaid(n)}>✅ Đã đóng tiền</Btn>
-                          <button className="text-xs" style={{ color: C.muted }} onClick={() => undoSent(n)}>↩ Hoàn tác gửi</button>
+                          <button className="text-xs font-semibold" style={{ color: C.red }} onClick={() => undoSent(n)} title="Xóa hẳn khoản này — dùng khi lỡ chốt/gửi nhầm, xóa xong có thể chốt lại từ đầu">🗑️ Xóa (ghi nhầm)</button>
                         </div>
                       </div>
                     )
@@ -970,6 +1007,24 @@ export function TuitionReportScreen({ cls }: Props) {
           </>
         )
       })()}
+
+      {resequenceStudentId && (
+        <ResequenceSessionsModal
+          cls={cls}
+          studentId={resequenceStudentId}
+          update={update}
+          onClose={() => setResequenceStudentId(null)}
+        />
+      )}
+
+      {deletedPanelStudentId && (
+        <DeletedSessionsPanel
+          cls={cls}
+          studentId={deletedPanelStudentId}
+          edit={update}
+          onClose={() => setDeletedPanelStudentId(null)}
+        />
+      )}
     </div>
   )
 }

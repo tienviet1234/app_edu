@@ -110,6 +110,10 @@ export interface SessionScoreItem {
 }
 
 export interface SessionDetailRow {
+  /** Số buổi THẬT, xuyên suốt cả khóa (= Session.no) — khớp ĐÚNG số hiện ở
+   *  màn Nhập điểm/Lớp học. TRƯỚC ĐÂY bị đánh số LẠI theo từng kỳ báo cáo
+   *  (1,2,3... của riêng kỳ), gây lệch số so với các màn khác, admin phải tự
+   *  đối chiếu tay — đã bỏ, giờ dùng chung 1 số duy nhất mọi nơi. */
   no: number
   date: string
   homework: string
@@ -189,8 +193,10 @@ function autoSessionStatus(session: Session, r: ReturnType<typeof getRubric>): s
 
 /** Chi tiết TỪNG BUỔI trong kỳ [from, to) — đúng mức chi tiết trung tâm vẫn
  *  tự ghi tay (bài tập giao buổi nào, buổi đó làm được gì/chưa làm gì) thay
- *  vì chỉ 1 câu nhận xét tổng hợp chung chung. "no" ở đây đánh số LẠI theo
- *  đúng kỳ (buổi 1, 2, 3... của kỳ này), không phải số buổi toàn khóa học.
+ *  vì chỉ 1 câu nhận xét tổng hợp chung chung. "no" lấy ĐÚNG số buổi thật
+ *  (Session.no, khớp màn Nhập điểm/Lớp học) — TRƯỚC ĐÂY đánh số lại theo kỳ
+ *  (buổi 1,2,3... của riêng kỳ này) gây lệch số so với các màn khác, admin
+ *  phải tự đối chiếu tay, nay bỏ hẳn kiểu đánh số riêng đó.
  *  `r` (rubric) tùy chọn — truyền vào để TỰ SINH nhận xét cho buổi nào giáo
  *  viên không ghi chú gì (xem autoSessionStatus); bỏ trống thì giữ hành vi
  *  cũ (để trống nếu giáo viên chưa ghi, không tự sinh gì). */
@@ -242,7 +248,7 @@ export function sessionDetailsOf(
       })
     }
     return {
-      no: i + 1,
+      no: s.no,
       date: s.date,
       homework: s.homework?.trim() ?? '',
       status: status || auto,

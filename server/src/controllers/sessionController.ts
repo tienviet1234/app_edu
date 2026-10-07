@@ -2,7 +2,7 @@ import type { Request, Response } from 'express'
 import { Types } from 'mongoose'
 import { ClassSession } from '../models/ClassSession.js'
 import { Class } from '../models/Class.js'
-import { created, forbidden, notFound, ok } from '../utils/response.js'
+import { badRequest, created, forbidden, notFound, ok } from '../utils/response.js'
 import { parsePagination } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit } from '../services/auditService.js'
@@ -45,8 +45,30 @@ export async function listSessions(req: Request, res: Response): Promise<void> {
   ok(res, { items, total, page, totalPages: Math.max(1, Math.ceil(total / limit)) })
 }
 
+/** 1 học sinh không được có 2 buổi active (chưa xóa) cùng số — nếu lọt qua
+ *  sẽ gây tình trạng "nhiều buổi cùng Buổi N" như đã gặp (số liệu lệch nhau
+ *  giữa các màn hình, dễ nhầm buổi khi chấm điểm). Loại trừ buổi đã xóa
+ *  (deletedAt) và buổi chung cũ đã fan-out (migratedAt) khỏi việc kiểm tra. */
+async function findConflictingSession(
+  studentId: unknown, lessonNo: unknown, excludeId?: string,
+): Promise<{ _id: Types.ObjectId; scheduledAt: Date } | null> {
+  if (!studentId || lessonNo == null) return null
+  return ClassSession.findOne({
+    studentId,
+    lessonNo,
+    deletedAt: { $exists: false },
+    migratedAt: { $exists: false },
+    ...(excludeId ? { _id: { $ne: excludeId } } : {}),
+  }, '_id scheduledAt').lean()
+}
+
 export async function createSession(req: Request, res: Response): Promise<void> {
   const authReq = req as AuthRequest
+  const conflict = await findConflictingSession(req.body.studentId, req.body.lessonNo)
+  if (conflict) {
+    badRequest(res, `Học sinh này đã có Buổi ${req.body.lessonNo} (ngày ${conflict.scheduledAt.toISOString().slice(0, 10)}) rồi — chọn số buổi khác.`)
+    return
+  }
   const session = await ClassSession.create({
     ...req.body,
     scheduledAt: req.body.scheduledAt ? new Date(req.body.scheduledAt) : new Date(),
@@ -68,7 +90,7 @@ export async function getSession(req: Request, res: Response): Promise<void> {
 
 export async function updateSession(req: Request, res: Response): Promise<void> {
   const authReq = req as AuthRequest
-  const existing = await ClassSession.findById(req.params.id, 'classId')
+  const existing = await ClassSession.findById(req.params.id, 'classId studentId lessonNo')
   if (!existing) {
     notFound(res, 'Session not found.')
     return
@@ -76,6 +98,15 @@ export async function updateSession(req: Request, res: Response): Promise<void> 
   if (!(await canManageSessionOfClass(authReq, existing.classId))) {
     forbidden(res, 'You can only update sessions in your own classes.')
     return
+  }
+  // Chỉ cần kiểm tra khi THỰC SỰ đổi sang số khác — tránh tự báo trùng với
+  // chính buổi đang sửa khi admin chỉ đổi ngày/ghi chú, không đổi số buổi.
+  if (req.body.lessonNo != null && req.body.lessonNo !== existing.lessonNo) {
+    const conflict = await findConflictingSession(existing.studentId, req.body.lessonNo, String(req.params.id))
+    if (conflict) {
+      badRequest(res, `Học sinh này đã có Buổi ${req.body.lessonNo} (ngày ${conflict.scheduledAt.toISOString().slice(0, 10)}) rồi — chọn số buổi khác.`)
+      return
+    }
   }
   const session = await ClassSession.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
   await writeAudit(req, { action: 'session.update', resource: 'ClassSession', resourceId: String(session!._id) })

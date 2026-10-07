@@ -51,7 +51,7 @@ describe('buildComment — chi tiết ghi chú cụ thể', () => {
 })
 
 describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình)', () => {
-  it('đánh số LẠI theo kỳ (1,2,3...), lấy đúng bài tập giao + ghi chú từng buổi', () => {
+  it('lấy ĐÚNG số buổi thật (Session.no, khớp màn Nhập điểm), không đánh số lại theo kỳ', () => {
     const student: Student = {
       id: 'st1', name: 'Minh Khôi',
       sessions: [
@@ -67,8 +67,8 @@ describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình
     }
     const rows = sessionDetailsOf(student, 0, 2)
     expect(rows).toEqual([
-      { no: 1, date: '2026-07-30', homework: 'Đọc sách bài tập trang 28', status: 'ĐÃ LÀM VIDEO; make, snowflake, snowman', isAuto: false, attendance: 'present', scores: [] },
-      { no: 2, date: '2026-08-04', homework: 'Làm sách bài tập trang 29,30', status: 'Nghỉ không phép', isAuto: false, attendance: 'absent', scores: [] },
+      { no: 5, date: '2026-07-30', homework: 'Đọc sách bài tập trang 28', status: 'ĐÃ LÀM VIDEO; make, snowflake, snowman', isAuto: false, attendance: 'present', scores: [] },
+      { no: 6, date: '2026-08-04', homework: 'Làm sách bài tập trang 29,30', status: 'Nghỉ không phép', isAuto: false, attendance: 'absent', scores: [] },
     ])
   })
 
@@ -82,8 +82,8 @@ describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình
     }
     const rows = sessionDetailsOf(student, 8, 10)
     expect(rows).toHaveLength(2)
-    expect(rows[0]).toMatchObject({ no: 1, homework: 'HW9' })
-    expect(rows[1]).toMatchObject({ no: 2, homework: 'HW10' })
+    expect(rows[0]).toMatchObject({ no: 9, homework: 'HW9' })
+    expect(rows[1]).toMatchObject({ no: 10, homework: 'HW10' })
   })
 
   it('buổi không có ghi chú gì — tự sinh nhận xét từ điểm số thật (đã chấm), đánh dấu isAuto', () => {

@@ -25,6 +25,8 @@ import { Stat } from '@/components/atoms/Stat'
 import { isMongoid } from '@/utils/mongoid'
 import { reportService } from '@/services/reports'
 import { logActivity } from '@/services/activity'
+import { ResequenceSessionsModal } from '@/features/entry/ResequenceSessionsModal'
+import { DeletedSessionsPanel } from '@/features/classes/DeletedSessionsPanel'
 
 interface ReportScreenProps {
   cls: ClassData
@@ -46,6 +48,8 @@ export function ReportScreen({ cls, update }: ReportScreenProps) {
   const [copied, setCopied] = useState(false)
   const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const [showResequence, setShowResequence] = useState(false)
+  const [showDeleted, setShowDeleted] = useState(false)
 
   const st = cls.students[stIdx]
   const periods = st ? periodsOf(st, cls.perMonth) : []
@@ -532,9 +536,29 @@ ${r.comps.map((c) => `<td class="num">${fracPct(row.s.catPts[c.key])}</td>`).joi
       {/* ── Tab: Học sinh ── */}
       {tab === 'student' && (
         <Card className="overflow-hidden">
-          <div className="px-4 py-3" style={{ background: C.board, color: '#fff' }}>
-            <div className="text-xs opacity-80">Tổng kết toàn bộ · {cls.name}</div>
-            <div className="text-xl font-bold">{st.name}</div>
+          <div className="px-4 py-3 flex items-center justify-between gap-2" style={{ background: C.board, color: '#fff' }}>
+            <div>
+              <div className="text-xs opacity-80">Tổng kết toàn bộ · {cls.name}</div>
+              <div className="text-xl font-bold">{st.name}</div>
+            </div>
+            <div className="flex shrink-0 gap-1.5 text-xs">
+              <button
+                onClick={() => setShowResequence(true)}
+                className="rounded-lg px-2 py-1 font-semibold"
+                style={{ background: '#ffffff22' }}
+                title="Sửa số buổi bị lệch/trùng của em này"
+              >
+                🔧 Sửa buổi
+              </button>
+              <button
+                onClick={() => setShowDeleted(true)}
+                className="rounded-lg px-2 py-1 font-semibold"
+                style={{ background: '#ffffff22' }}
+                title="Xem lại/khôi phục buổi đã xóa của em này"
+              >
+                🗑️ Đã xóa
+              </button>
+            </div>
           </div>
           <div className="p-4 space-y-3">
             {(() => {
@@ -571,6 +595,24 @@ ${r.comps.map((c) => `<td class="num">${fracPct(row.s.catPts[c.key])}</td>`).joi
           readOnly
           className="h-64 w-full rounded-2xl p-3 text-xs"
           style={{ border: `1px solid ${C.line}`, background: '#fff', fontFamily: 'ui-monospace, monospace' }}
+        />
+      )}
+
+      {showResequence && st && (
+        <ResequenceSessionsModal
+          cls={cls}
+          studentId={st.id}
+          update={update}
+          onClose={() => setShowResequence(false)}
+        />
+      )}
+
+      {showDeleted && st && (
+        <DeletedSessionsPanel
+          cls={cls}
+          studentId={st.id}
+          edit={update}
+          onClose={() => setShowDeleted(false)}
         />
       )}
     </div>
