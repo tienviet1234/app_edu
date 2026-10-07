@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { ClassData } from '@/types'
+import type { ClassData, Session } from '@/types'
 import { C } from '@/constants/colors'
 import { viDate } from '@/utils/format'
 import { isMongoid } from '@/utils/mongoid'
@@ -22,10 +22,17 @@ interface Props {
 
 interface PreviewRow extends ImportedSessionRow {
   no: number
-  /** true nếu học sinh ĐÃ có buổi khác đúng ngày này — chắc chắn là buổi đã
-   *  chấm điểm thật, bỏ qua để không tạo trùng/đè dữ liệu thật. */
+  /** true nếu số buổi này KHÔNG có sẵn trong Excel (cột "Số buổi học" trống/
+   *  không phải số) — phải tự đánh số tiếp theo, khác với lấy đúng số thật. */
+  noIsGuessed: boolean
+  /** true nếu học sinh ĐÃ có buổi khác trùng NGÀY hoặc trùng SỐ BUỔI — chắc
+   *  chắn là buổi đã chấm điểm thật, bỏ qua để không tạo trùng/đè dữ liệu thật. */
   conflict: boolean
+  conflictReason: string
   homeworkText: string
+  /** Buổi app ĐANG CÓ gây ra xung đột (trùng ngày hoặc trùng số) — hiện cạnh
+   *  nhau để so sánh Excel vs. app tại chỗ, không cần mở 2 màn hình. */
+  existing: { no: number; date: string; homework: string; note: string }[]
 }
 
 /** "Bài tập về nhà" ghép thêm chủ đề/tên sách lên đầu (nếu có) để không mất
@@ -50,19 +57,55 @@ export function ImportHomeworkModal({ cls, studentId, teacherName, update, onClo
     setParsing(true)
     setError('')
     try {
-      const parsed = await parseSessionImportFile(file)
+      const parsed = await parseSessionImportFile(file, student!.name)
       const existingDates = new Set(student!.sessions.map((s) => s.date))
-      let nextNo = Math.max(0, ...student!.sessions.map((s) => s.no)) + 1
+      const existingNos = new Set(student!.sessions.map((s) => s.no))
+      // Buổi nào Excel CÓ ghi sẵn số ("Số buổi học" của chính em này) thì lấy
+      // ĐÚNG số đó — đây là số thật giáo viên đã dùng, không tự đoán lại theo
+      // ngày (mỗi em có số riêng, không nhất thiết theo đúng thứ tự ngày).
+      // Chỉ những dòng KHÔNG có số mới tự đánh tiếp theo số lớn nhất hiện có.
+      let fallbackNo = Math.max(0, ...student!.sessions.map((s) => s.no)) + 1
+      const seenNos = new Set<number>()
       const preview: PreviewRow[] = [...parsed]
         .sort((a, b) => a.date.localeCompare(b.date))
         .map((r) => {
-          const conflict = existingDates.has(r.date)
-          const row: PreviewRow = { ...r, no: nextNo, conflict, homeworkText: buildHomeworkText(r) }
-          if (!conflict) nextNo += 1
+          const noIsGuessed = r.sourceNo == null
+          const no = r.sourceNo ?? fallbackNo
+          if (noIsGuessed) fallbackNo += 1
+          const dateConflict = existingDates.has(r.date)
+          const noConflict = existingNos.has(no) || seenNos.has(no)
+          seenNos.add(no)
+          const conflictReason = dateConflict && noConflict
+            ? 'trùng cả ngày lẫn số buổi với dữ liệu đã có'
+            : dateConflict
+              ? 'đã có buổi ngày này'
+              : noConflict
+                ? `đã có/trùng Buổi ${no}`
+                : ''
+          // Lấy đúng buổi app đang có gây trùng — để hiện cạnh nhau so sánh,
+          // khỏi phải mở riêng màn "Lớp học" tìm lại buổi đó.
+          const existing: PreviewRow['existing'] = []
+          const pushExisting = (ss: Session | undefined) => {
+            if (ss && !existing.some((e) => e.no === ss.no && e.date === ss.date)) {
+              existing.push({ no: ss.no, date: ss.date, homework: ss.homework ?? '', note: ss.entry.note })
+            }
+          }
+          if (dateConflict) pushExisting(student!.sessions.find((s) => s.date === r.date))
+          if (noConflict) pushExisting(student!.sessions.find((s) => s.no === no))
+          const row: PreviewRow = {
+            ...r, no, noIsGuessed, conflict: dateConflict || noConflict, conflictReason,
+            homeworkText: buildHomeworkText(r), existing,
+          }
           return row
         })
       setRows(preview)
-      setIncluded(new Set(preview.filter((r) => !r.conflict).map((_, i) => i)))
+      // BUG trước đây: lấy index từ mảng ĐÃ LỌC (chỉ các dòng không trùng),
+      // trong khi `included` được dùng để tra cứu trên mảng GỐC `preview` —
+      // 2 mảng index lệch nhau khiến tích chọn sai dòng khi có buổi bị khóa
+      // (trùng ngày) nằm xen giữa. Phải lấy index TRÊN CHÍNH `preview`.
+      const ok = new Set<number>()
+      preview.forEach((r, i) => { if (!r.conflict) ok.add(i) })
+      setIncluded(ok)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không đọc được file này.')
     } finally {
@@ -138,8 +181,9 @@ export function ImportHomeworkModal({ cls, studentId, teacherName, update, onClo
         {!rows && (
           <>
             <div className="text-xs" style={{ color: C.muted }}>
-              Chọn file Excel theo dõi buổi học của ĐÚNG học sinh này. Cần có cột "Bài tập về nhà" và
-              "Ngày học" — các buổi chưa có ngày (chưa dạy) sẽ tự bỏ qua.
+              Chọn file Excel theo dõi buổi học (dùng chung cho cả lớp cũng được — hệ thống tự tìm đúng
+              cụm cột "Buổi học/Ngày học" có tiêu đề khớp tên <b>{student.name}</b>, không lấy nhầm của em
+              khác). Các buổi chưa có ngày (chưa dạy) sẽ tự bỏ qua.
             </div>
             <input
               type="file"
@@ -163,8 +207,9 @@ export function ImportHomeworkModal({ cls, studentId, teacherName, update, onClo
             ) : (
               <>
                 <div className="text-xs" style={{ color: C.muted }}>
-                  Tìm thấy {rows.length} buổi — bỏ chọn dòng nào không muốn nhập. Buổi trùng ngày với dữ
-                  liệu đã có sẽ tự khóa (không ghi đè).
+                  Tìm thấy {rows.length} buổi — số buổi lấy ĐÚNG theo cột "Số buổi học" của em này trong
+                  Excel (không tự đánh số lại), trừ dòng nào Excel không ghi số thì mới tự đánh tiếp theo
+                  (đánh dấu <i>tự đoán</i>). Buổi trùng ngày hoặc trùng số với dữ liệu đã có sẽ tự khóa.
                 </div>
                 <div className="space-y-1.5">
                   {rows.map((r, i) => (
@@ -182,11 +227,24 @@ export function ImportHomeworkModal({ cls, studentId, teacherName, update, onClo
                       />
                       <div className="min-w-0 flex-1">
                         <div className="font-semibold" style={{ color: C.ink }}>
-                          Buổi {r.no} — {viDate(r.date)}
-                          {r.conflict && <span className="ml-1 font-normal" style={{ color: C.red }}>⚠ đã có buổi ngày này — bỏ qua</span>}
+                          Buổi {r.no}{r.noIsGuessed && <span className="font-normal italic" style={{ color: C.muted }}> (tự đoán)</span>} — {viDate(r.date)}
+                          {r.conflict && <span className="ml-1 font-normal" style={{ color: C.red }}>⚠ {r.conflictReason} — bỏ qua</span>}
                         </div>
                         <div style={{ color: C.muted }}>{r.homeworkText || '(không có bài tập)'}</div>
                         {r.note && <div className="mt-0.5 italic" style={{ color: C.muted }}>"{r.note}"</div>}
+                        {r.existing.length > 0 && (
+                          <div className="mt-1 space-y-1 border-l-2 pl-2" style={{ borderColor: C.red }}>
+                            {r.existing.map((e, j) => (
+                              <div key={j}>
+                                <div className="font-semibold" style={{ color: C.red }}>
+                                  App đang có: Buổi {e.no} — {viDate(e.date)}
+                                </div>
+                                <div style={{ color: C.muted }}>{e.homework || '(không có bài tập)'}</div>
+                                {e.note && <div className="italic" style={{ color: C.muted }}>"{e.note}"</div>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </label>
                   ))}
