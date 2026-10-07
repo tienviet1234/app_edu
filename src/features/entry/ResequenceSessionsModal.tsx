@@ -61,6 +61,7 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
   const [saving, setSaving] = useState(false)
   const [lastApplied, setLastApplied] = useState<Applied[] | null>(() => loadUndo(studentId))
   const [error, setError] = useState('')
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   useEffect(() => {
     saveUndo(studentId, lastApplied)
@@ -138,6 +139,31 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
     setLastApplied(null)
   }
 
+  /** Xóa thẳng 1 buổi "dư"/sai hẳn ngay tại đây (không chỉ lệch số) — soft
+   *  delete (xem sessionController.deleteSession), không mất hẳn, khôi phục
+   *  lại được qua "🗑️ Buổi đã xóa" nếu lỡ tay. */
+  async function handleDelete(ss: { id: string; no: number; date: string }) {
+    if (!confirm(`Xóa hẳn Buổi ${ss.no} (${viDate(ss.date)}) của ${student!.name}? Vẫn khôi phục lại được sau qua "🗑️ Buổi đã xóa".`)) return
+    setDeletingId(ss.id)
+    try {
+      if (isMongoid(ss.id)) await sessionService.remove(ss.id)
+      update((cData) => {
+        const stu = cData.students.find((s) => s.id === studentId)
+        if (stu) stu.sessions = stu.sessions.filter((s) => s.id !== ss.id)
+      })
+      setDrafts((d) => {
+        const next = { ...d }
+        delete next[ss.id]
+        return next
+      })
+      toast.success(`Đã xóa Buổi ${ss.no} của ${student!.name}.`)
+    } catch {
+      toast.error('Lỗi khi xóa — thử lại.', { persist: true })
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   const changedCount = sorted.filter((s) => Number(drafts[s.id]) !== s.no).length
 
   return (
@@ -197,6 +223,15 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
                     📝 {s.homework}
                   </span>
                 )}
+                <button
+                  onClick={() => handleDelete(s)}
+                  disabled={deletingId === s.id}
+                  title="Xóa hẳn buổi này (VD buổi dư/ghi nhầm) — khôi phục lại được qua &quot;Buổi đã xóa&quot;"
+                  className="shrink-0 text-xs font-semibold"
+                  style={{ color: C.red, opacity: deletingId === s.id ? 0.5 : 1 }}
+                >
+                  🗑️
+                </button>
               </div>
             )
           })}
