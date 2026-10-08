@@ -47,10 +47,11 @@ function fmtVnd(n: number): string {
   return n.toLocaleString('vi-VN') + 'đ'
 }
 
-/** Tiền CỦA ĐÚNG buổi đó — chỉ buổi 'present'/'late' mới tính phí (khớp
- *  sessionsBilledOf trong business/tuition.ts), buổi nghỉ không tính. */
+/** Tiền CỦA ĐÚNG buổi đó — buổi 'present'/'late'/'excused' (nghỉ có phép vẫn
+ *  tính) mới tính phí (khớp sessionsBilledOf trong business/tuition.ts), chỉ
+ *  'absent' (nghỉ không phép) mới không tính. */
 function sessionAmount(d: Pick<SessionDetailRow, 'attendance'>, ratePerSession: number): number {
-  return d.attendance === 'present' || d.attendance === 'late' ? ratePerSession : 0
+  return d.attendance !== 'absent' ? ratePerSession : 0
 }
 
 /** Ghép sẵn nội dung tin nhắn gửi phụ huynh (qua Zalo, hoặc bất kỳ kênh nào
@@ -462,7 +463,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
   function detailRowsWithTotal(row: (typeof overviewRows)[number]) {
     if (!row.sessionDetails.length) return []
     const rows = row.sessionDetails.map((d) => {
-      const billable = d.attendance === 'present' || d.attendance === 'late'
+      const billable = d.attendance !== 'absent'
       return { studentName: row.studentName, ...d, amount: billable ? fmtVnd(sessionAmount(d, row.ratePerSession)) : '' }
     })
     const total = row.sessionDetails.reduce((sum, d) => sum + sessionAmount(d, row.ratePerSession), 0)
@@ -684,7 +685,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
                             </thead>
                             <tbody>
                               {r.sessionDetails.map((d) => {
-                                const billable = d.attendance === 'present' || d.attendance === 'late'
+                                const billable = d.attendance !== 'absent'
                                 return (
                                   <tr key={d.no} style={{ borderTop: `1px solid ${C.line}` }}>
                                     <td className="py-1 px-2 font-semibold">{d.no}</td>

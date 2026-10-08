@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { buildComment, sessionDetailsOf } from './report'
+import { buildComment, sessionDetailsOf, sessionStatusFragments } from './report'
+import { sessionComps } from './scoring'
 import { statsOf } from './stats'
 import { emptyEntry } from './seed'
 import { getRubric } from '@/constants/rubrics'
@@ -229,5 +230,58 @@ describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình
     const rows = sessionDetailsOf(student, 0, 1, r)
     expect(rows[0].status).toBe('Hôm nay con học tốt')
     expect(rows[0].isAuto).toBe(false)
+  })
+
+  it('buổi NGHỈ (có phép/không phép) không hiện điểm số dù lỡ còn sót dữ liệu chấm cũ trong entry', () => {
+    const r = getRubric('secondary')
+    const student: Student = {
+      id: 'st1', name: 'Minh Khôi',
+      sessions: [
+        {
+          id: 's1', no: 1, date: '2026-01-01',
+          // Lỡ có điểm (VD chấm trước rồi mới đổi điểm danh, hoặc dùng "Mặc
+          // định cả lớp" lúc em đã nghỉ) — KHÔNG được hiện ra vì em không đi học.
+          entry: { ...emptyEntry(), attendance: 'absent', scores: { mini: 35 }, ticks: { hw: ['h_full'] } },
+        },
+        {
+          id: 's2', no: 2, date: '2026-01-02',
+          entry: { ...emptyEntry(), attendance: 'excused', scores: { mini: 35 } },
+        },
+      ],
+    }
+    const rows = sessionDetailsOf(student, 0, 2, r)
+    expect(rows[0].scores).toEqual([])
+    expect(rows[1].scores).toEqual([])
+    // Vẫn ghi đúng tình trạng nghỉ ở "Nhận xét" — không phải để trống luôn.
+    expect(rows[0].status).toContain('Nghỉ')
+  })
+})
+
+describe('sessionStatusFragments — gợi ý tick nhanh ở màn Nhập điểm', () => {
+  it('mỗi tiêu chí CÓ DỮ LIỆU sinh ra ĐÚNG 1 gợi ý riêng, tiêu chí chưa chấm thì không có gợi ý', () => {
+    const r = getRubric('secondary')
+    const entry = {
+      ...emptyEntry(), attendance: 'present' as const,
+      ticks: { hw: ['h_full', 'h_correct', 'h_ontime'], attitude: ['a_speak', 'a_focus'] },
+      // Không chấm 'mini'/'listen' — không được sinh gợi ý cho 2 mục này.
+    }
+    const fragments = sessionStatusFragments(sessionComps(r, { maxes: undefined }), entry)
+    expect(fragments.map((f) => f.key)).toEqual(['hw', 'attitude'])
+    expect(fragments[0].text).toContain('còn thiếu viết sạch đẹp')
+    expect(fragments[1].text).toContain('Cần cải thiện')
+  })
+
+  it('bấm gợi ý là chèn/bỏ ĐÚNG câu đó khỏi ghi chú, không đụng phần giáo viên đã gõ khác', () => {
+    const r = getRubric('secondary')
+    const entry = { ...emptyEntry(), attendance: 'present' as const, ticks: { hw: ['h_full'] } }
+    const [fragment] = sessionStatusFragments(sessionComps(r, { maxes: undefined }), entry)
+    // Giáo viên đã gõ sẵn ghi chú riêng — chèn gợi ý vào PHẢI giữ nguyên phần đó.
+    const noteWithTeacherText = 'Con rất ngoan.'
+    const inserted = `${noteWithTeacherText} ${fragment.text}`
+    expect(inserted).toContain('Con rất ngoan.')
+    expect(inserted).toContain(fragment.text)
+    // Bấm lại (bỏ gợi ý) phải trả về đúng phần giáo viên gõ, không còn sót khoảng trắng thừa.
+    const removed = inserted.replace(fragment.text, '').replace(/\s{2,}/g, ' ').trim()
+    expect(removed).toBe(noteWithTeacherText)
   })
 })

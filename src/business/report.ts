@@ -1,4 +1,4 @@
-import type { Student, StudentStats, DetailBlock, EvidenceItem, SessionEntry, Session, AttendanceKey } from '@/types'
+import type { Student, StudentStats, DetailBlock, EvidenceItem, SessionEntry, Session, AttendanceKey, RubricComponent } from '@/types'
 import { getRubric } from '@/constants/rubrics'
 import { round1 } from '@/utils'
 import { compHasData, compScore, sessionComps } from './scoring'
@@ -132,40 +132,45 @@ export interface SessionDetailRow {
   scores: SessionScoreItem[]
 }
 
-/** Tự ghép 1 câu NGẮN tả tình hình buổi học, CHỈ dựa trên điểm số đã chấm
- *  thật (Bài tập về nhà/Video bài nói/các tiêu chí "chọn 1 mức" hay "tích
- *  việc đã làm" khác) — KHÔNG bịa thêm chi tiết nào giáo viên chưa từng ghi
- *  (VD không tự đoán từ phát âm sai cụ thể, chỉ nói đúng tên tiêu chí bị
- *  trừ điểm). Dùng làm fallback khi buổi đó không có ghi chú tự do/evidence
- *  nào (xem sessionDetailsOf) — không áp dụng cho tiêu chí dạng 'score'
- *  (mini test/nghe) vì không có nhãn "đạt/chưa đạt" tự nhiên để ghép câu.
- *
- *  Giọng văn PHẢI khớp cách giáo viên trung tâm vẫn tự viết tay (xem ảnh mẫu
+/** 1 câu NGẮN tự sinh cho ĐÚNG 1 tiêu chí, dựa thẳng vào dữ liệu đã chấm thật
+ *  (không bịa). Dùng chung cho 2 nơi: `autoSessionStatus` (ghép hết thành 1
+ *  đoạn, dùng khi buổi không có ghi chú tự do) và gợi ý tick nhanh ở màn Nhập
+ *  điểm (EntryScreen) — mỗi phần tử là 1 gợi ý RIÊNG, giáo viên bấm là chèn
+ *  thẳng vào ô ghi chú, không bắt buộc dùng nguyên văn. */
+export interface SessionStatusFragment {
+  key: string
+  label: string
+  text: string
+}
+
+/** Giọng văn PHẢI khớp cách giáo viên trung tâm vẫn tự viết tay (xem ảnh mẫu
  *  thật trong trao đổi): viết HOA từ khóa trạng thái "ĐÃ LÀM"/"CHƯA LÀM",
- *  câu ngắn, không phải văn viết đầy đủ chủ-vị kiểu báo cáo. */
-function autoSessionStatus(session: Session, r: ReturnType<typeof getRubric>): string {
-  const e = session.entry
-  const parts: string[] = []
-  sessionComps(r, session).forEach((c) => {
+ *  câu ngắn, không phải văn viết đầy đủ chủ-vị kiểu báo cáo. KHÔNG áp dụng
+ *  cho tiêu chí dạng 'score' (mini test/nghe) vì không có nhãn "đạt/chưa đạt"
+ *  tự nhiên để ghép câu — chỉ CHỌN/TÍCH/PHẦN mới sinh được câu trạng thái. */
+export function sessionStatusFragments(comps: RubricComponent[], e: SessionEntry): SessionStatusFragment[] {
+  const out: SessionStatusFragment[] = []
+  comps.forEach((c) => {
     if (!compHasData(c, e)) return
     const label = c.label.toUpperCase()
+    const push = (text: string) => out.push({ key: c.key, label: c.label, text })
     if (c.type === 'choice') {
       const opt = c.options?.find((o) => o.id === e.choice[c.key])
       if (!opt) return
-      if (opt.pts >= c.max) parts.push(`ĐÃ LÀM ${label}.`)
-      else if (opt.pts <= 0) parts.push(`CHƯA LÀM ${label}.`)
-      else parts.push(`${label} CHƯA ĐẦY ĐỦ${opt.err?.fix ? ` — cần ${opt.err.fix}` : ''}.`)
+      if (opt.pts >= c.max) push(`ĐÃ LÀM ${label}.`)
+      else if (opt.pts <= 0) push(`CHƯA LÀM ${label}.`)
+      else push(`${label} CHƯA ĐẦY ĐỦ${opt.err?.fix ? ` — cần ${opt.err.fix}` : ''}.`)
     } else if (c.type === 'parts') {
       if (e.skip[c.key]) {
-        parts.push(`CHƯA LÀM ${label}.`)
+        push(`CHƯA LÀM ${label}.`)
         return
       }
       const m = e.parts[c.key] ?? {}
       const ok = (c.parts ?? []).filter((p) => (Number(m[p.id]) || 0) >= p.max)
       const weak = (c.parts ?? []).filter((p) => (Number(m[p.id]) || 0) < p.max)
-      if (!weak.length) parts.push(`ĐÃ LÀM ${label} ĐẦY ĐỦ.`)
-      else if (!ok.length) parts.push(`CHƯA LÀM ${label}.`)
-      else parts.push(`ĐÃ LÀM ${label}: cần ${weak.map((p) => p.fix ?? p.label.toLowerCase()).join(', ')}.`)
+      if (!weak.length) push(`ĐÃ LÀM ${label} ĐẦY ĐỦ.`)
+      else if (!ok.length) push(`CHƯA LÀM ${label}.`)
+      else push(`ĐÃ LÀM ${label}: cần ${weak.map((p) => p.fix ?? p.label.toLowerCase()).join(', ')}.`)
     } else if (c.type === 'ticks') {
       const checked = e.ticks[c.key] ?? []
       const items = c.items ?? []
@@ -177,18 +182,22 @@ function autoSessionStatus(session: Session, r: ReturnType<typeof getRubric>): s
       if (c.stars) {
         if (checked.length && !missing.length) {
           const got = checked.map((id) => items.find((it) => it.id === id)?.label.toLowerCase()).filter(Boolean)
-          parts.push(`${got.join(', ')}.`)
+          push(`${got.join(', ')}.`)
         } else if (missing.length) {
-          parts.push(`Cần cải thiện: ${missing.map((it) => it.label.toLowerCase()).join(', ')}.`)
+          push(`Cần cải thiện: ${missing.map((it) => it.label.toLowerCase()).join(', ')}.`)
         }
         return
       }
-      if (!missing.length) parts.push(`ĐÃ LÀM ${label} ĐẦY ĐỦ.`)
-      else if (!checked.length) parts.push(`CHƯA LÀM ${label}.`)
-      else parts.push(`ĐÃ LÀM ${label}: còn thiếu ${missing.map((it) => it.label.toLowerCase()).join(', ')}.`)
+      if (!missing.length) push(`ĐÃ LÀM ${label} ĐẦY ĐỦ.`)
+      else if (!checked.length) push(`CHƯA LÀM ${label}.`)
+      else push(`ĐÃ LÀM ${label}: còn thiếu ${missing.map((it) => it.label.toLowerCase()).join(', ')}.`)
     }
   })
-  return parts.join(' ')
+  return out
+}
+
+function autoSessionStatus(session: Session, r: ReturnType<typeof getRubric>): string {
+  return sessionStatusFragments(sessionComps(r, session), session.entry).map((f) => f.text).join(' ')
 }
 
 /** Chi tiết TỪNG BUỔI trong kỳ [from, to) — đúng mức chi tiết trung tâm vẫn
@@ -227,8 +236,14 @@ export function sessionDetailsOf(
     }
     // Điểm từng tiêu chí buổi này — chỉ ghi tiêu chí ĐÃ CHẤM (compHasData),
     // không bịa điểm 0 cho tiêu chí chưa chấm (khác hẳn "0 điểm vì làm sai hết").
+    // CHỈ hiện khi THẬT SỰ có đi học (present/late, khớp đúng điều kiện tính
+    // tiền ở sessionsBilledOf) — buổi nghỉ (có phép/không phép) dù lỡ còn sót
+    // điểm cũ trong dữ liệu (VD chấm trước rồi mới đổi điểm danh thành nghỉ,
+    // hoặc dùng "Mặc định cả lớp" lúc em đó đã nghỉ) cũng KHÔNG hiện ra, tránh
+    // nhìn như "đã học buổi đó" trong khi tiền thu đúng là không tính buổi này.
     const scores: SessionScoreItem[] = []
-    if (r) {
+    const attended = s.entry.attendance === 'present' || s.entry.attendance === 'late'
+    if (r && attended) {
       sessionComps(r, s).forEach((c) => {
         if (!compHasData(c, s.entry)) return
         const item: SessionScoreItem = { key: c.key, label: c.label, value: `${compScore(c, s.entry)}/${c.max}` }

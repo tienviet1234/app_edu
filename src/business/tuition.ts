@@ -20,13 +20,16 @@ export function billingPeriodsOf(
   return periods
 }
 
-/** Số buổi THỰC TẾ TÍNH PHÍ trong 1 khoảng [from, to) — chỉ tính buổi CÓ MẶT
- *  hoặc ĐI MUỘN (giữ chỗ/đã dạy), KHÔNG tính buổi nghỉ (có phép hay không
- *  phép đều không tính) — theo đúng quy ước trung tâm đã xác nhận. */
+/** Số buổi THỰC TẾ TÍNH PHÍ trong 1 khoảng [from, to) — tính buổi CÓ MẶT,
+ *  ĐI MUỘN, hoặc NGHỈ CÓ PHÉP (giữ chỗ/đã dạy hoặc đã báo trước, vẫn tính
+ *  tiền), CHỈ KHÔNG tính buổi NGHỈ KHÔNG PHÉP — theo đúng quy ước trung tâm
+ *  đã xác nhận lại. Buổi nghỉ có phép vẫn hiện rõ "Nghỉ có phép" ở cột Nhận
+ *  xét (xem sessionStatusText/ATTENDANCE_NOTE) để phụ huynh hiểu vì sao vẫn
+ *  bị tính phí dù không đi học hôm đó. */
 export function sessionsBilledOf(student: Pick<Student, 'sessions'>, from: number, to: number): number {
   return student.sessions
     .slice(from, to)
-    .filter((s) => s.entry.attendance === 'present' || s.entry.attendance === 'late')
+    .filter((s) => s.entry.attendance === 'present' || s.entry.attendance === 'late' || s.entry.attendance === 'excused')
     .length
 }
 

@@ -46,14 +46,14 @@ describe('billingPeriodsOf', () => {
 })
 
 describe('sessionsBilledOf', () => {
-  it('tính buổi có mặt + muộn, KHÔNG tính nghỉ có phép/không phép', () => {
+  it('tính buổi có mặt + muộn + nghỉ CÓ PHÉP, CHỈ không tính nghỉ KHÔNG phép', () => {
     const st: Student = {
       id: 'st1', name: 'Test',
       sessions: [
         sess(1, 'present'), sess(2, 'late'), sess(3, 'excused'), sess(4, 'absent'), sess(5, 'present'),
       ],
     }
-    expect(sessionsBilledOf(st, 0, 5)).toBe(3)
+    expect(sessionsBilledOf(st, 0, 5)).toBe(4)
   })
 
   it('chỉ tính trong đúng khoảng [from, to), không tính buổi ngoài khoảng', () => {
