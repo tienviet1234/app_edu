@@ -800,8 +800,18 @@ export function TuitionReportScreen({ cls, update }: Props) {
                   Tự tính: {fmtVnd(row.computedAmount)}
                 </div>
               </div>
-              <div className="rounded-lg p-2 text-xs" style={{ background: C.paper, color: C.ink }}>
-                {row.reportComment}
+              <div>
+                <label className="mb-1 block text-xs font-semibold" style={{ color: C.ink }}>
+                  Nhận xét gửi phụ huynh (tự sinh — sửa/xóa thoải mái trước khi gửi)
+                </label>
+                <textarea
+                  value={row.reportComment}
+                  onChange={(e) => patchRow(row, (r) => { r.reportComment = e.target.value })}
+                  rows={3}
+                  placeholder="Để trống nếu không muốn kèm nhận xét"
+                  className="w-full rounded-lg p-2 text-xs"
+                  style={{ background: C.paper, color: C.ink, border: `1px solid ${C.line}` }}
+                />
               </div>
 
               {row.sessionDetails.length > 0 && (

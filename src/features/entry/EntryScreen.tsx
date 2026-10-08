@@ -144,6 +144,9 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   const [backfillProgress, setBackfillProgress] = useState({ done: 0, total: 0 })
   const [showSummary, setShowSummary] = useState(false)
   const [showImport, setShowImport] = useState(false)
+  // Gợi ý nhận xét chỉ hiện khi đang bấm vào ô Ghi chú — ẩn mặc định để đỡ
+  // rối mắt lúc không dùng tới (xem khung chip + textarea bên dưới).
+  const [noteFocused, setNoteFocused] = useState(false)
   const [showResequence, setShowResequence] = useState(false)
 
   // Buổi/Ngày khóa mặc định — tránh đổi nhầm do chạm/cuộn màn hình, phải
@@ -1045,40 +1048,54 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
               />
             </div>
 
-            {(() => {
-              const noteSuggestions = sessionStatusFragments(r2.comps, e)
-              if (!noteSuggestions.length) return null
-              return (
-                <div className="flex flex-wrap gap-1.5">
-                  {noteSuggestions.map((s) => {
-                    const on = e.note.includes(s.text)
-                    return (
-                      <Chip
-                        key={s.key}
-                        tone="good"
-                        size="sm"
-                        on={on}
-                        onClick={() => mut((en) => {
-                          en.note = on
-                            ? en.note.replace(s.text, '').replace(/\s{2,}/g, ' ').trim()
-                            : (en.note ? `${en.note} ${s.text}` : s.text)
-                        })}
-                      >
-                        {s.text}
-                      </Chip>
-                    )
-                  })}
-                </div>
-              )
-            })()}
+            <div
+              onFocus={() => setNoteFocused(true)}
+              onBlur={(ev) => {
+                if (!ev.currentTarget.contains(ev.relatedTarget as Node)) setNoteFocused(false)
+              }}
+            >
+              {noteFocused && (() => {
+                const noteSuggestions = sessionStatusFragments(r2.comps, e)
+                if (!noteSuggestions.length) return null
+                return (
+                  <div
+                    className="mb-1.5 flex flex-wrap gap-1.5"
+                    // Ngăn textarea mất focus khi bấm chip (mousedown xảy ra
+                    // TRƯỚC blur) — không thì khung gợi ý có thể ẩn mất đúng
+                    // lúc đang bấm, đặc biệt trên di động.
+                    onMouseDown={(ev) => ev.preventDefault()}
+                  >
+                    {noteSuggestions.map((s) => {
+                      const on = e.note.includes(s.text)
+                      return (
+                        <Chip
+                          key={s.key}
+                          tone="good"
+                          size="sm"
+                          on={on}
+                          onClick={() => mut((en) => {
+                            en.note = on
+                              ? en.note.replace(s.text, '').replace(/\s{2,}/g, ' ').trim()
+                              : (en.note ? `${en.note} ${s.text}` : s.text)
+                          })}
+                        >
+                          {s.text}
+                        </Chip>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
 
-            <input
-              value={e.note}
-              onChange={(x) => mut((en) => { en.note = x.target.value })}
-              placeholder="Ghi chú riêng cho học sinh này (không bắt buộc) — bấm gợi ý bên trên để chèn nhanh"
-              className="w-full rounded-xl px-3 py-2 text-sm"
-              style={{ border: `1px solid ${C.line}` }}
-            />
+              <textarea
+                value={e.note}
+                onChange={(x) => mut((en) => { en.note = x.target.value })}
+                placeholder="Ghi chú riêng cho học sinh này (không bắt buộc) — bấm vào đây để hiện gợi ý chèn nhanh"
+                rows={2}
+                className="w-full rounded-xl px-3 py-2 text-sm"
+                style={{ border: `1px solid ${C.line}` }}
+              />
+            </div>
 
             <div className="flex gap-2">
               <Btn
