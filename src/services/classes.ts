@@ -25,6 +25,9 @@ export interface ApiClass {
   extraComps?: ExtraComp[]
   compOverrides?: Record<string, Record<string, number>>
   compLabelOverrides?: Record<string, Record<string, string>>
+  // Câu nhận xét mẫu tự soạn riêng cho lớp này — admin/giáo viên tự thêm/sửa/
+  // xóa, chọn nhanh ở màn Nhập điểm (xem EntryScreen).
+  customNotePhrases?: string[]
   // Đơn giá tính học phí/lương — xem AdminBillingPage.tsx + ghi chú ở
   // server/src/models/Class.ts. Chỉ admin sửa được (qua endpoint update).
   tuitionPerSession?: number
@@ -71,7 +74,7 @@ export const classService = {
   /** Returns the list of enrolled students (name + email) for a class */
   getStudents: (classId: string) =>
     api
-      .get<{ data: Array<{ _id: string; name: string; email: string; role: string; avatar?: string; handwritingNote?: string }> }>(
+      .get<{ data: Array<{ _id: string; name: string; email: string; role: string; avatar?: string; handwritingNote?: string; sessionOffset?: number }> }>(
         `/classes/${classId}/students`,
       )
       .then((r) => r.data.data),

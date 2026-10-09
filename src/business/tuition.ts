@@ -7,15 +7,28 @@ import type { Student } from '@/types'
  *  tính trùng tiền 2 lần cho cùng 1 buổi (periodsOf's "giữa kỳ"/"tổng kết"
  *  CHỒNG LẤN nhau trong cùng 1 khối 12 buổi).
  *  Mỗi khối liên tiếp, không chồng lấn: buổi 1–8, 9–16, 17–24... (hoặc
- *  1–12, 13–24... tùy perMonth). */
+ *  1–12, 13–24... tùy perMonth).
+ *
+ *  `student.sessionOffset` (số buổi đã học TRƯỚC KHI vào app, vd học sinh
+ *  chuyển vào giữa chừng) dịch mốc tính kỳ theo đúng số buổi THẬT — kỳ đầu
+ *  tiên có thể NGẮN HƠN 1 khối (chỉ còn đủ phần lẻ cho tới mốc 8/12 gần nhất),
+ *  các kỳ sau quay lại đúng 1 khối trọn vẹn. `from`/`to` vẫn luôn là CHỈ SỐ
+ *  MẢNG thật của `student.sessions` (không phải số buổi hiển thị) — offset=0
+ *  (mặc định, mọi học sinh khác) cho kết quả giống hệt 100% công thức cũ. */
 export function billingPeriodsOf(
-  student: Pick<Student, 'sessions'>, perMonth: number,
+  student: Pick<Student, 'sessions' | 'sessionOffset'>, perMonth: number,
 ): Array<{ from: number; to: number; label: string }> {
   const n = student.sessions.length
+  const offset = student.sessionOffset ?? 0
   const blockSize = perMonth === 8 ? 8 : 12
   const periods: Array<{ from: number; to: number; label: string }> = []
-  for (let end = blockSize; end <= n; end += blockSize) {
-    periods.push({ from: end - blockSize, to: end, label: `Buổi ${end - blockSize + 1}–${end}` })
+  for (let k = 1; ; k++) {
+    const conceptualTo = k * blockSize
+    const to = conceptualTo - offset
+    if (to <= 0) continue // kỳ này đã xong TRƯỚC KHI vào app — không có gì để hiện
+    if (to > n) break
+    const from = Math.max(0, (k - 1) * blockSize - offset)
+    periods.push({ from, to, label: `Buổi ${from + 1 + offset}–${to + offset}` })
   }
   return periods
 }
@@ -40,13 +53,19 @@ export function sessionsBilledOf(student: Pick<Student, 'sessions'>, from: numbe
  *  (kể cả buổi nghỉ — đếm theo đúng "đã ghi buổi" để thấy tiến độ thời gian,
  *  khác với sessionsBilledOf chỉ đếm buổi tính tiền). Trả về null nếu học
  *  sinh đang NẰM ĐÚNG ở ranh giới 1 kỳ vừa xong (billingPeriodsOf đã có kỳ
- *  đó rồi, không cần hiện tiến độ trùng). */
+ *  đó rồi, không cần hiện tiến độ trùng).
+ *
+ *  Cộng `student.sessionOffset` (xem billingPeriodsOf) vào tổng trước khi
+ *  tính phần dư, để hiện đúng tiến độ THẬT kể cả khi mới có 1-2 buổi trong
+ *  app (VD offset=9, n=1 → "10/12", không phải "1/12"). */
 export function currentProgressOf(
-  student: Pick<Student, 'sessions'>, perMonth: number,
+  student: Pick<Student, 'sessions' | 'sessionOffset'>, perMonth: number,
 ): { current: number; total: number } | null {
   const n = student.sessions.length
+  if (n === 0) return null // chưa ghi buổi nào trong app — chưa có gì để hiện tiến độ
+  const offset = student.sessionOffset ?? 0
   const blockSize = perMonth === 8 ? 8 : 12
-  const current = n % blockSize
-  if (current === 0) return null // n=0 (chưa học buổi nào) hoặc vừa đúng 1 kỳ (đã có trong billingPeriodsOf)
+  const current = (offset + n) % blockSize
+  if (current === 0) return null // vừa đúng 1 kỳ (đã có trong billingPeriodsOf)
   return { current, total: blockSize }
 }

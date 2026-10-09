@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { billingPeriodsOf, sessionsBilledOf } from './tuition'
+import { billingPeriodsOf, sessionsBilledOf, currentProgressOf } from './tuition'
 import { emptyEntry } from './seed'
 import type { AttendanceKey, Session, Student } from '@/types'
 
@@ -42,6 +42,41 @@ describe('billingPeriodsOf', () => {
 
   it('0 buổi → không có kỳ nào', () => {
     expect(billingPeriodsOf(student(0), 8)).toEqual([])
+  })
+
+  it('sessionOffset=0 (mặc định, mọi học sinh khác) → giống hệt công thức cũ', () => {
+    const st = { ...student(24), sessionOffset: 0 }
+    expect(billingPeriodsOf(st, 12)).toEqual([
+      { from: 0, to: 12, label: 'Buổi 1–12' },
+      { from: 12, to: 24, label: 'Buổi 13–24' },
+    ])
+  })
+
+  it('học sinh chuyển vào giữa chừng (sessionOffset=9, perMonth=12): 3 buổi đầu trong app → kỳ 1 chốt ngay (Buổi 10–12)', () => {
+    const st = { ...student(3), sessionOffset: 9 }
+    expect(billingPeriodsOf(st, 12)).toEqual([{ from: 0, to: 3, label: 'Buổi 10–12' }])
+  })
+
+  it('sessionOffset=9: đủ 15 buổi trong app (= 24 buổi thật) → có thêm kỳ 2 (Buổi 13–24)', () => {
+    const st = { ...student(15), sessionOffset: 9 }
+    expect(billingPeriodsOf(st, 12)).toEqual([
+      { from: 0, to: 3, label: 'Buổi 10–12' },
+      { from: 3, to: 15, label: 'Buổi 13–24' },
+    ])
+  })
+})
+
+describe('currentProgressOf', () => {
+  it('chưa có buổi nào trong app → null dù offset > 0', () => {
+    expect(currentProgressOf({ ...student(0), sessionOffset: 9 }, 12)).toBeNull()
+  })
+
+  it('offset=9, 1 buổi trong app → tiến độ hiện đúng 10/12 (không phải 1/12)', () => {
+    expect(currentProgressOf({ ...student(1), sessionOffset: 9 }, 12)).toEqual({ current: 10, total: 12 })
+  })
+
+  it('offset=9, đúng 3 buổi (vừa chốt kỳ 1) → null, không trùng với billingPeriodsOf', () => {
+    expect(currentProgressOf({ ...student(3), sessionOffset: 9 }, 12)).toBeNull()
   })
 })
 

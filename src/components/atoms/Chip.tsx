@@ -18,10 +18,14 @@ export function Chip({ on, onClick, children, tone = 'err', size = 'md' }: ChipP
         (size === 'sm' ? 'px-2 py-0.5 text-[11px]' : 'px-3 py-1.5 text-sm')
       }
       style={{
-        background: on ? color + '18' : '#F8FAFC',
-        color: on ? color : C.muted,
-        border: `1.5px solid ${on ? color + '66' : C.line}`,
+        // Trạng thái "đã chọn" trước đây chỉ tô màu nhạt (18% opacity), khó
+        // nhận ra ngay từ xa/trên di động — đổi thành nền ĐẶC màu, chữ trắng,
+        // giống hệt độ nổi bật của atom Pick, để thấy rõ cái nào đã bấm.
+        background: on ? color : '#F8FAFC',
+        color: on ? '#fff' : C.muted,
+        border: `1.5px solid ${on ? color : C.line}`,
         fontWeight: on ? 600 : 400,
+        boxShadow: on ? `0 1px 3px 0 ${color}40` : 'none',
       }}
     >
       {on ? '✓ ' : ''}

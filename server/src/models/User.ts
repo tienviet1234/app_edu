@@ -16,6 +16,12 @@ export interface IUser extends Document {
    *  nhiều lần; dùng làm gợi ý thêm khi bấm "Chấm kỹ hơn" ở tính năng Chấm
    *  bằng AI, KHÔNG lưu ảnh chữ viết tay nào cả — chỉ vài dòng chữ mô tả. */
   handwritingNote?: string
+  /** Số buổi học sinh này ĐÃ HỌC TRƯỚC KHI dùng app (chuyển vào giữa chừng,
+   *  VD học xong 9 buổi ở sổ giấy rồi mới bắt đầu ghi app) — chỉ có ý nghĩa
+   *  với role='student'. Mặc định 0/không có = không ảnh hưởng gì. Dùng để
+   *  đánh số buổi + tính mốc đủ kỳ 8/12 buổi đúng với thực tế, xem
+   *  business/tuition.ts ở frontend. */
+  sessionOffset?: number
   centerId?: Types.ObjectId
   branchId?: Types.ObjectId
   childIds: Types.ObjectId[]
@@ -43,6 +49,7 @@ const userSchema = new Schema<IUser>(
     avatar: { type: String },
     phone: { type: String, trim: true, maxlength: 20 },
     handwritingNote: { type: String, trim: true, maxlength: 300 },
+    sessionOffset: { type: Number, min: 0, max: 1000 },
     centerId: { type: Schema.Types.ObjectId, ref: 'Center', index: true },
     branchId: { type: Schema.Types.ObjectId, ref: 'Branch', index: true },
     childIds: [{ type: Schema.Types.ObjectId, ref: 'User' }],

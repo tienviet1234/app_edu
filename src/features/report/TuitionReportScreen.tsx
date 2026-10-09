@@ -636,8 +636,14 @@ export function TuitionReportScreen({ cls, update }: Props) {
                     <tr style={{ borderTop: `1px solid ${C.line}`, background: bg }}>
                       <td className="py-1.5 pl-3">
                         {r.sessionDetails.length > 0 && (
-                          <button onClick={() => toggleOverview(rowKey)} style={{ color: C.muted }}>
-                            {isOpen ? '▾' : '▸'}
+                          <button
+                            onClick={() => toggleOverview(rowKey)}
+                            title="Xem chi tiết từng buổi + nhận xét"
+                            className="inline-flex items-center gap-0.5 rounded-lg px-1.5 py-1"
+                            style={{ color: isOpen ? C.board2 : C.muted, background: isOpen ? C.board2 + '14' : 'transparent' }}
+                          >
+                            <span>{isOpen ? '▾' : '▸'}</span>
+                            <span aria-hidden>📝</span>
                           </button>
                         )}
                       </td>

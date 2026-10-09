@@ -120,6 +120,12 @@ export interface Student {
    *  viên tự gõ, dùng làm gợi ý thêm khi "Chấm kỹ hơn" ở tính năng Chấm
    *  bằng AI. Không lưu ảnh chữ viết tay nào cả, chỉ vài dòng chữ mô tả. */
   handwritingNote?: string
+  /** Số buổi học sinh này ĐÃ HỌC TRƯỚC KHI dùng app (chuyển vào giữa chừng,
+   *  VD học xong 9 buổi ở sổ giấy rồi mới bắt đầu ghi app) — mặc định 0/không
+   *  có = không ảnh hưởng gì (y hệt cách tính cũ). Khi > 0: buổi đầu tiên ghi
+   *  trong app sẽ đánh số tiếp theo (offset+1), và các mốc tính đủ kỳ (8/12
+   *  buổi) cũng cộng dồn số buổi đã học trước đó — xem business/tuition.ts. */
+  sessionOffset?: number
   sessions: Session[]
 }
 
@@ -141,6 +147,10 @@ export interface ClassData {
   // Admin đổi TÊN tiêu chí gốc/tên từng phần nhỏ — cùng cấu trúc key như
   // compOverrides ở trên, riêng '_label' đổi tên chính tiêu chí đó.
   compLabelOverrides?: Record<string, Record<string, string>>
+  // Câu nhận xét mẫu TỰ SOẠN riêng cho lớp này (khác với gợi ý tự sinh từ
+  // điểm số) — admin/giáo viên tự thêm/sửa/xóa theo thói quen viết của họ,
+  // hiện làm chip chọn nhanh ở màn Nhập điểm (xem EntryScreen).
+  customNotePhrases?: string[]
 }
 
 // ─── App Data ─────────────────────────────────────────────────────────────────

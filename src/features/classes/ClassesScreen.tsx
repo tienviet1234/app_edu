@@ -119,6 +119,23 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
     }
   }
 
+  /** Số buổi học sinh ĐÃ HỌC TRƯỚC KHI vào app (học sinh chuyển vào giữa
+   *  chừng, VD học xong 9 buổi ở sổ giấy rồi mới ghi app) — buổi đầu tiên ghi
+   *  trong app sẽ tự đánh số tiếp theo (offset+1) và mốc tính đủ kỳ 8/12
+   *  buổi cũng cộng dồn đúng, xem business/tuition.ts. */
+  async function syncStudentOffset(studentId: string, offset: number) {
+    edit((c) => {
+      const found = c.students.find((y) => y.id === studentId)
+      if (found) found.sessionOffset = offset
+    })
+    if (!isMongoid(studentId)) return
+    try {
+      await studentService.update(studentId, { sessionOffset: offset })
+    } catch {
+      toast.error('Lưu số buổi đã học trước thất bại, thử lại.')
+    }
+  }
+
   async function handleDeleteClass(idx: number) {
     const c = data.classes[idx]
     if (!confirm(`Xóa lớp "${c.name}"? Toàn bộ dữ liệu lớp này sẽ bị xóa vĩnh viễn.`)) return
@@ -582,7 +599,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                     style={{ background: C.paper }}
                   >
                     {cls.students.map((st) => (
-                      <div key={st.id} className="flex items-center gap-2 py-1">
+                      <div key={st.id} className="flex flex-wrap items-center gap-2 py-1">
                         <input
                           value={st.name}
                           onChange={(x) =>
@@ -592,9 +609,24 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                             })
                           }
                           onBlur={(x) => void syncStudentName(st.id, x.target.value)}
-                          className="flex-1 rounded-lg px-2 py-1 text-sm"
+                          className="min-w-0 flex-1 rounded-lg px-2 py-1 text-sm"
                           style={{ border: `1px solid ${C.line}`, background: '#fff' }}
                         />
+                        <span
+                          className="flex items-center gap-1 text-[11px]"
+                          style={{ color: C.muted }}
+                          title="Dùng khi học sinh chuyển vào giữa chừng — VD đã học 9 buổi ở sổ giấy trước khi dùng app thì điền 9, buổi đầu ghi trong app sẽ tự thành Buổi 10."
+                        >
+                          Buổi trước:
+                          <input
+                            type="number"
+                            min={0}
+                            value={st.sessionOffset ?? 0}
+                            onChange={(x) => void syncStudentOffset(st.id, Math.max(0, Number(x.target.value) || 0))}
+                            className="w-12 rounded-lg px-1 py-1 text-center text-xs"
+                            style={{ border: `1px solid ${C.line}`, background: '#fff' }}
+                          />
+                        </span>
                         <button
                           className="text-xs font-bold"
                           style={{ color: C.red }}

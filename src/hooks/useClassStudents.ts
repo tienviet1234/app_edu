@@ -6,6 +6,9 @@ export interface ApiStudent {
   name: string
   email: string
   role: string
+  avatar?: string
+  handwritingNote?: string
+  sessionOffset?: number
 }
 
 export const STUDENT_KEYS = {

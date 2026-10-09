@@ -308,6 +308,7 @@ export default function App() {
           extraComps: ac.extraComps,
           compOverrides: ac.compOverrides,
           compLabelOverrides: ac.compLabelOverrides,
+          customNotePhrases: ac.customNotePhrases,
         })
       })
     }))
@@ -341,7 +342,7 @@ export default function App() {
   const apiAllClassesRubricKey = apiAllClasses?.items.map((c) => `${c._id}:${c.updatedAt}`).join(',') ?? ''
   useEffect(() => {
     if (!data || !apiAllClasses?.items.length) return
-    const RUBRIC_FIELDS = ['hiddenComps', 'extraComps', 'compOverrides', 'compLabelOverrides'] as const
+    const RUBRIC_FIELDS = ['hiddenComps', 'extraComps', 'compOverrides', 'compLabelOverrides', 'customNotePhrases'] as const
     const changedIds = new Set(
       apiAllClasses.items
         .filter((ac) => {
@@ -360,6 +361,7 @@ export default function App() {
         localCls.extraComps = ac.extraComps
         localCls.compOverrides = ac.compOverrides
         localCls.compLabelOverrides = ac.compLabelOverrides
+        localCls.customNotePhrases = ac.customNotePhrases
       })
     }))
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -380,10 +382,11 @@ export default function App() {
           existing.name = apiSt.name
           if (apiSt.avatar) existing.avatar = apiSt.avatar
           existing.handwritingNote = apiSt.handwritingNote
+          existing.sessionOffset = apiSt.sessionOffset
         } else {
           localCls.students.push({
             id: apiSt._id, name: apiSt.name, avatar: apiSt.avatar,
-            handwritingNote: apiSt.handwritingNote, sessions: [],
+            handwritingNote: apiSt.handwritingNote, sessionOffset: apiSt.sessionOffset, sessions: [],
           })
         }
       })

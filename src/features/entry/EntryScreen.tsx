@@ -16,6 +16,7 @@ import { ProgressBar } from '@/components/atoms/ProgressBar'
 import { CompEditor } from '@/components/molecules/CompEditor'
 import { sessionService } from '@/services/sessions'
 import { scoreService } from '@/services/scores'
+import { classService } from '@/services/classes'
 import { isMongoid } from '@/utils/mongoid'
 import { logActivity } from '@/services/activity'
 import { toast } from '@/store/toastStore'
@@ -56,11 +57,14 @@ function loadPersistedView(classId: string): PersistedView {
 }
 
 /** Buổi mặc định của 1 học sinh = số buổi lớn nhất em đó đã có (buổi gần nhất
- *  đã chấm), hoặc Buổi 1 nếu chưa có buổi nào. Mỗi học sinh có chuỗi buổi
- *  RIÊNG nên số buổi đang xem cũng phải riêng từng em — không dùng chung cả lớp. */
-function defaultNoFor(student: { sessions: { no: number }[] } | undefined): number {
+ *  đã chấm), hoặc Buổi (sessionOffset + 1) nếu chưa có buổi nào trong app —
+ *  `sessionOffset` (số buổi đã học TRƯỚC KHI vào app, vd học sinh chuyển vào
+ *  giữa chừng) mặc định 0 nên hành vi KHÔNG đổi với mọi học sinh khác. Mỗi
+ *  học sinh có chuỗi buổi RIÊNG nên số buổi đang xem cũng phải riêng từng em
+ *  — không dùng chung cả lớp. */
+function defaultNoFor(student: { sessions: { no: number }[]; sessionOffset?: number } | undefined): number {
   const nos = student?.sessions.map((ss) => ss.no) ?? []
-  return nos.length ? Math.max(...nos) : 1
+  return nos.length ? Math.max(...nos) : (student?.sessionOffset ?? 0) + 1
 }
 
 /** Tìm buổi số N của đúng học sinh này; nếu chưa có thì tạo mới với ngày
@@ -83,6 +87,22 @@ function findOrCreateSession(c: ClassData, studentId: string, no: number, dateFo
         `⚠ ${student.name} đã có Buổi ${sameDateOther.no} ghi ngày ${viDate(dateForNew)} rồi — Buổi ${no} này cũng cùng ngày đó, có thể bạn chọn nhầm số buổi. Kiểm tra lại trước khi lưu tiếp.`,
         { persist: true },
       )
+    }
+    // Chấm bù nhiều buổi dồn dập (không theo đúng thứ tự ngày thật) dễ chọn
+    // nhầm số — buổi số NHỎ HƠN phải có ngày SỚM HƠN HOẶC BẰNG, buổi số LỚN
+    // HƠN phải có ngày TRỄ HƠN HOẶC BẰNG. Vi phạm 1 trong 2 là dấu hiệu chọn
+    // sai số buổi (đã gặp thật — nguyên nhân 1 lớp bị lệch số hàng loạt lúc
+    // chấm bù dồn nhiều ngày 1 lúc). Không chặn tạo (tránh gián đoạn giữa lúc
+    // đang chấm), chỉ cảnh báo rõ để giáo viên tự kiểm tra lại ngay lúc đó.
+    else {
+      const outOfOrder = student.sessions.find((s) => (s.no < no && s.date > dateForNew) || (s.no > no && s.date < dateForNew))
+      if (outOfOrder) {
+        toast.error(
+          `⚠ Buổi ${no} (ngày ${viDate(dateForNew)}) của ${student.name} không đúng thứ tự so với Buổi ${outOfOrder.no} ` +
+          `(ngày ${viDate(outOfOrder.date)}) đã có — số buổi nhỏ phải có ngày sớm hơn. Có thể bạn chọn nhầm số, kiểm tra lại trước khi lưu tiếp.`,
+          { persist: true },
+        )
+      }
     }
     // Kế thừa "Số câu" đã đặt cho buổi này ở học sinh khác (nếu có) — để cả
     // lớp nhất quán mà KHÔNG cần tạo sẵn buổi (với điểm danh mặc định) cho
@@ -147,6 +167,8 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   // Gợi ý nhận xét chỉ hiện khi đang bấm vào ô Ghi chú — ẩn mặc định để đỡ
   // rối mắt lúc không dùng tới (xem khung chip + textarea bên dưới).
   const [noteFocused, setNoteFocused] = useState(false)
+  const [showPhraseManager, setShowPhraseManager] = useState(false)
+  const [newPhraseDraft, setNewPhraseDraft] = useState('')
   const [showResequence, setShowResequence] = useState(false)
 
   // Buổi/Ngày khóa mặc định — tránh đổi nhầm do chạm/cuộn màn hình, phải
@@ -158,9 +180,10 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   // lần cuối trước khi thao tác thật sự xảy ra, tránh bấm nhầm rồi "nhảy"
   // sang học sinh khác mà không để ý.
   const [pendingNav, setPendingNav] = useState<(() => void) | null>(null)
+  const [orderWarningAcked, setOrderWarningAcked] = useState(false)
   const requestNav = (action: () => void) => setPendingNav(() => action)
-  const confirmNav = () => { pendingNav?.(); setPendingNav(null) }
-  const cancelNav = () => setPendingNav(null)
+  const confirmNav = () => { pendingNav?.(); setPendingNav(null); setOrderWarningAcked(false) }
+  const cancelNav = () => { setPendingNav(null); setOrderWarningAcked(false) }
 
   // Group selection state
   const [groupMode, setGroupMode] = useState(false)
@@ -393,6 +416,37 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
     })
   }
 
+  /** Câu nhận xét mẫu TỰ SOẠN riêng cho lớp này (khác với gợi ý tự sinh từ
+   *  điểm số) — admin/giáo viên tự thêm/xóa theo thói quen viết của họ. Mọi
+   *  thay đổi ghi vào nhật ký hoạt động (logActivity) để admin xem lại được
+   *  ai đã sửa gì, không cần duyệt trước mới dùng được. */
+  async function addNotePhrase(text: string) {
+    const trimmed = text.trim()
+    if (!trimmed || (cls.customNotePhrases ?? []).includes(trimmed)) return
+    const next = [...(cls.customNotePhrases ?? []), trimmed]
+    update((c) => { c.customNotePhrases = next })
+    setNewPhraseDraft('')
+    if (!isMongoid(cls.id)) return
+    try {
+      await classService.update(cls.id, { customNotePhrases: next })
+      logActivity('notePhrase.add', { className: cls.name, phrase: trimmed }, 'Class')
+    } catch {
+      toast.error('Lỗi khi lưu câu mẫu mới — thử lại.', { persist: true })
+    }
+  }
+
+  async function removeNotePhrase(text: string) {
+    const next = (cls.customNotePhrases ?? []).filter((p) => p !== text)
+    update((c) => { c.customNotePhrases = next })
+    if (!isMongoid(cls.id)) return
+    try {
+      await classService.update(cls.id, { customNotePhrases: next })
+      logActivity('notePhrase.remove', { className: cls.name, phrase: text }, 'Class')
+    } catch {
+      toast.error('Lỗi khi xóa câu mẫu — thử lại.', { persist: true })
+    }
+  }
+
   function setSessionMax(key: string, val: number) {
     if (!val || val < 1) return
     // Chỉ sửa buổi của HỌC SINH ĐANG XEM — mỗi em có buổi riêng (số buổi và
@@ -499,6 +553,12 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   // đang xem chưa có, khả năng cao là quên chấm (không phải hôm đó không có
   // mục ấy, vì nếu vậy CẢ LỚP sẽ cùng thiếu, không riêng 1 người).
   const missingFlags = st ? detectMissingComps(cls, selectedNo, st.id, r2.comps) : []
+  // Buổi đang xem có bị LỆCH THỨ TỰ so với các buổi khác của CHÍNH em này
+  // không — số buổi nhỏ phải có ngày sớm hơn (hoặc bằng), số buổi lớn phải
+  // có ngày trễ hơn (hoặc bằng). Phát hiện đúng kiểu lỗi đã gặp ở Lớp 7 (chấm
+  // bù nhiều buổi dồn dập, chọn nhầm số). Chặn "✓ Xác nhận" ở hộp thoại lưu
+  // cho tới khi giáo viên tự tick đã kiểm tra, để không lỡ bấm qua như trước.
+  const orderConflict = st?.sessions.find((s) => (s.no < selectedNo && s.date > effectiveDate) || (s.no > selectedNo && s.date < effectiveDate))
   const done = cls.students.filter((s) => {
     const ss = s.sessions.find((x) => x.no === noOf(s.id))
     return ss ? sessionScore(ss.entry, r2) !== null : false
@@ -1056,7 +1116,8 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
             >
               {noteFocused && (() => {
                 const noteSuggestions = sessionStatusFragments(r2.comps, e)
-                if (!noteSuggestions.length) return null
+                const customPhrases = cls.customNotePhrases ?? []
+                if (!noteSuggestions.length && !customPhrases.length) return null
                 return (
                   <div
                     className="mb-1.5 flex flex-wrap gap-1.5"
@@ -1083,6 +1144,24 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                         </Chip>
                       )
                     })}
+                    {customPhrases.map((text) => {
+                      const on = e.note.includes(text)
+                      return (
+                        <Chip
+                          key={text}
+                          tone="good"
+                          size="sm"
+                          on={on}
+                          onClick={() => mut((en) => {
+                            en.note = on
+                              ? en.note.replace(text, '').replace(/\s{2,}/g, ' ').trim()
+                              : (en.note ? `${en.note} ${text}` : text)
+                          })}
+                        >
+                          📌 {text}
+                        </Chip>
+                      )
+                    })}
                   </div>
                 )
               })()}
@@ -1095,6 +1174,49 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                 className="w-full rounded-xl px-3 py-2 text-sm"
                 style={{ border: `1px solid ${C.line}` }}
               />
+            </div>
+
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowPhraseManager((v) => !v)}
+                className="text-xs font-semibold"
+                style={{ color: C.board2 }}
+              >
+                ⚙️ Câu mẫu riêng của lớp ({(cls.customNotePhrases ?? []).length})
+              </button>
+              {showPhraseManager && (
+                <div className="mt-1.5 space-y-1.5 rounded-xl p-2" style={{ background: C.paper }}>
+                  <div className="text-[11px]" style={{ color: C.muted }}>
+                    Câu tự soạn riêng cho lớp này, thêm/xóa thoải mái — mọi thay đổi được ghi vào nhật ký
+                    hoạt động để admin xem lại được.
+                  </div>
+                  {(cls.customNotePhrases ?? []).map((text) => (
+                    <div key={text} className="flex items-center gap-2 rounded-lg px-2 py-1 text-xs" style={{ background: '#fff', border: `1px solid ${C.line}` }}>
+                      <span className="flex-1">{text}</span>
+                      <button onClick={() => removeNotePhrase(text)} style={{ color: C.red }}>✕</button>
+                    </div>
+                  ))}
+                  <div className="flex gap-1.5">
+                    <input
+                      type="text"
+                      value={newPhraseDraft}
+                      onChange={(x) => setNewPhraseDraft(x.target.value)}
+                      onKeyDown={(x) => { if (x.key === 'Enter') void addNotePhrase(newPhraseDraft) }}
+                      placeholder="Câu mẫu mới..."
+                      className="flex-1 rounded-lg px-2 py-1 text-xs"
+                      style={{ border: `1px solid ${C.line}` }}
+                    />
+                    <button
+                      onClick={() => addNotePhrase(newPhraseDraft)}
+                      className="rounded-lg px-2 py-1 text-xs font-bold"
+                      style={{ background: C.board, color: '#fff' }}
+                    >
+                      + Thêm
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex gap-2">
@@ -1190,9 +1312,29 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                 <b style={{ color: total !== null ? scoreColor(total) : C.ink }}>{total === null ? '—' : total}</b>
               </div>
             </div>
+
+            {orderConflict && (
+              <div className="mt-3 rounded-xl p-3 text-xs" style={{ background: C.red + '14', border: `1px solid ${C.red}66` }}>
+                <div className="font-semibold" style={{ color: C.red }}>
+                  ⚠ Buổi {selectedNo} (ngày {viDate(effectiveDate)}) không đúng thứ tự so với Buổi {orderConflict.no} (ngày {viDate(orderConflict.date)}) đã có — số buổi nhỏ phải có ngày sớm hơn. Rất có thể bạn chọn nhầm số buổi.
+                </div>
+                <label className="mt-2 flex items-start gap-1.5" style={{ color: C.ink }}>
+                  <input
+                    type="checkbox"
+                    checked={orderWarningAcked}
+                    onChange={(x) => setOrderWarningAcked(x.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>Tôi đã kiểm tra lại, đúng là Buổi {selectedNo} này thật sự là ngày {viDate(effectiveDate)}.</span>
+                </label>
+              </div>
+            )}
+
             <div className="mt-4 flex gap-2">
               <Btn className="flex-1" onClick={cancelNav}>← Sửa lại</Btn>
-              <Btn kind="gold" className="flex-1" onClick={confirmNav}>✓ Xác nhận</Btn>
+              <Btn kind="gold" className="flex-1" onClick={confirmNav} disabled={!!orderConflict && !orderWarningAcked}>
+                ✓ Xác nhận
+              </Btn>
             </div>
           </Card>
         </div>

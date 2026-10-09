@@ -41,6 +41,11 @@ export interface IClass extends Document {
   extraComps?: unknown[]
   compOverrides?: Record<string, Record<string, number>>
   compLabelOverrides?: Record<string, Record<string, string>>
+  // Câu nhận xét mẫu tự soạn riêng cho lớp này (khác với gợi ý tự sinh từ
+  // điểm số) — admin/giáo viên tự thêm/sửa/xóa theo thói quen viết của họ,
+  // mọi thay đổi được ghi vào AuditLog (action notePhrase.*) để admin theo
+  // dõi lại được ai sửa gì (xem noteController/EntryScreen).
+  customNotePhrases?: string[]
   // Đơn giá tính tiền — admin tự nhập theo TỪNG LỚP (không theo "cấp" chung),
   // vì mỗi lớp có thể có mức giá riêng. Học phí = đơn giá/buổi × số buổi học
   // sinh đã học trong tháng. Lương giáo viên có 2 cách tính, chọn theo từng
@@ -98,6 +103,7 @@ const classSchema = new Schema<IClass>(
     extraComps: [{ type: Schema.Types.Mixed }],
     compOverrides: { type: Schema.Types.Mixed },
     compLabelOverrides: { type: Schema.Types.Mixed },
+    customNotePhrases: [{ type: String, trim: true, maxlength: 300 }],
     tuitionPerSession: { type: Number, min: 0 },
     teacherPayPerSession: { type: Number, min: 0 },
     teacherPayMode: { type: String, enum: ['fixed', 'perStudent'], default: 'fixed' },
