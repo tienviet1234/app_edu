@@ -593,46 +593,71 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
         <div className="flex flex-wrap items-center gap-2">
           {editingWhen ? (
             <>
-              <select
-                value={selectedNo}
-                onChange={(x) => {
-                  const newNo = Number(x.target.value)
-                  // Lưu điểm buổi ĐANG chọn lên server trước khi chuyển sang
-                  // buổi khác — trước đây đổi buổi ở đây không lưu, chỉ có
-                  // chuyển HỌC SINH (Trước/Tiếp theo/chọn tên) mới lưu, nên
-                  // điểm buổi cũ bị kẹt lại máy này, không lên được server.
+              {(() => {
+                // "Chọn tháng" lọc sẵn danh sách Buổi bên cạnh theo đúng
+                // tháng đó — tránh dropdown Buổi dài lê thê khi học sinh đã
+                // học nhiều tháng (trước đây gộp hết vào 1 dropdown dài, chỉ
+                // nhóm bằng optgroup). Chỉ hiện ô chọn Tháng khi đã qua >1
+                // tháng, đỡ rối cho ca thường gặp nhất (mới học trong 1
+                // tháng đầu). Đổi tháng tự nhảy tới buổi GẦN NHẤT ĐÃ CHẤM
+                // trong tháng đó (giống "đang chấm buổi nào thì mặc định
+                // hiện buổi đó"), hoặc Buổi 1 nếu tháng đó chưa có buổi nào.
+                const offset = st?.sessionOffset ?? 0
+                const opts = Array.from({ length: maxNo }, (_, i) => i + 1).map((no) => {
+                  const { period, displayNo } = periodPositionOf(no, cls.perMonth, offset)
+                  const existing = st?.sessions.find((s) => s.no === no)
+                  return { no, period, displayNo, existing }
+                })
+                const periodsSeen = [...new Set(opts.map((o) => o.period))]
+                const currentPeriod = periodPositionOf(selectedNo, cls.perMonth, offset).period
+                // Lưu điểm buổi ĐANG chọn lên server trước khi chuyển sang
+                // buổi khác — trước đây đổi buổi ở đây không lưu, chỉ có
+                // chuyển HỌC SINH (Trước/Tiếp theo/chọn tên) mới lưu, nên
+                // điểm buổi cũ bị kẹt lại máy này, không lên được server.
+                const switchTo = (newNo: number) => {
                   if (st) { announceSave(st.id); void syncScore(st.id) }
                   setSelectedNo(newNo)
                   setDraftDate(todayISO())
-                }}
-                title="Chọn số buổi — mỗi học sinh có buổi riêng, có thể khác ngày nhau"
-                className="rounded-xl px-3 py-2 text-sm font-semibold"
-                style={{ background: C.paper, color: C.board, border: `1px solid ${C.line}` }}
-              >
-                {(() => {
-                  // Nhóm theo Tháng (reset về Buổi 1 mỗi khi đủ perMonth buổi
-                  // thật) — chỉ hiện optgroup khi học sinh đã qua >1 tháng, đỡ
-                  // rối cho ca thường gặp nhất (mới học trong 1 tháng đầu).
-                  const offset = st?.sessionOffset ?? 0
-                  const opts = Array.from({ length: maxNo }, (_, i) => i + 1).map((no) => {
-                    const { period, displayNo } = periodPositionOf(no, cls.perMonth, offset)
-                    const existing = st?.sessions.find((s) => s.no === no)
-                    return { no, period, displayNo, existing }
-                  })
-                  const renderOption = (o: (typeof opts)[number]) => (
-                    <option key={o.no} value={o.no}>
-                      Buổi {o.displayNo} — {o.existing ? viDate(o.existing.date) : 'chưa có'}
-                    </option>
-                  )
-                  const periodsSeen = [...new Set(opts.map((o) => o.period))]
-                  if (periodsSeen.length <= 1) return opts.map(renderOption)
-                  return periodsSeen.map((p) => (
-                    <optgroup key={p} label={`Tháng ${p}`}>
-                      {opts.filter((o) => o.period === p).map(renderOption)}
-                    </optgroup>
-                  ))
-                })()}
-              </select>
+                }
+                return (
+                  <>
+                    {periodsSeen.length > 1 && (
+                      <select
+                        value={currentPeriod}
+                        onChange={(x) => {
+                          const p = Number(x.target.value)
+                          const optsInP = opts.filter((o) => o.period === p)
+                          const existingInP = optsInP.filter((o) => o.existing)
+                          const target = existingInP.length
+                            ? Math.max(...existingInP.map((o) => o.no))
+                            : (optsInP[0]?.no ?? selectedNo)
+                          switchTo(target)
+                        }}
+                        title="Chọn tháng — danh sách Buổi bên cạnh tự lọc theo đúng tháng này"
+                        className="rounded-xl px-3 py-2 text-sm font-semibold"
+                        style={{ background: C.paper, color: C.board, border: `1px solid ${C.line}` }}
+                      >
+                        {periodsSeen.map((p) => (
+                          <option key={p} value={p}>Tháng {p}</option>
+                        ))}
+                      </select>
+                    )}
+                    <select
+                      value={selectedNo}
+                      onChange={(x) => switchTo(Number(x.target.value))}
+                      title="Chọn số buổi — mỗi học sinh có buổi riêng, có thể khác ngày nhau"
+                      className="rounded-xl px-3 py-2 text-sm font-semibold"
+                      style={{ background: C.paper, color: C.board, border: `1px solid ${C.line}` }}
+                    >
+                      {opts.filter((o) => o.period === currentPeriod).map((o) => (
+                        <option key={o.no} value={o.no}>
+                          Buổi {o.displayNo} — {o.existing ? viDate(o.existing.date) : 'chưa có'}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                )
+              })()}
               <input
                 type="date"
                 value={effectiveDate}
