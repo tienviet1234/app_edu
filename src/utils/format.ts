@@ -28,10 +28,3 @@ export function toLocalDatetimeInput(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
-
-/** Returns display info for a session number with monthly cycling */
-export function sessionLabel(no: number, perMonth: number): string {
-  const month = Math.ceil(no / perMonth)
-  const local = ((no - 1) % perMonth) + 1
-  return month > 1 ? `Buổi ${local} · T.${month}` : `Buổi ${local}`
-}

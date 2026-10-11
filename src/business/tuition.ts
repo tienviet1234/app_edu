@@ -1,5 +1,36 @@
 import type { Student } from '@/types'
 
+/** Vị trí 1 buổi (`no` = số buổi THẬT, liên tục, không đổi) bên trong kỳ/tháng
+ *  của nó — `period` = kỳ thứ mấy (1-based), `displayNo` = số buổi hiển thị
+ *  CHO NGƯỜI DÙNG, tự reset về 1 mỗi khi qua kỳ mới (đủ 8/12 buổi thật).
+ *  Đây là hàm DUY NHẤT trong app quyết định "buổi N hiển thị thành gì" — mọi
+ *  màn hình phải gọi qua đây (hoặc `sessionLabelOf` bên dưới), KHÔNG tự chế
+ *  công thức riêng, để tránh lặp lại lỗi đã gặp (nhiều nơi tự tính nhãn buổi
+ *  khác nhau, lệch số giữa các màn hình). `no` CHÍNH NÓ không đổi gì — vẫn là
+ *  số đếm liên tục lưu thật trên server, dùng để sắp xếp/chống trùng/sửa
+ *  buổi như trước giờ. `offset` = `student.sessionOffset` (xem
+ *  billingPeriodsOf) — mặc định 0 cho mọi học sinh khác. */
+export function periodPositionOf(
+  no: number, perMonth: number, offset = 0,
+): { period: number; displayNo: number; blockSize: number } {
+  const blockSize = perMonth === 8 ? 8 : 12
+  const conceptual = no + offset
+  const period = Math.ceil(conceptual / blockSize)
+  const displayNo = conceptual - (period - 1) * blockSize
+  return { period, displayNo, blockSize }
+}
+
+/** Nhãn ngắn gọn cho 1 buổi, dùng ở mọi nơi hiển thị "Buổi N" cho giáo
+ *  viên/phụ huynh (dropdown chọn buổi, bảng điểm, Excel...) — "Buổi 1 · T.2"
+ *  khi đã qua kỳ 2 trở đi, chỉ "Buổi N" ở kỳ đầu (đỡ rối cho ca thường gặp
+ *  nhất). KHÔNG dùng ở các công cụ sửa/đối chiếu dữ liệu (resequence, sửa
+ *  buổi thật, đối chiếu lệch buổi...) — những chỗ đó cần thấy đúng số thật
+ *  liên tục, xem ghi chú ở từng màn hình. */
+export function sessionLabelOf(no: number, perMonth: number, offset = 0): string {
+  const { period, displayNo } = periodPositionOf(no, perMonth, offset)
+  return period > 1 ? `Buổi ${displayNo} · T.${period}` : `Buổi ${displayNo}`
+}
+
 /** Mốc TÍNH HỌC PHÍ — CHỈ đúng mốc "cuối 8 buổi" (perMonth=8) hoặc "cuối 12
  *  buổi" (perMonth khác) — KHÁC với periodsOf() ở business/report.ts (dùng
  *  cho báo cáo học tập, có thêm mốc "giữa kỳ" 6 buổi mang tính thông tin,
@@ -28,7 +59,12 @@ export function billingPeriodsOf(
     if (to <= 0) continue // kỳ này đã xong TRƯỚC KHI vào app — không có gì để hiện
     if (to > n) break
     const from = Math.max(0, (k - 1) * blockSize - offset)
-    periods.push({ from, to, label: `Buổi ${from + 1 + offset}–${to + offset}` })
+    const pFrom = periodPositionOf(from + 1, perMonth, offset)
+    const pTo = periodPositionOf(to, perMonth, offset)
+    const label = pFrom.period > 1
+      ? `Tháng ${pFrom.period} (Buổi ${pFrom.displayNo}–${pTo.displayNo})`
+      : `Buổi ${pFrom.displayNo}–${pTo.displayNo}`
+    periods.push({ from, to, label })
   }
   return periods
 }

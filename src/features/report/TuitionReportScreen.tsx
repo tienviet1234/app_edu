@@ -4,7 +4,7 @@ import { C } from '@/constants/colors'
 import { getClassRubric } from '@/constants/rubrics'
 import { statsOf } from '@/business/stats'
 import { buildComment, sessionDetailsOf, type SessionDetailRow } from '@/business/report'
-import { billingPeriodsOf, sessionsBilledOf, currentProgressOf } from '@/business/tuition'
+import { billingPeriodsOf, sessionsBilledOf, currentProgressOf, periodPositionOf, sessionLabelOf } from '@/business/tuition'
 import { isMongoid } from '@/utils/mongoid'
 import { viDate } from '@/utils/format'
 import { exportTuitionNotices, exportTuitionOverview } from '@/utils/excel'
@@ -200,7 +200,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
     setManualRows((prev) => [...prev, {
       studentId: st.id, studentName: st.name,
       periodFrom: nd.from, periodTo: nd.to,
-      periodLabel: label ?? `Nghỉ ngang — buổi ${nd.from + 1}–${nd.to}`,
+      periodLabel: label ?? `Nghỉ ngang — ${sessionLabelOf(nd.from + 1, cls.perMonth, st.sessionOffset)}–${sessionLabelOf(nd.to, cls.perMonth, st.sessionOffset)}`,
       sessionsBilled, computedAmount,
       finalAmount: String(computedAmount), adjustmentReason: '',
       reportComment: buildComment(st.name, s, r),
@@ -255,9 +255,10 @@ export function TuitionReportScreen({ cls, update }: Props) {
 
   function confirmCustomBill() {
     if (!customPreview || 'error' in customPreview || customPreview.overlaps.length > 0) return
+    const stOffset = cls.students.find((s) => s.id === customPreview.studentId)?.sessionOffset
     addManualBill(
       { studentId: customPreview.studentId, studentName: customPreview.studentName, from: customPreview.from, to: customPreview.to },
-      `Buổi ${customPreview.fromNo}–${customPreview.toNo} (tùy chọn)`,
+      `${sessionLabelOf(customPreview.fromNo, cls.perMonth, stOffset)}–${sessionLabelOf(customPreview.toNo, cls.perMonth, stOffset)} (tùy chọn)`,
     )
     setShowCustomBill(false)
     setCustomStudentId(''); setCustomFrom(''); setCustomTo('')
@@ -362,7 +363,10 @@ export function TuitionReportScreen({ cls, update }: Props) {
         reportComment: r.reportComment,
         sentAtLabel: '(chưa gửi — bản nháp)',
       })),
-      dueRows.flatMap((r) => r.sessionDetails.map((d) => ({ studentName: r.studentName, ...d }))),
+      dueRows.flatMap((r) => {
+        const offset = cls.students.find((s) => s.id === r.studentId)?.sessionOffset
+        return r.sessionDetails.map((d) => ({ studentName: r.studentName, ...d, no: periodPositionOf(d.no, cls.perMonth, offset).displayNo }))
+      }),
     )
   }
 
@@ -432,7 +436,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
         return {
           studentId: nd.studentId, studentName: nd.studentName,
           status: 'Chưa tới hạn' as const,
-          periodLabel: `Đang học dở — buổi ${nd.from + 1}–${nd.to}`,
+          periodLabel: `Đang học dở — ${sessionLabelOf(nd.from + 1, cls.perMonth, st?.sessionOffset)}–${sessionLabelOf(nd.to, cls.perMonth, st?.sessionOffset)}`,
           sessionsBilled: `${nd.progress.current}/${nd.progress.total}`,
           // Đơn giá đã có (admin đã cập nhật) nên tạm tính luôn theo đúng số
           // buổi đã học, không để trống — ghi rõ "(tạm tính)" vì CHƯA chốt/
@@ -462,9 +466,14 @@ export function TuitionReportScreen({ cls, update }: Props) {
    *  học sinh — để phụ huynh tự đối chiếu số buổi × đơn giá ra đúng tổng. */
   function detailRowsWithTotal(row: (typeof overviewRows)[number]) {
     if (!row.sessionDetails.length) return []
+    const offset = cls.students.find((s) => s.id === row.studentId)?.sessionOffset
     const rows = row.sessionDetails.map((d) => {
       const billable = d.attendance !== 'absent'
-      return { studentName: row.studentName, ...d, amount: billable ? fmtVnd(sessionAmount(d, row.ratePerSession)) : '' }
+      return {
+        studentName: row.studentName, ...d,
+        no: periodPositionOf(d.no, cls.perMonth, offset).displayNo,
+        amount: billable ? fmtVnd(sessionAmount(d, row.ratePerSession)) : '',
+      }
     })
     const total = row.sessionDetails.reduce((sum, d) => sum + sessionAmount(d, row.ratePerSession), 0)
     return [
@@ -690,11 +699,13 @@ export function TuitionReportScreen({ cls, update }: Props) {
                               </tr>
                             </thead>
                             <tbody>
-                              {r.sessionDetails.map((d) => {
+                              {(() => {
+                                const offset = cls.students.find((s) => s.id === r.studentId)?.sessionOffset
+                                return r.sessionDetails.map((d) => {
                                 const billable = d.attendance !== 'absent'
                                 return (
                                   <tr key={d.no} style={{ borderTop: `1px solid ${C.line}` }}>
-                                    <td className="py-1 px-2 font-semibold">{d.no}</td>
+                                    <td className="py-1 px-2 font-semibold">{periodPositionOf(d.no, cls.perMonth, offset).displayNo}</td>
                                     <td className="py-1 px-2" style={{ color: C.muted }}>{viDate(d.date)}</td>
                                     <td className="py-1 px-2" style={{ color: C.muted }}>
                                       <div>{d.homework || '—'}</div>
@@ -731,7 +742,8 @@ export function TuitionReportScreen({ cls, update }: Props) {
                                     </td>
                                   </tr>
                                 )
-                              })}
+                              })
+                              })()}
                             </tbody>
                             <tfoot>
                               <tr style={{ borderTop: `2px solid ${C.line}`, background: C.paper }}>
@@ -835,7 +847,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
                       {row.sessionDetails.map((d) => (
                         <div key={d.no} className="rounded-lg p-2 text-xs" style={{ border: `1px solid ${C.line}` }}>
                           <div className="font-semibold" style={{ color: C.ink }}>
-                            Buổi {d.no} — {viDate(d.date)}
+                            Buổi {periodPositionOf(d.no, cls.perMonth, cls.students.find((s) => s.id === row.studentId)?.sessionOffset).displayNo} — {viDate(d.date)}
                           </div>
                           {d.homework && (
                             <div className="mt-0.5" style={{ color: C.muted }}>📝 Bài giao: {d.homework}</div>

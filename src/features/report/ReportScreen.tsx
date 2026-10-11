@@ -4,10 +4,11 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import type { ClassData } from '@/types'
 import { C } from '@/constants/colors'
 import { getClassRubric } from '@/constants/rubrics'
-import { round1, todayISO, viDate, viDateTime, sessionLabel } from '@/utils/format'
+import { round1, todayISO, viDate, viDateTime } from '@/utils/format'
 import { statsOf } from '@/business/stats'
 import { rankingOf } from '@/business/ranking'
 import { periodsOf, detailBlocks, buildComment } from '@/business/report'
+import { sessionLabelOf } from '@/business/tuition'
 import { exportScores } from '@/utils/excel'
 import { sessionScore, compHasData, compScore, sessionComps } from '@/business/scoring'
 
@@ -121,7 +122,7 @@ ${student.sessions[0]?.homework !== undefined ? '<th>BTVN</th>' : ''}
 ${sessionRows.map(({ no, date, attended, total, entry, comps, recordedAt, teacherName }) => {
   const attendLabel = entry?.attendance === 'present' ? 'P' : entry?.attendance === 'late' ? 'Muộn' : entry?.attendance === 'excused' ? 'Phép' : entry?.attendance === 'absent' ? 'Vắng' : '—'
   return `<tr class="${!attended ? 'absent' : ''}">
-<td>${sessionLabel(no, cls.perMonth)}</td>
+<td>${sessionLabelOf(no, cls.perMonth, student.sessionOffset)}</td>
 <td>${viDate(date)}</td>
 <td>${recordedAt ? viDateTime(recordedAt).split(' ')[1] : '—'}</td>
 <td class="num">${attendLabel}</td>
@@ -398,7 +399,7 @@ ${r.comps.map((c) => `<td class="num">${fracPct(row.s.catPts[c.key])}</td>`).joi
                   const absent = e.attendance === 'absent'
                   return (
                     <tr key={sess.id} style={{ borderTop: `1px solid ${C.line}`, opacity: absent ? 0.5 : 1 }}>
-                      <td className="py-2 px-3 font-bold">{sessionLabel(sess.no, cls.perMonth)}</td>
+                      <td className="py-2 px-3 font-bold">{sessionLabelOf(sess.no, cls.perMonth, st.sessionOffset)}</td>
                       <td className="py-2 px-3">{viDate(sess.date)}</td>
                       <td className="py-2 px-3 text-xs" style={{ color: C.muted }}>
                         {sess.recordedAt ? viDateTime(sess.recordedAt).split(' ')[1] : '—'}

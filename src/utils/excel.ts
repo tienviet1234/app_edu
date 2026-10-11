@@ -6,6 +6,7 @@ import { rankingOf } from '@/business/ranking'
 import { buildComment, sessionDetailsOf, type SessionScoreItem } from '@/business/report'
 import { sessionScore, compScore, sessionComps } from '@/business/scoring'
 import { round1, viDate, viDateTime } from '@/utils/format'
+import { periodPositionOf } from '@/business/tuition'
 
 export interface ExportPeriod {
   from: number
@@ -81,11 +82,13 @@ export function exportScores(cls: ClassData, p: ExportPeriod): void {
   // vào sheet đầu tiên khi mở file, để sheet tổng hợp (chỉ vài dòng, dễ nhìn
   // "cụt" nếu ít học sinh) lên trước dễ gây cảm giác file không có gì chi tiết.
   const sessionDetails = cls.students.flatMap((st) =>
-    sessionDetailsOf(st, p.from, p.to, r).map((d) => ({ studentName: st.name, ...d })),
+    sessionDetailsOf(st, p.from, p.to, r).map((d) => ({ studentName: st.name, sessionOffset: st.sessionOffset, ...d })),
   )
   if (sessionDetails.length) {
     const detailHeaders = ['Học sinh', 'Buổi', 'Ngày học', 'Bài tập về nhà', 'Điểm số', 'Nhận xét']
-    const detailData = sessionDetails.map((d) => [d.studentName, d.no, viDate(d.date), d.homework, scoresCell(d.scores), d.status])
+    const detailData = sessionDetails.map((d) => [
+      d.studentName, periodPositionOf(d.no, cls.perMonth, d.sessionOffset).displayNo, viDate(d.date), d.homework, scoresCell(d.scores), d.status,
+    ])
     const detailWs = XLSX.utils.aoa_to_sheet([detailHeaders, ...detailData])
     detailWs['!cols'] = [{ wch: 20 }, { wch: 6 }, { wch: 12 }, { wch: 28 }, { wch: 40 }, { wch: 50 }]
     XLSX.utils.book_append_sheet(wb, detailWs, 'Chi tiết từng buổi')

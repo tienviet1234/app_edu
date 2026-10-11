@@ -7,6 +7,7 @@ import { uid } from '@/utils/uid'
 import { todayISO, viDate } from '@/utils/format'
 import { sessionScore, rescaleComp, detectMissingComps } from '@/business/scoring'
 import { sessionStatusFragments } from '@/business/report'
+import { periodPositionOf, sessionLabelOf } from '@/business/tuition'
 import { emptyEntry } from '@/business/seed'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
@@ -84,7 +85,7 @@ function findOrCreateSession(c: ClassData, studentId: string, no: number, dateFo
     const sameDateOther = student.sessions.find((s) => s.date === dateForNew && s.no !== no)
     if (sameDateOther) {
       toast.error(
-        `⚠ ${student.name} đã có Buổi ${sameDateOther.no} ghi ngày ${viDate(dateForNew)} rồi — Buổi ${no} này cũng cùng ngày đó, có thể bạn chọn nhầm số buổi. Kiểm tra lại trước khi lưu tiếp.`,
+        `⚠ ${student.name} đã có ${sessionLabelOf(sameDateOther.no, c.perMonth, student.sessionOffset)} ghi ngày ${viDate(dateForNew)} rồi — ${sessionLabelOf(no, c.perMonth, student.sessionOffset)} này cũng cùng ngày đó, có thể bạn chọn nhầm số buổi. Kiểm tra lại trước khi lưu tiếp.`,
         { persist: true },
       )
     }
@@ -98,7 +99,7 @@ function findOrCreateSession(c: ClassData, studentId: string, no: number, dateFo
       const outOfOrder = student.sessions.find((s) => (s.no < no && s.date > dateForNew) || (s.no > no && s.date < dateForNew))
       if (outOfOrder) {
         toast.error(
-          `⚠ Buổi ${no} (ngày ${viDate(dateForNew)}) của ${student.name} không đúng thứ tự so với Buổi ${outOfOrder.no} ` +
+          `⚠ ${sessionLabelOf(no, c.perMonth, student.sessionOffset)} (ngày ${viDate(dateForNew)}) của ${student.name} không đúng thứ tự so với ${sessionLabelOf(outOfOrder.no, c.perMonth, student.sessionOffset)} ` +
           `(ngày ${viDate(outOfOrder.date)}) đã có — số buổi nhỏ phải có ngày sớm hơn. Có thể bạn chọn nhầm số, kiểm tra lại trước khi lưu tiếp.`,
           { persist: true },
         )
@@ -275,9 +276,17 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
     toast.success(`Đã đổi Buổi ${oldNo} → Buổi ${newNo} cho ${st.name} — điểm/bài tập vẫn giữ nguyên`)
   }
 
+  // Luôn chừa sẵn Ít NHẤT 1 lựa chọn "buổi tiếp theo" ngay sau buổi cao nhất
+  // CỦA CHÍNH học sinh đang xem — trước đây chỉ tính theo max(perMonth, cả
+  // lớp) nên hễ 1 em là người đầu tiên của lớp chạm mốc perMonth (VD 12) mà
+  // chưa bạn nào khác vượt qua, dropdown chỉ liệt kê tới đúng buổi hiện có,
+  // giáo viên không chọn được buổi kế tiếp để nhập tiếp ("hết chỗ" trong
+  // dropdown) — đã gặp thật, phải tạm dùng lại 1 số buổi cũ để nhập cho qua.
+  const myMaxNo = Math.max(0, ...(st?.sessions.map((ss) => ss.no) ?? []))
   const maxNo = Math.max(
     cls.perMonth,
     selectedNo,
+    myMaxNo + 1,
     ...cls.students.flatMap((s) => s.sessions.map((ss) => ss.no)),
   )
 
@@ -295,10 +304,11 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
     const student = cls.students.find((s) => s.id === studentId)
     const target = student?.sessions.find((s) => s.no === noOf(studentId))
     if (!student || !target) return
+    const label = sessionLabelOf(target.no, cls.perMonth, student.sessionOffset)
     if (isMongoid(target.id)) {
-      toast.success(`✓ Đã lưu điểm Buổi ${target.no} của ${student.name}`)
+      toast.success(`✓ Đã lưu điểm ${label} của ${student.name}`)
     } else {
-      toast.info(`Đã tạo Buổi ${target.no} cho ${student.name} (${viDate(target.date)})`)
+      toast.info(`Đã tạo ${label} cho ${student.name} (${viDate(target.date)})`)
     }
   }
 
@@ -599,14 +609,29 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                 className="rounded-xl px-3 py-2 text-sm font-semibold"
                 style={{ background: C.paper, color: C.board, border: `1px solid ${C.line}` }}
               >
-                {Array.from({ length: maxNo }, (_, i) => i + 1).map((no) => {
-                  const existing = st?.sessions.find((s) => s.no === no)
-                  return (
-                    <option key={no} value={no}>
-                      Buổi {no} — {existing ? viDate(existing.date) : 'chưa có'}
+                {(() => {
+                  // Nhóm theo Tháng (reset về Buổi 1 mỗi khi đủ perMonth buổi
+                  // thật) — chỉ hiện optgroup khi học sinh đã qua >1 tháng, đỡ
+                  // rối cho ca thường gặp nhất (mới học trong 1 tháng đầu).
+                  const offset = st?.sessionOffset ?? 0
+                  const opts = Array.from({ length: maxNo }, (_, i) => i + 1).map((no) => {
+                    const { period, displayNo } = periodPositionOf(no, cls.perMonth, offset)
+                    const existing = st?.sessions.find((s) => s.no === no)
+                    return { no, period, displayNo, existing }
+                  })
+                  const renderOption = (o: (typeof opts)[number]) => (
+                    <option key={o.no} value={o.no}>
+                      Buổi {o.displayNo} — {o.existing ? viDate(o.existing.date) : 'chưa có'}
                     </option>
                   )
-                })}
+                  const periodsSeen = [...new Set(opts.map((o) => o.period))]
+                  if (periodsSeen.length <= 1) return opts.map(renderOption)
+                  return periodsSeen.map((p) => (
+                    <optgroup key={p} label={`Tháng ${p}`}>
+                      {opts.filter((o) => o.period === p).map(renderOption)}
+                    </optgroup>
+                  ))
+                })()}
               </select>
               <input
                 type="date"
@@ -633,6 +658,11 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                       className="w-14 rounded-lg px-2 py-1.5 text-center text-sm font-bold"
                       style={{ border: `1px solid ${C.line}` }}
                     />
+                    {renameDraft.trim() && Number.isFinite(Number(renameDraft)) && (
+                      <span className="text-xs" style={{ color: C.muted }}>
+                        → sẽ hiện là: {sessionLabelOf(Number(renameDraft), cls.perMonth, st?.sessionOffset)}
+                      </span>
+                    )}
                     <button
                       onClick={commitRenameSessionNo}
                       className="rounded-lg px-2.5 py-1.5 text-xs font-bold"
@@ -674,7 +704,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
               className="flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold"
               style={{ background: C.paper, color: C.board, border: `1px solid ${C.line}` }}
             >
-              <span>🔒 Buổi {selectedNo} — {viDate(effectiveDate)}</span>
+              <span>🔒 {sessionLabelOf(selectedNo, cls.perMonth, st?.sessionOffset)} — {viDate(effectiveDate)}</span>
               <span style={{ color: C.board2 }}>✎ Sửa</span>
             </button>
           )}
@@ -776,7 +806,12 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                     style={{ borderTop: `1px solid ${C.line}`, background: i === cur ? C.board + '0D' : undefined }}
                   >
                     <td className="py-1.5 px-3 font-semibold">{student.name}</td>
-                    <td className="py-1.5 px-3 text-center font-semibold" style={{ color: C.board }}>B{no}</td>
+                    <td className="py-1.5 px-3 text-center font-semibold" style={{ color: C.board }}>
+                      {(() => {
+                        const { period, displayNo } = periodPositionOf(no, cls.perMonth, student.sessionOffset)
+                        return period > 1 ? `B${displayNo}·T${period}` : `B${displayNo}`
+                      })()}
+                    </td>
                     <td className="py-1.5 px-3 text-center" style={{ color: C.muted }}>
                       {ss ? viDate(ss.date) : '—'}
                     </td>
@@ -988,7 +1023,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                 style={{ background: C.rose + '14', color: '#9F1239', border: `1px solid ${C.rose}44` }}
               >
                 <div className="font-semibold">
-                  ⚠ Có thể quên chấm cho {st.name} — Buổi {selectedNo}:
+                  ⚠ Có thể quên chấm cho {st.name} — {sessionLabelOf(selectedNo, cls.perMonth, st?.sessionOffset)}:
                 </div>
                 <ul className="mt-1 ml-4 list-disc space-y-0.5">
                   {missingFlags.map((f) => (
@@ -1297,7 +1332,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
               </div>
               <div className="flex justify-between">
                 <span style={{ color: C.muted }}>Buổi</span>
-                <b style={{ color: C.ink }}>{selectedNo}</b>
+                <b style={{ color: C.ink }}>{sessionLabelOf(selectedNo, cls.perMonth, st.sessionOffset)}</b>
               </div>
               <div className="flex justify-between">
                 <span style={{ color: C.muted }}>Ngày</span>
@@ -1316,7 +1351,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
             {orderConflict && (
               <div className="mt-3 rounded-xl p-3 text-xs" style={{ background: C.red + '14', border: `1px solid ${C.red}66` }}>
                 <div className="font-semibold" style={{ color: C.red }}>
-                  ⚠ Buổi {selectedNo} (ngày {viDate(effectiveDate)}) không đúng thứ tự so với Buổi {orderConflict.no} (ngày {viDate(orderConflict.date)}) đã có — số buổi nhỏ phải có ngày sớm hơn. Rất có thể bạn chọn nhầm số buổi.
+                  ⚠ {sessionLabelOf(selectedNo, cls.perMonth, st.sessionOffset)} (ngày {viDate(effectiveDate)}) không đúng thứ tự so với {sessionLabelOf(orderConflict.no, cls.perMonth, st.sessionOffset)} (ngày {viDate(orderConflict.date)}) đã có — số buổi nhỏ phải có ngày sớm hơn. Rất có thể bạn chọn nhầm số buổi.
                 </div>
                 <label className="mt-2 flex items-start gap-1.5" style={{ color: C.ink }}>
                   <input
@@ -1325,7 +1360,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                     onChange={(x) => setOrderWarningAcked(x.target.checked)}
                     className="mt-0.5"
                   />
-                  <span>Tôi đã kiểm tra lại, đúng là Buổi {selectedNo} này thật sự là ngày {viDate(effectiveDate)}.</span>
+                  <span>Tôi đã kiểm tra lại, đúng là {sessionLabelOf(selectedNo, cls.perMonth, st.sessionOffset)} này thật sự là ngày {viDate(effectiveDate)}.</span>
                 </label>
               </div>
             )}
