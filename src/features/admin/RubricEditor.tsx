@@ -61,6 +61,10 @@ export function RubricEditor() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editingComp, setEditingComp] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  // Đổi hẳn KIỂU của 1 tiêu chí gốc (VD Điểm số → Các phần) — dùng chung form
+  // "Thêm tiêu chí mới" bên dưới, chỉ khác chỗ lưu: tiêu chí gốc bị ẨN đi
+  // (không xóa, khôi phục được), thay bằng 1 tiêu chí tùy chỉnh mới tạo ra.
+  const [changingTypeOf, setChangingTypeOf] = useState<string | null>(null)
 
   // Add form state
   const [showAdd, setShowAdd] = useState(false)
@@ -252,6 +256,7 @@ export function RubricEditor() {
 
   function resetForm() {
     setShowAdd(false)
+    setChangingTypeOf(null)
     setNewType('score')
     setNewLabel('')
     setNewMax(10)
@@ -263,35 +268,58 @@ export function RubricEditor() {
     setPartMax(10)
   }
 
-  function addComp() {
-    if (!newLabel.trim()) return
-    if (newType === 'choice' && newOptions.length < 2) return
-    if (newType === 'parts' && newParts.length < 1) return
+  function buildComp(): ExtraComp | null {
+    if (!newLabel.trim()) return null
+    if (newType === 'choice' && newOptions.length < 2) return null
+    if (newType === 'parts' && newParts.length < 1) return null
 
     const key = `custom_${uid()}`
-    let comp: ExtraComp
-
     if (newType === 'choice') {
-      comp = {
+      return {
         key,
         label: newLabel.trim(),
         max: Math.max(...newOptions.map((o) => o.pts)),
         type: 'choice',
         options: newOptions.map((o, i) => ({ id: `opt_${i}`, label: o.label, pts: o.pts })),
       }
-    } else if (newType === 'parts') {
-      comp = {
+    }
+    if (newType === 'parts') {
+      return {
         key,
         label: newLabel.trim(),
         max: newParts.reduce((a, p) => a + p.max, 0),
         type: 'parts',
         parts: newParts.map((p, i) => ({ id: `part_${i}`, label: p.label, max: p.max })),
       }
-    } else {
-      comp = { key, label: newLabel.trim(), max: newMax }
     }
+    return { key, label: newLabel.trim(), max: newMax }
+  }
 
+  function addComp() {
+    const comp = buildComp()
+    if (!comp) return
     patchClass(current._id, { extraComps: [...extraComps, comp] })
+    resetForm()
+  }
+
+  /** Đổi kiểu 1 tiêu chí GỐC (VD Mini Test đang "Điểm số" → "Các phần") —
+   *  ẨN tiêu chí gốc (không xóa, khôi phục được bằng "+ Hiện lại") và tạo
+   *  1 tiêu chí tùy chỉnh mới đúng kiểu vừa chọn, thay vì bắt admin tự ẩn
+   *  rồi thêm mới thủ công 2 bước. Cảnh báo rõ trước khi lưu vì buổi ĐÃ CHẤM
+   *  theo kiểu cũ sẽ không hiện được dưới kiểu mới (dữ liệu cũ không mất,
+   *  chỉ không còn hiển thị do khác định dạng lưu). */
+  function replaceGocCompType(gocKey: string) {
+    const comp = buildComp()
+    if (!comp) return
+    const gocLabel = baseRubric.comps.find((c) => c.key === gocKey)?.label ?? gocKey
+    if (!confirm(
+      `Đổi "${gocLabel}" sang kiểu "${TYPE_LABELS[newType]}"?\n\n` +
+      `Tiêu chí cũ sẽ bị ẨN (không xóa — khôi phục lại được bằng nút "+ Hiện lại"), thay bằng bản mới. ` +
+      `Các buổi ĐÃ CHẤM theo kiểu cũ vẫn giữ nguyên dữ liệu nhưng sẽ KHÔNG hiện được dưới kiểu mới — chỉ các buổi chấm TỪ BÂY GIỜ trở đi mới theo kiểu mới này.`,
+    )) return
+    const hidden = [...(current.hiddenComps ?? [])]
+    if (!hidden.includes(gocKey)) hidden.push(gocKey)
+    patchClass(current._id, { hiddenComps: hidden, extraComps: [...extraComps, comp] })
     resetForm()
   }
 
@@ -302,6 +330,196 @@ export function RubricEditor() {
       : newType === 'choice'
         ? newOptions.length >= 2
         : newParts.length >= 1)
+
+  /** Form chọn kiểu + điền chi tiết (điểm tối đa / các mức / các phần) — dùng
+   *  chung cho cả "Thêm tiêu chí tùy chỉnh" (tạo mới hẳn) lẫn "🔄 Đổi kiểu"
+   *  của 1 tiêu chí gốc (thay thế kiểu cũ) — 2 nơi cần y hệt nhau, chỉ khác
+   *  hành động lưu cuối cùng. */
+  function renderTypeBuilder(opts: { onSubmit: () => void; submitLabel: string; onCancel: () => void }) {
+    return (
+      <>
+        {/* Type selector */}
+        <div>
+          <div className="text-xs font-bold mb-2" style={{ color: C.muted }}>Loại tiêu chí</div>
+          <div className="grid grid-cols-3 gap-2">
+            {(['score', 'choice', 'parts'] as CompType[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => setNewType(t)}
+                className="rounded-xl p-2.5 text-left"
+                style={{
+                  border: `2px solid ${newType === t ? C.board : C.line}`,
+                  background: newType === t ? C.board + '0F' : '#fff',
+                }}
+              >
+                <div className="text-xs font-bold" style={{ color: newType === t ? C.board : C.ink }}>
+                  {TYPE_LABELS[t]}
+                </div>
+                <div className="text-xs mt-0.5 leading-tight" style={{ color: C.muted }}>
+                  {TYPE_DESC[t]}
+                </div>
+                <div className="text-[10px] font-bold mt-1 leading-tight" style={{ color: TYPE_CALC[t].color }}>
+                  {TYPE_CALC[t].text}
+                </div>
+              </button>
+            ))}
+          </div>
+          {/* Nhắc lại chế độ đang chọn — hiện xuyên suốt phần điền bên dưới
+           *  (tên, mức/phần...) để admin không quên mình đang tạo loại nào
+           *  giữa chừng, nhất là trên điện thoại phải cuộn xa khỏi 3 nút chọn. */}
+          <div
+            className="mt-2 rounded-lg px-2.5 py-1.5 text-xs font-semibold flex items-center gap-1.5"
+            style={{ background: TYPE_CALC[newType].color + '14', color: TYPE_CALC[newType].color }}
+          >
+            <span>Đang chọn: {TYPE_LABELS[newType]}</span>
+            <span style={{ color: C.muted, fontWeight: 400 }}>·</span>
+            <span>{TYPE_CALC[newType].text}</span>
+          </div>
+        </div>
+
+        {/* Name */}
+        <div>
+          <div className="text-xs font-bold mb-1" style={{ color: C.muted }}>Tên tiêu chí</div>
+          <input
+            value={newLabel}
+            onChange={(e) => setNewLabel(e.target.value)}
+            placeholder="vd: Kỹ năng nói, Đọc hiểu..."
+            className="w-full rounded-xl px-3 py-2 text-sm"
+            style={{ border: `1px solid ${C.line}` }}
+          />
+        </div>
+
+        {/* Score: max */}
+        {newType === 'score' && (
+          <div>
+            <div className="text-xs font-bold mb-1" style={{ color: C.muted }}>Điểm tối đa</div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number" min="1" max="100"
+                value={newMax}
+                onChange={(e) => setNewMax(Number(e.target.value))}
+                className="w-24 rounded-xl px-3 py-2 text-center text-sm font-bold"
+                style={{ border: `1px solid ${C.line}` }}
+              />
+              <span className="text-sm" style={{ color: C.muted }}>điểm</span>
+            </div>
+          </div>
+        )}
+
+        {/* Choice: options builder */}
+        {newType === 'choice' && (
+          <div>
+            <div className="text-xs font-bold mb-2" style={{ color: C.muted }}>
+              Các mức lựa chọn <span className="font-normal">(cần ít nhất 2 mức)</span>
+            </div>
+            {newOptions.length > 0 && (
+              <div className="rounded-xl overflow-hidden mb-2" style={{ border: `1px solid ${C.line}` }}>
+                {newOptions.map((o, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center justify-between px-3 py-2 text-sm"
+                    style={{ borderBottom: i < newOptions.length - 1 ? `1px solid ${C.line}` : undefined }}
+                  >
+                    <span style={{ color: C.ink }}>{o.label}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold" style={{ color: C.board }}>{o.pts}đ</span>
+                      <button onClick={() => setNewOptions(newOptions.filter((_, j) => j !== i))} style={{ color: C.red }} className="text-xs">✕</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <input
+                value={optLabel}
+                onChange={(e) => setOptLabel(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addOption()}
+                placeholder="Nhãn mức (vd: Hoàn thành)"
+                className="flex-1 rounded-xl px-3 py-2 text-sm"
+                style={{ border: `1px solid ${C.line}` }}
+              />
+              <input
+                type="number" min="0" max="200"
+                value={optPts}
+                onChange={(e) => setOptPts(Number(e.target.value))}
+                className="w-16 rounded-xl px-2 py-2 text-center text-sm font-bold"
+                style={{ border: `1px solid ${C.line}` }}
+              />
+              <span className="self-center text-xs shrink-0" style={{ color: C.muted }}>đ</span>
+              <button
+                onClick={addOption}
+                disabled={!optLabel.trim()}
+                className="rounded-xl px-3 py-2 text-xs font-bold shrink-0"
+                style={{ background: C.board, color: '#fff', opacity: optLabel.trim() ? 1 : 0.4 }}
+              >
+                + Thêm
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Parts: parts builder */}
+        {newType === 'parts' && (
+          <div>
+            <div className="text-xs font-bold mb-2" style={{ color: C.muted }}>
+              Các phần nhỏ
+              {newParts.length > 0 && <span className="ml-1 font-normal">· Tổng {newParts.reduce((a, p) => a + p.max, 0)}đ</span>}
+            </div>
+            {newParts.length > 0 && (
+              <div className="rounded-xl overflow-hidden mb-2" style={{ border: `1px solid ${C.line}` }}>
+                {newParts.map((p, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center justify-between px-3 py-2 text-sm"
+                    style={{ borderBottom: i < newParts.length - 1 ? `1px solid ${C.line}` : undefined }}
+                  >
+                    <span style={{ color: C.ink }}>{p.label}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold" style={{ color: '#96720E' }}>{p.max}đ</span>
+                      <button onClick={() => setNewParts(newParts.filter((_, j) => j !== i))} style={{ color: C.red }} className="text-xs">✕</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <input
+                value={partLabel}
+                onChange={(e) => setPartLabel(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addPart()}
+                placeholder="Tên phần (vd: Phát âm rõ ràng)"
+                className="flex-1 rounded-xl px-3 py-2 text-sm"
+                style={{ border: `1px solid ${C.line}` }}
+              />
+              <input
+                type="number" min="1" max="200"
+                value={partMax}
+                onChange={(e) => setPartMax(Number(e.target.value))}
+                className="w-16 rounded-xl px-2 py-2 text-center text-sm font-bold"
+                style={{ border: `1px solid ${C.line}` }}
+              />
+              <span className="self-center text-xs shrink-0" style={{ color: C.muted }}>đ</span>
+              <button
+                onClick={addPart}
+                disabled={!partLabel.trim()}
+                className="rounded-xl px-3 py-2 text-xs font-bold shrink-0"
+                style={{ background: C.gold, color: '#fff', opacity: partLabel.trim() ? 1 : 0.4 }}
+              >
+                + Thêm
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-2 pt-2" style={{ borderTop: `1px solid ${C.line}` }}>
+          <Btn kind="solid" onClick={opts.onSubmit} disabled={!canAdd} className="flex-1">
+            {opts.submitLabel}
+          </Btn>
+          <Btn kind="ghost" onClick={opts.onCancel}>Hủy</Btn>
+        </div>
+      </>
+    )
+  }
 
   // ── render ────────────────────────────────────────────────────────────────────
 
@@ -391,7 +609,10 @@ export function RubricEditor() {
                   </div>
                   <div className="flex shrink-0 gap-1.5">
                     <button
-                      onClick={() => setEditingComp(isEditing ? null : comp.key)}
+                      onClick={() => {
+                        setEditingComp(isEditing ? null : comp.key)
+                        setChangingTypeOf(null)
+                      }}
                       className="rounded-lg px-2.5 py-1 text-xs font-bold"
                       style={{
                         color: isEditing ? '#fff' : C.board,
@@ -400,6 +621,30 @@ export function RubricEditor() {
                       }}
                     >
                       {isEditing ? 'Xong' : 'Sửa'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const opening = changingTypeOf !== comp.key
+                        setChangingTypeOf(opening ? comp.key : null)
+                        setEditingComp(null)
+                        setShowAdd(false)
+                        if (opening) {
+                          setNewType((comp.type === 'choice' || comp.type === 'parts' ? comp.type : 'score') as CompType)
+                          setNewLabel(effComp.label)
+                          setNewMax(effComp.max)
+                          setNewOptions([])
+                          setNewParts([])
+                        }
+                      }}
+                      title="Đổi hẳn kiểu tiêu chí (VD Điểm số → Các phần) — tiêu chí cũ sẽ bị ẩn, không xóa"
+                      className="rounded-lg px-2.5 py-1 text-xs font-bold"
+                      style={{
+                        color: changingTypeOf === comp.key ? '#fff' : C.gold,
+                        border: `1px solid ${C.gold}`,
+                        background: changingTypeOf === comp.key ? C.gold : C.gold + '10',
+                      }}
+                    >
+                      🔄 Đổi kiểu
                     </button>
                     <button
                       onClick={() => toggleHidden(comp.key)}
@@ -534,14 +779,27 @@ export function RubricEditor() {
                         ⚠ Đây là tiêu chí "Lựa chọn" — học sinh chỉ chọn ĐÚNG 1 mức, điểm hiển thị
                         ({effComp.max}đ) là mức CAO NHẤT trong các mức, <b>không cộng dồn</b> các mức lại.
                         Nếu muốn chấm nhiều phần độc lập rồi cộng điểm lại (VD hoàn thành + làm đúng +
-                        trình bày đẹp), hãy bấm "Ẩn" tiêu chí này rồi thêm 1 "Tiêu chí tùy chỉnh" bên dưới,
-                        chọn dạng "Các phần".
+                        trình bày đẹp), bấm "🔄 Đổi kiểu" ở trên, chọn dạng "Các phần".
                       </div>
                     ) : (
                       <div className="pt-1 text-xs" style={{ color: C.muted }}>
                         Tổng điểm ({effComp.max}đ) tự cộng lại từ các phần trên.
                       </div>
                     )}
+                  </div>
+                )}
+
+                {changingTypeOf === comp.key && (
+                  <div className="mt-2.5 rounded-lg p-2.5" style={{ background: '#fff', border: `1px solid ${C.gold}` }}>
+                    <div className="mb-2 text-xs" style={{ color: '#92400E' }}>
+                      🔄 Chọn kiểu MỚI cho "{effComp.label}" — tiêu chí cũ sẽ bị ẩn (khôi phục được), buổi đã
+                      chấm theo kiểu cũ vẫn giữ dữ liệu nhưng không hiện dưới kiểu mới.
+                    </div>
+                    {renderTypeBuilder({
+                      onSubmit: () => replaceGocCompType(comp.key),
+                      submitLabel: 'Lưu kiểu mới',
+                      onCancel: resetForm,
+                    })}
                   </div>
                 )}
               </div>
@@ -710,7 +968,7 @@ export function RubricEditor() {
       {/* Add new comp */}
       {!showAdd ? (
         <button
-          onClick={() => setShowAdd(true)}
+          onClick={() => { setShowAdd(true); setChangingTypeOf(null); setEditingComp(null) }}
           className="w-full rounded-xl py-3 text-sm font-bold"
           style={{ border: `2px dashed ${C.line}`, color: C.board, background: C.paper }}
         >
@@ -719,186 +977,7 @@ export function RubricEditor() {
       ) : (
         <Card className="p-4 space-y-4">
           <div className="text-sm font-black" style={{ color: C.ink }}>Thêm tiêu chí mới</div>
-
-          {/* Type selector */}
-          <div>
-            <div className="text-xs font-bold mb-2" style={{ color: C.muted }}>Loại tiêu chí</div>
-            <div className="grid grid-cols-3 gap-2">
-              {(['score', 'choice', 'parts'] as CompType[]).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setNewType(t)}
-                  className="rounded-xl p-2.5 text-left"
-                  style={{
-                    border: `2px solid ${newType === t ? C.board : C.line}`,
-                    background: newType === t ? C.board + '0F' : '#fff',
-                  }}
-                >
-                  <div className="text-xs font-bold" style={{ color: newType === t ? C.board : C.ink }}>
-                    {TYPE_LABELS[t]}
-                  </div>
-                  <div className="text-xs mt-0.5 leading-tight" style={{ color: C.muted }}>
-                    {TYPE_DESC[t]}
-                  </div>
-                  <div className="text-[10px] font-bold mt-1 leading-tight" style={{ color: TYPE_CALC[t].color }}>
-                    {TYPE_CALC[t].text}
-                  </div>
-                </button>
-              ))}
-            </div>
-            {/* Nhắc lại chế độ đang chọn — hiện xuyên suốt phần điền bên dưới
-             *  (tên, mức/phần...) để admin không quên mình đang tạo loại nào
-             *  giữa chừng, nhất là trên điện thoại phải cuộn xa khỏi 3 nút chọn. */}
-            <div
-              className="mt-2 rounded-lg px-2.5 py-1.5 text-xs font-semibold flex items-center gap-1.5"
-              style={{ background: TYPE_CALC[newType].color + '14', color: TYPE_CALC[newType].color }}
-            >
-              <span>Đang tạo: {TYPE_LABELS[newType]}</span>
-              <span style={{ color: C.muted, fontWeight: 400 }}>·</span>
-              <span>{TYPE_CALC[newType].text}</span>
-            </div>
-          </div>
-
-          {/* Name */}
-          <div>
-            <div className="text-xs font-bold mb-1" style={{ color: C.muted }}>Tên tiêu chí</div>
-            <input
-              value={newLabel}
-              onChange={(e) => setNewLabel(e.target.value)}
-              placeholder="vd: Kỹ năng nói, Đọc hiểu..."
-              className="w-full rounded-xl px-3 py-2 text-sm"
-              style={{ border: `1px solid ${C.line}` }}
-            />
-          </div>
-
-          {/* Score: max */}
-          {newType === 'score' && (
-            <div>
-              <div className="text-xs font-bold mb-1" style={{ color: C.muted }}>Điểm tối đa</div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number" min="1" max="100"
-                  value={newMax}
-                  onChange={(e) => setNewMax(Number(e.target.value))}
-                  className="w-24 rounded-xl px-3 py-2 text-center text-sm font-bold"
-                  style={{ border: `1px solid ${C.line}` }}
-                />
-                <span className="text-sm" style={{ color: C.muted }}>điểm</span>
-              </div>
-            </div>
-          )}
-
-          {/* Choice: options builder */}
-          {newType === 'choice' && (
-            <div>
-              <div className="text-xs font-bold mb-2" style={{ color: C.muted }}>
-                Các mức lựa chọn <span className="font-normal">(cần ít nhất 2 mức)</span>
-              </div>
-              {newOptions.length > 0 && (
-                <div className="rounded-xl overflow-hidden mb-2" style={{ border: `1px solid ${C.line}` }}>
-                  {newOptions.map((o, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center justify-between px-3 py-2 text-sm"
-                      style={{ borderBottom: i < newOptions.length - 1 ? `1px solid ${C.line}` : undefined }}
-                    >
-                      <span style={{ color: C.ink }}>{o.label}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold" style={{ color: C.board }}>{o.pts}đ</span>
-                        <button onClick={() => setNewOptions(newOptions.filter((_, j) => j !== i))} style={{ color: C.red }} className="text-xs">✕</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="flex gap-2">
-                <input
-                  value={optLabel}
-                  onChange={(e) => setOptLabel(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && addOption()}
-                  placeholder="Nhãn mức (vd: Hoàn thành)"
-                  className="flex-1 rounded-xl px-3 py-2 text-sm"
-                  style={{ border: `1px solid ${C.line}` }}
-                />
-                <input
-                  type="number" min="0" max="200"
-                  value={optPts}
-                  onChange={(e) => setOptPts(Number(e.target.value))}
-                  className="w-16 rounded-xl px-2 py-2 text-center text-sm font-bold"
-                  style={{ border: `1px solid ${C.line}` }}
-                />
-                <span className="self-center text-xs shrink-0" style={{ color: C.muted }}>đ</span>
-                <button
-                  onClick={addOption}
-                  disabled={!optLabel.trim()}
-                  className="rounded-xl px-3 py-2 text-xs font-bold shrink-0"
-                  style={{ background: C.board, color: '#fff', opacity: optLabel.trim() ? 1 : 0.4 }}
-                >
-                  + Thêm
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Parts: parts builder */}
-          {newType === 'parts' && (
-            <div>
-              <div className="text-xs font-bold mb-2" style={{ color: C.muted }}>
-                Các phần nhỏ
-                {newParts.length > 0 && <span className="ml-1 font-normal">· Tổng {newParts.reduce((a, p) => a + p.max, 0)}đ</span>}
-              </div>
-              {newParts.length > 0 && (
-                <div className="rounded-xl overflow-hidden mb-2" style={{ border: `1px solid ${C.line}` }}>
-                  {newParts.map((p, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center justify-between px-3 py-2 text-sm"
-                      style={{ borderBottom: i < newParts.length - 1 ? `1px solid ${C.line}` : undefined }}
-                    >
-                      <span style={{ color: C.ink }}>{p.label}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold" style={{ color: '#96720E' }}>{p.max}đ</span>
-                        <button onClick={() => setNewParts(newParts.filter((_, j) => j !== i))} style={{ color: C.red }} className="text-xs">✕</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="flex gap-2">
-                <input
-                  value={partLabel}
-                  onChange={(e) => setPartLabel(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && addPart()}
-                  placeholder="Tên phần (vd: Phát âm rõ ràng)"
-                  className="flex-1 rounded-xl px-3 py-2 text-sm"
-                  style={{ border: `1px solid ${C.line}` }}
-                />
-                <input
-                  type="number" min="1" max="200"
-                  value={partMax}
-                  onChange={(e) => setPartMax(Number(e.target.value))}
-                  className="w-16 rounded-xl px-2 py-2 text-center text-sm font-bold"
-                  style={{ border: `1px solid ${C.line}` }}
-                />
-                <span className="self-center text-xs shrink-0" style={{ color: C.muted }}>đ</span>
-                <button
-                  onClick={addPart}
-                  disabled={!partLabel.trim()}
-                  className="rounded-xl px-3 py-2 text-xs font-bold shrink-0"
-                  style={{ background: C.gold, color: '#fff', opacity: partLabel.trim() ? 1 : 0.4 }}
-                >
-                  + Thêm
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="flex gap-2 pt-2" style={{ borderTop: `1px solid ${C.line}` }}>
-            <Btn kind="solid" onClick={addComp} disabled={!canAdd} className="flex-1">
-              Thêm tiêu chí
-            </Btn>
-            <Btn kind="ghost" onClick={resetForm}>Hủy</Btn>
-          </div>
+          {renderTypeBuilder({ onSubmit: addComp, submitLabel: 'Thêm tiêu chí', onCancel: resetForm })}
         </Card>
       )}
     </div>
