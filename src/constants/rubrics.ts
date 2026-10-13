@@ -95,6 +95,7 @@ export const RUBRICS: Record<string, RubricDef> = {
           { id: 'spell', label: 'Viết đúng chính tả', max: 6, weak: 'chính tả từ vựng', fix: 'luyện viết lại từ mới' },
         ],
         evidence: [
+          { key: 'correct', type: 'ratio', label: 'Kết quả', unit: 'từ đúng' },
           { key: 'pronWords', type: 'words', label: 'Từ phát âm chưa đúng', ph: 'museum, healthy' },
           { key: 'meanWords', type: 'words', label: 'Từ chưa nhớ nghĩa', ph: 'museum, healthy' },
           { key: 'spellWords', type: 'words', label: 'Từ viết sai', ph: 'because' },

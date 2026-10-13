@@ -74,7 +74,15 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
     setError('')
   }
 
-  async function applyChanges(targets: { sessionId: string; newNo: number }[], successMsg: (n: number) => string) {
+  /** `oldNoOverride`: khi gọi sau bước "dọn chỗ tạm" (xem handleSave), số `no`
+   *  SỐNG của session lúc này đã là số tạm, không còn đúng số GỐC thật trước
+   *  khi admin bắt đầu sửa — phải truyền tay oldNo thật vào đây để nút
+   *  "↩️ Hoàn tác" trả lại đúng số ban đầu, không trả về số tạm. */
+  async function applyChanges(
+    targets: { sessionId: string; newNo: number }[],
+    successMsg: (n: number) => string,
+    opts: { silent?: boolean; oldNoOverride?: Record<string, number> } = {},
+  ) {
     setSaving(true)
     let okCount = 0
     let failCount = 0
@@ -82,7 +90,7 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
     for (const t of targets) {
       const ss = student!.sessions.find((s) => s.id === t.sessionId)
       if (!ss || ss.no === t.newNo) continue
-      const oldNo = ss.no
+      const oldNo = opts.oldNoOverride?.[t.sessionId] ?? ss.no
       if (isMongoid(t.sessionId)) {
         try {
           await sessionService.update(t.sessionId, { lessonNo: t.newNo })
@@ -104,13 +112,49 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
       stu?.sessions.sort((a, b) => a.no - b.no)
     })
     setSaving(false)
-    if (okCount) {
+    if (okCount && !opts.silent) {
       logActivity('session.resequence', { className: cls.name, studentName: student!.name, count: okCount }, 'ClassSession')
       setLastApplied(applied)
     }
     if (failCount) toast.error(`Lưu được ${okCount} buổi, lỗi ${failCount} buổi — thử lại các buổi lỗi sau.`, { persist: true })
-    else if (okCount) toast.success(successMsg(okCount))
-    return okCount > 0
+    else if (okCount && !opts.silent) toast.success(successMsg(okCount))
+    return failCount === 0
+  }
+
+  /** Áp 1 loạt đổi số buổi AN TOÀN — tự phát hiện và xử lý trường hợp ĐỔI
+   *  CHÉO (VD Buổi 2 ↔ Buổi 3, hoặc hoàn tác 1 lần đổi chéo trước đó). Server
+   *  chặn trùng số buổi/1 học sinh (đúng và cần thiết cho sửa đơn lẻ) — nhưng
+   *  lưu TUẦN TỰ từng buổi 1 thì đổi chéo sẽ bị chặn ngay ở bước đầu vì số
+   *  đích vẫn còn "có chủ" (buổi kia chưa kịp nhường chỗ). Nếu phát hiện kiểu
+   *  này, dọn chỗ bằng cách đẩy TẠM toàn bộ buổi đang sửa sang 1 dải số lớn,
+   *  chắc chắn không đụng ai, rồi mới gán số thật ở bước 2 — dùng chung cho cả
+   *  Lưu lẫn Hoàn tác, vì hoàn tác 1 lần đổi chéo cũng là 1 phép đổi chéo khác. */
+  async function applySafely(targets: { sessionId: string; newNo: number }[], successMsg: (n: number) => string) {
+    const changed = targets.filter((t) => student!.sessions.find((s) => s.id === t.sessionId)?.no !== t.newNo)
+    if (!changed.length) return
+    // Số GỐC thật của từng buổi TRƯỚC khi sửa — giữ lại ngay từ đầu để nút
+    // Hoàn tác luôn trả về đúng số này, kể cả khi phải đi qua bước tạm bên dưới.
+    const trueOldNo = Object.fromEntries(changed.map((t) => [t.sessionId, student!.sessions.find((s) => s.id === t.sessionId)!.no]))
+    const changingIds = new Set(changed.map((t) => t.sessionId))
+    const currentNos = new Set(student!.sessions.map((s) => s.no))
+    const targetNos = new Set(changed.map((t) => t.newNo))
+    // Cần dọn chỗ tạm khi số đích của 1 buổi đang sửa HIỆN ĐANG là số của 1
+    // buổi KHÁC cũng đang được sửa trong cùng lượt này — vì không chắc buổi
+    // kia đã kịp "nhường chỗ" (đổi đi số khác) trước khi buổi này xin số đó.
+    const needsStaging = changed.some((t) => {
+      const occupant = student!.sessions.find((s) => s.no === t.newNo)
+      return occupant && occupant.id !== t.sessionId && changingIds.has(occupant.id)
+    })
+    if (needsStaging) {
+      const tempBase = Math.max(0, ...currentNos, ...targetNos) + 1000
+      const stagingTargets = changed.map((t, i) => ({ sessionId: t.sessionId, newNo: tempBase + i }))
+      const staged = await applyChanges(stagingTargets, () => '', { silent: true })
+      if (!staged) {
+        setError('Lỗi ở bước tạm thời khi đổi chéo số buổi — chưa đổi gì cả, thử lại.')
+        return
+      }
+    }
+    await applyChanges(changed, successMsg, { oldNoOverride: trueOldNo })
   }
 
   async function handleSave() {
@@ -129,13 +173,13 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
     }
     // Không tự đóng màn hình sau khi lưu — để nút "↩️ Hoàn tác" kịp hiện ra
     // ngay, lỡ tay sửa sai còn trả lại được ngay tại chỗ.
-    await applyChanges(targets, (n) => `Đã lưu ${n} buổi thay đổi cho ${student!.name}.`)
+    await applySafely(targets, (n) => `Đã lưu ${n} buổi thay đổi cho ${student!.name}.`)
   }
 
   async function handleUndo() {
     if (!lastApplied) return
     const targets = lastApplied.map((a) => ({ sessionId: a.sessionId, newNo: a.oldNo }))
-    await applyChanges(targets, (n) => `Đã hoàn tác, trả lại số cũ cho ${n} buổi.`)
+    await applySafely(targets, (n) => `Đã hoàn tác, trả lại số cũ cho ${n} buổi.`)
     setLastApplied(null)
   }
 
