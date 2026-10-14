@@ -339,7 +339,8 @@ function scoresCell(scores: SessionScoreItem[] | undefined): string {
         : s.selectedLabel
           ? ` (${s.selectedLabel})`
           : ''
-      return `${s.label}: ${s.value}${items}`
+      const ratio = s.ratioText ? ` — ${s.ratioText}` : ''
+      return `${s.label}: ${s.value}${items}${ratio}`
     })
     .join(' | ')
 }

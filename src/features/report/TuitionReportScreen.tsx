@@ -1,15 +1,17 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import type { ClassData } from '@/types'
+import type { ClassData, Session } from '@/types'
 import { C } from '@/constants/colors'
 import { getClassRubric } from '@/constants/rubrics'
 import { statsOf } from '@/business/stats'
 import { buildComment, sessionDetailsOf, type SessionDetailRow } from '@/business/report'
-import { billingPeriodsOf, sessionsBilledOf, currentProgressOf, periodPositionOf, sessionLabelOf } from '@/business/tuition'
+import { billingPeriodsOf, sessionsBilledOf, currentProgressOf, periodPositionOf, sessionLabelOf, unbilledSessionsOf } from '@/business/tuition'
 import { isMongoid } from '@/utils/mongoid'
 import { viDate } from '@/utils/format'
 import { exportTuitionNotices, exportTuitionOverview } from '@/utils/excel'
 import { classService } from '@/services/classes'
 import { tuitionNoticeService, type TuitionNotice } from '@/services/tuitionNotices'
+import { sessionService } from '@/services/sessions'
+import { logActivity } from '@/services/activity'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { Chip } from '@/components/atoms/Chip'
@@ -34,6 +36,11 @@ interface DueRow {
   adjustmentReason: string
   reportComment: string
   sessionDetails: SessionDetailRow[]
+  /** id thật của đúng các buổi nằm trong kỳ này — dùng để đánh dấu `billed`
+   *  lên từng buổi khi khoản này được gửi (xem markSent), để sau này lỡ có
+   *  buổi nào trong kỳ bị xóa thì các buổi còn lại VẪN được nhớ là đã tính
+   *  tiền, không bị đếm lại thành buổi mới (xem unbilledSessionsOf). */
+  sessionIds: string[]
   showDetails: boolean
   saving: boolean
   /** 'auto' = tự phát hiện đủ mốc 8/12 buổi (như trước giờ). 'manual' = admin
@@ -112,6 +119,12 @@ export function TuitionReportScreen({ cls, update }: Props) {
   const [manualRows, setManualRows] = useState<DueRow[]>([])
   const [showPaidHistory, setShowPaidHistory] = useState(false)
   const [expandedOverview, setExpandedOverview] = useState<Set<string>>(new Set())
+  // Bảng "Tổng quan" mặc định sắp theo TRẠNG THÁI (ai cần thu tiền lên trước)
+  // — nên 2 kỳ của CÙNG 1 học sinh (VD "Đã đóng xong" kỳ 1 + "Chưa tới hạn"
+  // kỳ 2 đang học dở) bị tách xa nhau, dễ tưởng nhầm là lỗi trùng dữ liệu.
+  // Cho admin tự chọn xem theo trạng thái (mặc định) hay theo học sinh (gộp
+  // các kỳ của 1 em lại gần nhau theo đúng thứ tự thời gian).
+  const [overviewView, setOverviewView] = useState<'status' | 'student'>('status')
   const [showCustomBill, setShowCustomBill] = useState(false)
   const [customStudentId, setCustomStudentId] = useState('')
   const [customFrom, setCustomFrom] = useState('')
@@ -137,19 +150,25 @@ export function TuitionReportScreen({ cls, update }: Props) {
     const sentKeys = new Set(notices.map((n) => `${n.studentId}:${n.periodFrom}-${n.periodTo}`))
     const rows: DueRow[] = []
     cls.students.forEach((st) => {
-      billingPeriodsOf(st, cls.perMonth).forEach((p) => {
+      // CHỈ tính trên các buổi CHƯA từng tính tiền — buổi đã đánh dấu billed
+      // (đã nằm trong 1 khoản đã gửi, hoặc admin tự xác nhận đã thu trước đó)
+      // phải loại hẳn ra, không để lỡ xóa 1 buổi lỗi trong kỳ đã thu tiền làm
+      // các buổi còn lại bị đếm lại thành "buổi mới" (xem unbilledSessionsOf).
+      const stUnbilled = { ...st, sessions: unbilledSessionsOf(st) }
+      billingPeriodsOf(stUnbilled, cls.perMonth).forEach((p) => {
         const key = `${st.id}:${p.from}-${p.to}`
         if (sentKeys.has(key)) return
-        const sessionsBilled = sessionsBilledOf(st, p.from, p.to)
+        const sessionsBilled = sessionsBilledOf(stUnbilled, p.from, p.to)
         const computedAmount = sessionsBilled * rate
-        const s = statsOf(cls, st.sessions.slice(p.from, p.to))
+        const s = statsOf(cls, stUnbilled.sessions.slice(p.from, p.to))
         rows.push({
           studentId: st.id, studentName: st.name,
           periodFrom: p.from, periodTo: p.to, periodLabel: p.label,
           sessionsBilled, computedAmount,
           finalAmount: String(computedAmount), adjustmentReason: '',
           reportComment: buildComment(st.name, s, r),
-          sessionDetails: sessionDetailsOf(st, p.from, p.to, r),
+          sessionDetails: sessionDetailsOf(stUnbilled, p.from, p.to, r),
+          sessionIds: stUnbilled.sessions.slice(p.from, p.to).map((x) => x.id),
           showDetails: false,
           saving: false,
           kind: 'auto',
@@ -168,15 +187,16 @@ export function TuitionReportScreen({ cls, update }: Props) {
     () => cls.students
       .filter((st) => !dueStudentIds.has(st.id))
       .map((st) => {
-        const progress = currentProgressOf(st, cls.perMonth)
+        const stUnbilled = { ...st, sessions: unbilledSessionsOf(st) }
+        const progress = currentProgressOf(stUnbilled, cls.perMonth)
         if (!progress) return null
-        const to = st.sessions.length
+        const to = stUnbilled.sessions.length
         const from = to - progress.current
         // Đơn giá ĐÃ CÓ (trang này chỉ hiện khi rate != null, xem guard bên
         // dưới) nên tạm tính luôn số tiền theo đúng số buổi ĐÃ học — không để
         // trống nữa, vì admin đã cập nhật đơn giá thì phải thấy số ngay. Đây
         // chỉ là TẠM TÍNH (chưa chốt/gửi) — khác với số đã "Chốt buổi" thật.
-        const sessionsBilled = sessionsBilledOf(st, from, to)
+        const sessionsBilled = sessionsBilledOf(stUnbilled, from, to)
         const estimatedAmount = sessionsBilled * (rate ?? 0)
         return { studentId: st.id, studentName: st.name, progress, from, to, sessionsBilled, estimatedAmount }
       })
@@ -190,13 +210,23 @@ export function TuitionReportScreen({ cls, update }: Props) {
    *  (chọn khoảng buổi bất kỳ, không cần đợi nghỉ ngang hay đủ mốc 8/12) —
    *  số tiền vẫn TỰ TÍNH (số buổi hiện có × đơn giá), admin chỉ xác nhận chứ
    *  không gõ tay số tiền. `label` tùy chọn để phân biệt 2 nguồn gọi. */
-  function addManualBill(nd: { studentId: string; studentName: string; from: number; to: number }, label?: string) {
+  function addManualBill(
+    nd: { studentId: string; studentName: string; from: number; to: number; sessions?: Session[] },
+    label?: string,
+  ) {
     if (rate == null) return
     const st = cls.students.find((s) => s.id === nd.studentId)
     if (!st) return
-    const sessionsBilled = sessionsBilledOf(st, nd.from, nd.to)
+    // `nd.sessions` (nếu có) là danh sách ĐÃ LỌC bỏ buổi đã tính tiền (xem
+    // confirmAndAddManualBill) — nd.from/nd.to lúc đó là chỉ số TRONG mảng
+    // đã lọc này, không phải trong st.sessions gốc. "Chốt buổi tùy chọn" (gõ
+    // tay buổi X-Y) vẫn dùng st.sessions gốc như cũ, vì số buổi gõ tay là số
+    // buổi THẬT liên tục (khớp dropdown Nhập điểm), không phải vị trí đã lọc.
+    const srcSessions = nd.sessions ?? st.sessions
+    const slice = srcSessions.slice(nd.from, nd.to)
+    const sessionsBilled = sessionsBilledOf({ sessions: srcSessions }, nd.from, nd.to)
     const computedAmount = sessionsBilled * rate
-    const s = statsOf(cls, st.sessions.slice(nd.from, nd.to))
+    const s = statsOf(cls, slice)
     setManualRows((prev) => [...prev, {
       studentId: st.id, studentName: st.name,
       periodFrom: nd.from, periodTo: nd.to,
@@ -204,7 +234,8 @@ export function TuitionReportScreen({ cls, update }: Props) {
       sessionsBilled, computedAmount,
       finalAmount: String(computedAmount), adjustmentReason: '',
       reportComment: buildComment(st.name, s, r),
-      sessionDetails: sessionDetailsOf(st, nd.from, nd.to, r),
+      sessionDetails: sessionDetailsOf({ sessions: srcSessions }, nd.from, nd.to, r),
+      sessionIds: slice.map((x) => x.id),
       showDetails: false, saving: false, kind: 'manual',
     }])
   }
@@ -230,7 +261,53 @@ export function TuitionReportScreen({ cls, update }: Props) {
       const names = overlaps.map((o) => o.label).join(', ')
       if (!confirm(`${nd.studentName} đã có khoản ${names} — trùng 1 phần với buổi 1-${nd.to} sắp chốt. Vẫn tạo thêm (có thể thu trùng tiền)?`)) return
     }
-    addManualBill(nd)
+    // nd.from/nd.to tới từ notDueRows — đã tính trên danh sách LỌC BỎ buổi đã
+    // tính tiền (unbilledSessionsOf), phải truyền đúng mảng đó vào để khớp
+    // chỉ số, không lấy nhầm buổi từ st.sessions gốc (xem addManualBill).
+    const st = cls.students.find((s) => s.id === nd.studentId)
+    addManualBill({ ...nd, sessions: st ? unbilledSessionsOf(st) : undefined })
+  }
+
+  /** Van an toàn thủ công cho ca đã gặp thật: 1 buổi lỗi/trùng trong 1 kỳ ĐÃ
+   *  thu tiền bị xóa, làm các buổi còn sót trong kỳ đó bị đếm lại thành
+   *  "buổi mới" ở mục "Chưa tới hạn" — dù thực ra đã thu tiền rồi. KHÔNG tự
+   *  động dò/sửa hàng loạt (đoán sai sẽ ẩn mất 1 buổi thật sự CHƯA thu tiền,
+   *  hại hơn lợi) — admin phải tự đọc đúng ngày tháng rồi mới xác nhận. Chỉ
+   *  đánh dấu billed, KHÔNG tạo khoản thu mới (tiền đã thu ở khoản cũ rồi). */
+  async function markAlreadyBilled(nd: { studentId: string; studentName: string; from: number; to: number }) {
+    const st = cls.students.find((s) => s.id === nd.studentId)
+    if (!st) return
+    const slice = unbilledSessionsOf(st).slice(nd.from, nd.to)
+    if (!slice.length) return
+    const dateList = slice.map((s) => viDate(s.date)).join(', ')
+    if (!confirm(
+      `Đánh dấu ${slice.length} buổi sau của ${nd.studentName} là ĐÃ TÍNH TIỀN TRƯỚC ĐÓ:\n\n${dateList}\n\n` +
+      `Thao tác này KHÔNG tạo khoản thu mới — chỉ ẩn các buổi này khỏi "Chưa tới hạn". CHỈ xác nhận khi chắc chắn ` +
+      `các buổi này đã nằm trong 1 khoản đã thu tiền trước đó rồi (VD do 1 buổi lỗi/trùng trong kỳ đó đã bị xóa). ` +
+      `Nếu không chắc, bấm Hủy và kiểm tra lại lịch sử thu tiền trước.`,
+    )) return
+    const markedIds: string[] = []
+    let failCount = 0
+    for (const s of slice) {
+      if (!isMongoid(s.id)) continue
+      try {
+        await sessionService.update(s.id, { billed: true })
+        markedIds.push(s.id)
+      } catch {
+        failCount += 1
+      }
+    }
+    // Chỉ đánh dấu CỤC BỘ đúng buổi đã lưu server THÀNH CÔNG (xem markSent).
+    update((c) => {
+      const stu = c.students.find((x) => x.id === nd.studentId)
+      markedIds.forEach((id) => {
+        const ss = stu?.sessions.find((x) => x.id === id)
+        if (ss) ss.billed = true
+      })
+    })
+    logActivity('session.markBilled', { className: cls.name, studentName: nd.studentName, count: slice.length - failCount, manual: true }, 'ClassSession')
+    if (failCount) toast.error(`Đánh dấu được ${slice.length - failCount}/${slice.length} buổi — thử lại các buổi lỗi sau.`, { persist: true })
+    else toast.success(`Đã đánh dấu ${slice.length} buổi của ${nd.studentName} là đã tính tiền trước đó.`)
   }
 
   /** Xem trước "Chốt buổi tùy chọn" — tính tiền theo đúng khoảng buổi admin tự
@@ -301,6 +378,39 @@ export function TuitionReportScreen({ cls, update }: Props) {
       if (row.kind === 'manual') {
         setManualRows((prev) => prev.filter((r) => r.studentId !== row.studentId || r.periodFrom !== row.periodFrom))
       }
+      // Đánh dấu TOÀN BỘ buổi thật sự nằm trong kỳ này là billed — để sau
+      // này lỡ xóa 1 buổi lỗi/trùng trong kỳ ĐÃ gửi, các buổi còn lại vẫn
+      // được nhớ là đã tính tiền, không bị đếm lại thành buổi mới (xem
+      // unbilledSessionsOf). Lưu tuần tự từng buổi, chịu lỗi từng phần —
+      // không có API đánh dấu hàng loạt, theo đúng mẫu ResequenceSessionsModal.
+      const markedIds: string[] = []
+      let markFailCount = 0
+      for (const sessionId of row.sessionIds) {
+        if (!isMongoid(sessionId)) continue
+        try {
+          await sessionService.update(sessionId, { billed: true })
+          markedIds.push(sessionId)
+        } catch {
+          markFailCount += 1
+        }
+      }
+      // Chỉ đánh dấu CỤC BỘ đúng những buổi đã lưu server THÀNH CÔNG — đánh
+      // dấu cả buổi lưu lỗi sẽ làm state máy này "tưởng" đã tính tiền trong
+      // khi server vẫn chưa ghi nhận, có thể bị tính thiếu/sai sau này.
+      update((c) => {
+        const stu = c.students.find((s) => s.id === row.studentId)
+        markedIds.forEach((id) => {
+          const ss = stu?.sessions.find((s) => s.id === id)
+          if (ss) ss.billed = true
+        })
+      })
+      if (markFailCount) {
+        toast.error(
+          `Đã gửi khoản này nhưng ${markFailCount} buổi chưa đánh dấu "đã tính tiền" được — nếu sau này xóa buổi lỗi trong kỳ này, các buổi còn lại có thể bị tính lại. Thử mở lại trang và kiểm tra.`,
+          { persist: true },
+        )
+      }
+      logActivity('session.markBilled', { className: cls.name, studentName: row.studentName, count: row.sessionIds.length - markFailCount }, 'ClassSession')
       toast.success(`Đã đánh dấu gửi cho ${row.studentName}.`)
     } catch (err) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Lỗi khi lưu — thử lại.'
@@ -433,6 +543,10 @@ export function TuitionReportScreen({ cls, update }: Props) {
       }),
       ...notDueRows.map((nd) => {
         const st = cls.students.find((s) => s.id === nd.studentId)
+        // nd.from/nd.to tính trên danh sách ĐÃ LỌC bỏ buổi billed (xem
+        // notDueRows ở trên) — phải dùng đúng mảng đó, không phải st.sessions
+        // gốc, kẻo sessionDetails hiện nhầm buổi.
+        const stUnbilled = st ? unbilledSessionsOf(st) : []
         return {
           studentId: nd.studentId, studentName: nd.studentName,
           status: 'Chưa tới hạn' as const,
@@ -445,12 +559,29 @@ export function TuitionReportScreen({ cls, update }: Props) {
           ratePerSession: rate ?? 0,
           adjustmentReason: undefined as string | undefined,
           reportComment: 'Chưa tới hạn — chưa có nhận xét kỳ này',
-          sessionDetails: st ? sessionDetailsOf(st, nd.from, nd.to, r) : [],
+          sessionDetails: st ? sessionDetailsOf({ sessions: stUnbilled }, nd.from, nd.to, r) : [],
         }
       }),
     ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dueRows, manualRows, notices, notDueRows, cls])
+
+  /** Thứ tự hiện bảng Tổng quan — "status" giữ nguyên thứ tự gốc (ai cần thu
+   *  tiền lên trước), "student" gộp các kỳ của CÙNG 1 học sinh lại gần nhau,
+   *  sắp theo đúng thứ tự thời gian (buổi đầu tiên của mỗi kỳ) trong từng em. */
+  const overviewRowsSorted = useMemo(() => {
+    if (overviewView === 'status') return overviewRows
+    const byStudent = new Map<string, typeof overviewRows>()
+    overviewRows.forEach((row) => {
+      const list = byStudent.get(row.studentId) ?? []
+      list.push(row)
+      byStudent.set(row.studentId, list)
+    })
+    const ids = [...byStudent.keys()].sort((a, b) =>
+      byStudent.get(a)![0].studentName.localeCompare(byStudent.get(b)![0].studentName, 'vi'))
+    return ids.flatMap((id) =>
+      byStudent.get(id)!.sort((a, b) => (a.sessionDetails[0]?.no ?? 0) - (b.sessionDetails[0]?.no ?? 0)))
+  }, [overviewRows, overviewView])
 
   function toggleOverview(studentId: string) {
     setExpandedOverview((prev) => {
@@ -615,8 +746,31 @@ export function TuitionReportScreen({ cls, update }: Props) {
 
       <Card className="overflow-hidden">
         <div className="px-4 py-3" style={{ background: C.board, color: '#fff' }}>
-          <div className="text-lg font-bold">Tổng quan — {overviewRows.length} học sinh</div>
-          <div className="text-xs opacity-80">Đúng nội dung sẽ có trong file Excel khi bấm nút xuất bên dưới</div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-lg font-bold">Tổng quan — {overviewRows.length} học sinh</div>
+              <div className="text-xs opacity-80">Đúng nội dung sẽ có trong file Excel khi bấm nút xuất bên dưới</div>
+            </div>
+            <div className="flex shrink-0 gap-1 rounded-lg p-0.5" style={{ background: '#ffffff22' }}>
+              {([
+                { key: 'status', label: 'Theo trạng thái' },
+                { key: 'student', label: 'Theo học sinh' },
+              ] as const).map((o) => (
+                <button
+                  key={o.key}
+                  onClick={() => setOverviewView(o.key)}
+                  title={o.key === 'student' ? 'Gộp các kỳ (tháng) của cùng 1 học sinh lại gần nhau, đỡ nhầm là trùng dữ liệu' : 'Ai cần thu tiền lên đầu (mặc định)'}
+                  className="rounded-md px-2.5 py-1 text-xs font-bold"
+                  style={{
+                    background: overviewView === o.key ? '#fff' : 'transparent',
+                    color: overviewView === o.key ? C.board : '#fff',
+                  }}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
         <div className="max-h-[520px] overflow-auto">
           <table className="w-full text-xs">
@@ -633,7 +787,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
               </tr>
             </thead>
             <tbody>
-              {overviewRows.map((r, i) => {
+              {overviewRowsSorted.map((r, i) => {
                 const bg =
                   r.status === '🔴 Đã tới hạn - chưa gửi' ? '#FEE2E2' :
                   r.status === 'Đang nợ (đã gửi, chưa đóng)' ? '#FFEDD5' :
@@ -727,6 +881,9 @@ export function TuitionReportScreen({ cls, update }: Props) {
                                               )}
                                               {s.selectedLabel && (
                                                 <div className="mt-0.5" style={{ color: C.ink }}>{s.selectedLabel}</div>
+                                              )}
+                                              {s.ratioText && (
+                                                <div className="mt-0.5 font-semibold" style={{ color: C.board2 }}>{s.ratioText}</div>
                                               )}
                                             </div>
                                           ))}
@@ -871,6 +1028,9 @@ export function TuitionReportScreen({ cls, update }: Props) {
                                   {s.selectedLabel && (
                                     <div className="mt-0.5" style={{ color: C.ink }}>{s.selectedLabel}</div>
                                   )}
+                                  {s.ratioText && (
+                                    <div className="mt-0.5 font-semibold" style={{ color: C.board2 }}>{s.ratioText}</div>
+                                  )}
                                 </div>
                               ))}
                             </div>
@@ -961,6 +1121,14 @@ export function TuitionReportScreen({ cls, update }: Props) {
                   onClick={() => confirmAndAddManualBill(r)}
                 >
                   ✂️ Chốt buổi
+                </button>
+                <button
+                  className="rounded px-1.5 py-0.5 font-semibold"
+                  style={{ color: C.muted, border: `1px solid ${C.line}` }}
+                  title="Dùng khi các buổi này THẬT RA đã nằm trong 1 khoản đã thu tiền trước đó rồi (VD do xóa 1 buổi lỗi/trùng trong kỳ đó) — KHÔNG tạo khoản thu mới, chỉ ẩn khỏi danh sách này"
+                  onClick={() => markAlreadyBilled(r)}
+                >
+                  ☑️ Đã tính tiền trước đó
                 </button>
               </span>
             ))}

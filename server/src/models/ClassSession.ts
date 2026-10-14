@@ -31,6 +31,12 @@ export interface IClassSession extends Document {
   // field này bị ẩn khỏi mọi truy vấn mặc định (xem listSessions).
   deletedAt?: Date
 
+  // Buổi này ĐÃ nằm trong 1 khoản học phí đã gửi (hoặc admin tự xác nhận đã
+  // thu tiền trước đó) — loại ra khỏi mọi phép tính "còn thiếu bao nhiêu
+  // buổi" ở frontend (xem unbilledSessionsOf, src/business/tuition.ts).
+  // Mặc định không có = false, không ảnh hưởng hành vi cũ.
+  billed?: boolean
+
   createdAt: Date
   updatedAt: Date
 }
@@ -58,6 +64,7 @@ const classSessionSchema = new Schema<IClassSession>(
     migratedAt: { type: Date },
     legacySharedSessionId: { type: Schema.Types.ObjectId, ref: 'ClassSession' },
     deletedAt: { type: Date },
+    billed: { type: Boolean },
   },
   { timestamps: true },
 )

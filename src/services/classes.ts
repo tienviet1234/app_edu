@@ -25,6 +25,7 @@ export interface ApiClass {
   extraComps?: ExtraComp[]
   compOverrides?: Record<string, Record<string, number>>
   compLabelOverrides?: Record<string, Record<string, string>>
+  compExtraItems?: Record<string, Array<{ id: string; label: string; value: number }>>
   // Câu nhận xét mẫu tự soạn riêng cho lớp này — admin/giáo viên tự thêm/sửa/
   // xóa, chọn nhanh ở màn Nhập điểm (xem EntryScreen).
   customNotePhrases?: string[]

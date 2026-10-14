@@ -41,6 +41,10 @@ export interface IClass extends Document {
   extraComps?: unknown[]
   compOverrides?: Record<string, Record<string, number>>
   compLabelOverrides?: Record<string, Record<string, string>>
+  // Admin THÊM mức/phần MỚI vào 1 tiêu chí gốc (giữ nguyên tiêu chí cũ + dữ
+  // liệu đã chấm) — khác "Đổi kiểu" (thay hẳn tiêu chí khác). Xem
+  // applyCompExtraItems ở frontend src/constants/rubrics.ts.
+  compExtraItems?: Record<string, Array<{ id: string; label: string; value: number }>>
   // Câu nhận xét mẫu tự soạn riêng cho lớp này (khác với gợi ý tự sinh từ
   // điểm số) — admin/giáo viên tự thêm/sửa/xóa theo thói quen viết của họ,
   // mọi thay đổi được ghi vào AuditLog (action notePhrase.*) để admin theo
@@ -103,6 +107,7 @@ const classSchema = new Schema<IClass>(
     extraComps: [{ type: Schema.Types.Mixed }],
     compOverrides: { type: Schema.Types.Mixed },
     compLabelOverrides: { type: Schema.Types.Mixed },
+    compExtraItems: { type: Schema.Types.Mixed },
     customNotePhrases: [{ type: String, trim: true, maxlength: 300 }],
     tuitionPerSession: { type: Number, min: 0 },
     teacherPayPerSession: { type: Number, min: 0 },

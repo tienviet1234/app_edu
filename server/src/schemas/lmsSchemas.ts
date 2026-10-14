@@ -45,6 +45,11 @@ export const classBodySchema = z.object({
   extraComps: z.array(z.record(z.string(), z.any())).optional(),
   compOverrides: z.record(z.string(), z.record(z.string(), z.number())).optional(),
   compLabelOverrides: z.record(z.string(), z.record(z.string(), z.string())).optional(),
+  compExtraItems: z.record(z.string(), z.array(z.object({
+    id: z.string().min(1).max(80),
+    label: z.string().min(1).max(120),
+    value: z.number(),
+  }))).optional(),
   // Câu nhận xét mẫu tự soạn riêng cho lớp này — xem ghi chú ở Class model.
   customNotePhrases: z.array(z.string().max(300)).optional(),
   // Đơn giá tính học phí/lương theo từng lớp — xem ghi chú ở Class model.
@@ -84,6 +89,10 @@ export const sessionBodySchema = z.object({
   durationMinutes: z.number().int().min(15).max(480).default(90),
   status: z.enum(['scheduled', 'completed', 'cancelled']).default('scheduled'),
   notes: z.string().max(2000).optional(),
+  // Đánh dấu buổi ĐÃ tính tiền (đã gửi khoản học phí, hoặc admin tự xác nhận
+  // đã thu trước đó) — loại ra khỏi mọi phép tính "còn thiếu bao nhiêu buổi"
+  // ở frontend. Xem ghi chú ở ClassSession model.
+  billed: z.boolean().optional(),
 })
 
 export const sessionUpdateSchema = sessionBodySchema.partial().omit({ centerId: true, classId: true, studentId: true })

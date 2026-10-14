@@ -48,6 +48,12 @@ Luôn build cả 2 phía sau khi sửa code trước khi báo cáo hoàn thành.
 - **Hover trên `Btn`/atoms có inline `style.background`:** Tailwind `hover:bg-slate-50` KHÔNG override được inline style. Dùng `hover:brightness-[0.93]` (CSS filter, hoạt động trên inline style).
 - **Git trên Windows báo warning `LF will be replaced by CRLF`** khi `git add` — vô hại, bỏ qua.
 - **Không dán API key/secret vào chat** — nếu lỡ dán (Cloudinary/R2 token...), phải xóa token cũ và tạo lại trên dashboard nhà cung cấp, không chỉ đổi trong code.
+- **Thêm field mới vào `ClassData`/`Session`/bất kỳ model nào khác** phải thêm đủ 3 chỗ: Mongoose schema, Zod schema (`server/src/schemas/lmsSchemas.ts`), và `src/App.tsx` (mapping đồng bộ server→local). Thiếu Zod schema thì request PATCH bị **âm thầm xóa field đó** dù model/controller đúng hết — trông như "lưu thành công" nhưng field không bao giờ tới DB (gặp với `customNotePhrases`, `compExtraItems`).
+- **`Session.no` là nguồn số buổi DUY NHẤT toàn app** — không tự đánh số lại theo kỳ báo cáo/theo trang ở bất kỳ màn nào khác (đã từng làm vậy ở `sessionDetailsOf`, gây lệch số giữa Nhập điểm và Báo cáo, phải bỏ hẳn). Muốn đổi CÁCH HIỂN THỊ (VD reset về 1 mỗi tháng) thì làm ở tầng hiển thị (`sessionLabelOf`/`periodPositionOf` trong `business/tuition.ts`), không đụng vào `no` thật.
+- **Đổi NHIỀU buổi cùng lúc (đổi chéo số buổi) dễ vỡ vì chốt chặn trùng `lessonNo` ở server** (`findConflictingSession`) — lưu tuần tự từng buổi sẽ bị từ chối giữa chừng vì số đích "còn chủ". Phải dọn chỗ TẠM (đẩy sang dải số lớn không ai dùng) trước rồi mới gán số thật — xem `ResequenceSessionsModal.applySafely`.
+- **Tính học phí (`billingPeriodsOf`/`currentProgressOf`/`sessionsBilledOf` ở `business/tuition.ts`) luôn phải nhận `unbilledSessionsOf(student)`, KHÔNG truyền thẳng `student.sessions`.** Các hàm này chỉ đếm số lượng buổi còn lại — xóa 1 buổi lỗi/trùng nằm TRONG 1 kỳ đã thu tiền sẽ làm buổi còn sót bị đếm lại thành buổi mới, thu tiền trùng.
+- **Vòng lặp lưu nhiều buổi/bản ghi liên tiếp (không có API bulk)**: chỉ cập nhật state cục bộ (optimistic) cho các mục ĐÃ lưu server thành công — không cập nhật hết cả danh sách trước khi biết kết quả, kẻo state máy này "tưởng" đã lưu trong khi server chưa ghi nhận (xem `markSent`/`ResequenceSessionsModal`).
+- **Logic phức tạp có nhiều trường hợp biên (tính điểm, học phí, đánh số...) phải viết thành hàm thuần trong `src/business/*.ts` kèm test, không viết thẳng trong component** — component không có test tự động, lỗi chỉ phát hiện khi người dùng báo lại.
 
 ## Bảo mật — quy tắc bắt buộc
 

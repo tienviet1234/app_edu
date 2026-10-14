@@ -308,6 +308,7 @@ export default function App() {
           extraComps: ac.extraComps,
           compOverrides: ac.compOverrides,
           compLabelOverrides: ac.compLabelOverrides,
+          compExtraItems: ac.compExtraItems,
           customNotePhrases: ac.customNotePhrases,
         })
       })
@@ -342,7 +343,7 @@ export default function App() {
   const apiAllClassesRubricKey = apiAllClasses?.items.map((c) => `${c._id}:${c.updatedAt}`).join(',') ?? ''
   useEffect(() => {
     if (!data || !apiAllClasses?.items.length) return
-    const RUBRIC_FIELDS = ['hiddenComps', 'extraComps', 'compOverrides', 'compLabelOverrides', 'customNotePhrases'] as const
+    const RUBRIC_FIELDS = ['hiddenComps', 'extraComps', 'compOverrides', 'compLabelOverrides', 'compExtraItems', 'customNotePhrases'] as const
     const changedIds = new Set(
       apiAllClasses.items
         .filter((ac) => {
@@ -361,6 +362,7 @@ export default function App() {
         localCls.extraComps = ac.extraComps
         localCls.compOverrides = ac.compOverrides
         localCls.compLabelOverrides = ac.compLabelOverrides
+        localCls.compExtraItems = ac.compExtraItems
         localCls.customNotePhrases = ac.customNotePhrases
       })
     }))
@@ -455,6 +457,7 @@ export default function App() {
           homework: as.notes ?? '',
           createdByName: teacherName,
           recordedAt: as.createdAt,
+          billed: as.billed,
           entry: score ? toEntry(score) : emptyEntry(),
         })
         student.sessions.sort((a, b) => a.no - b.no)

@@ -1,4 +1,18 @@
-import type { Student } from '@/types'
+import type { Session, Student } from '@/types'
+
+/** Loại BỎ các buổi ĐÃ TÍNH TIỀN (`session.billed === true`) ra khỏi danh
+ *  sách — dùng TRƯỚC KHI đưa vào `billingPeriodsOf`/`currentProgressOf`/
+ *  `sessionsBilledOf`/`sessionDetailsOf`/`statsOf`, để các hàm này chỉ thấy
+ *  đúng những buổi THẬT SỰ CHƯA được tính tiền. Vì sao cần: các hàm trên chỉ
+ *  đếm SỐ LƯỢNG buổi còn lại để biết "đã đủ kỳ chưa" — nếu xóa 1 buổi lỗi/
+ *  trùng nằm TRONG 1 kỳ ĐÃ thu tiền rồi (xóa đúng, cần xóa), số lượng còn
+ *  lại tụt xuống, hệ thống sẽ "quên" là các buổi còn sót đã thu tiền và đếm
+ *  lại chúng như buổi MỚI — dẫn tới thu tiền trùng nếu admin bấm chốt buổi
+ *  lần nữa. Gọi hàm này trước là cách duy nhất chặn đúng gốc, KHÔNG sửa
+ *  logic đếm/tính kỳ bên trong 3 hàm kia (giữ nguyên, đã có nhiều test). */
+export function unbilledSessionsOf<T extends Pick<Student, 'sessions'>>(student: T): Session[] {
+  return student.sessions.filter((s) => !s.billed)
+}
 
 /** Vị trí 1 buổi (`no` = số buổi THẬT, liên tục, không đổi) bên trong kỳ/tháng
  *  của nó — `period` = kỳ thứ mấy (1-based), `displayNo` = số buổi hiển thị

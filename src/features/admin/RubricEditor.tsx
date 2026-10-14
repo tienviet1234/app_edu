@@ -47,7 +47,7 @@ const CALC_INFO: Record<string, { text: string; short: string; color: string }> 
 }
 
 type RubricPatch = Partial<
-  Pick<ApiClass, 'hiddenComps' | 'extraComps' | 'compOverrides' | 'compLabelOverrides'>
+  Pick<ApiClass, 'hiddenComps' | 'extraComps' | 'compOverrides' | 'compLabelOverrides' | 'compExtraItems'>
 >
 
 export function RubricEditor() {
@@ -65,6 +65,10 @@ export function RubricEditor() {
   // "Thêm tiêu chí mới" bên dưới, chỉ khác chỗ lưu: tiêu chí gốc bị ẨN đi
   // (không xóa, khôi phục được), thay bằng 1 tiêu chí tùy chỉnh mới tạo ra.
   const [changingTypeOf, setChangingTypeOf] = useState<string | null>(null)
+  // Ô nháp "+ Thêm mức/phần" trong panel Sửa — dùng chung cho cả tiêu chí gốc
+  // lẫn tùy chỉnh vì chỉ 1 panel Sửa mở tại 1 thời điểm (editingComp).
+  const [newItemLabel, setNewItemLabel] = useState('')
+  const [newItemValue, setNewItemValue] = useState(10)
 
   // Add form state
   const [showAdd, setShowAdd] = useState(false)
@@ -238,6 +242,55 @@ export function RubricEditor() {
     const parts = ec.parts.filter((p) => p.id !== partId)
     const next = extraComps.map((x) => (x.key === key ? { ...x, parts, max: parts.reduce((a, p) => a + p.max, 0) } : x))
     patchClass(current._id, { extraComps: next })
+  }
+
+  /** Thêm 1 mức/phần MỚI vào tiêu chí TÙY CHỈNH đã tạo trước đó — khác
+   *  `updateExtra*`/`removeExtra*` ở trên (chỉ sửa/xóa mức ĐÃ CÓ), đây là
+   *  chỗ còn thiếu để admin mở rộng 1 tiêu chí đã dùng mà không cần xóa đi
+   *  tạo lại từ đầu. Giữ nguyên mọi dữ liệu đã chấm trước đó. */
+  function addExtraCompOption(key: string, label: string, pts: number) {
+    if (!label.trim()) return
+    const next = extraComps.map((ec) => {
+      if (ec.key !== key || !ec.options) return ec
+      const options = [...ec.options, { id: `opt_${uid()}`, label: label.trim(), pts }]
+      return { ...ec, options, max: Math.max(...options.map((o) => o.pts)) }
+    })
+    patchClass(current._id, { extraComps: next })
+  }
+
+  function addExtraCompPart(key: string, label: string, max: number) {
+    if (!label.trim()) return
+    const next = extraComps.map((ec) => {
+      if (ec.key !== key || !ec.parts) return ec
+      const parts = [...ec.parts, { id: `part_${uid()}`, label: label.trim(), max }]
+      return { ...ec, parts, max: parts.reduce((a, p) => a + p.max, 0) }
+    })
+    patchClass(current._id, { extraComps: next })
+  }
+
+  /** Thêm 1 mức/phần MỚI vào tiêu chí GỐC (VD "Bài tập về nhà" thêm mức thứ
+   *  4) — lưu vào compExtraItems, KHÁC HẲN "Đổi kiểu" (replaceGocCompType):
+   *  giữ nguyên tên + toàn bộ dữ liệu buổi đã chấm trước đó, chỉ nối thêm.
+   *  Xem applyCompExtraItems ở constants/rubrics.ts. */
+  function addCompExtraItem(gocKey: string, label: string, value: number) {
+    if (!label.trim()) return
+    const items = { ...(current.compExtraItems ?? {}) }
+    items[gocKey] = [...(items[gocKey] ?? []), { id: `extra_${uid()}`, label: label.trim(), value }]
+    patchClass(current._id, { compExtraItems: items })
+  }
+
+  function removeCompExtraItem(gocKey: string, itemId: string) {
+    const items = { ...(current.compExtraItems ?? {}) }
+    if (!items[gocKey]) return
+    items[gocKey] = items[gocKey].filter((it) => it.id !== itemId)
+    patchClass(current._id, { compExtraItems: items })
+  }
+
+  function updateCompExtraItem(gocKey: string, itemId: string, patch: { label?: string; value?: number }) {
+    const items = { ...(current.compExtraItems ?? {}) }
+    if (!items[gocKey]) return
+    items[gocKey] = items[gocKey].map((it) => (it.id === itemId ? { ...it, ...patch } : it))
+    patchClass(current._id, { compExtraItems: items })
   }
 
   function addOption() {
@@ -612,6 +665,8 @@ export function RubricEditor() {
                       onClick={() => {
                         setEditingComp(isEditing ? null : comp.key)
                         setChangingTypeOf(null)
+                        setNewItemLabel('')
+                        setNewItemValue(10)
                       }}
                       className="rounded-lg px-2.5 py-1 text-xs font-bold"
                       style={{
@@ -774,6 +829,63 @@ export function RubricEditor() {
                         </div>
                       </div>
                     ))}
+
+                    {/* Mức/phần ADMIN TỰ THÊM VÀO — tách riêng khỏi mức/phần gốc
+                     *  (comp.parts/options/items ở trên, hardcode sẵn trong
+                     *  RUBRICS), vì đây là dữ liệu lưu riêng theo lớp
+                     *  (compExtraItems), sửa/xóa không đụng gì tới mức gốc. */}
+                    {(comp.type === 'parts' || comp.type === 'choice' || comp.type === 'ticks') && (
+                      <>
+                        {(current.compExtraItems?.[comp.key] ?? []).map((it) => (
+                          <div key={it.id} className="flex items-center justify-between gap-2">
+                            <div className="flex min-w-0 flex-1 items-center gap-1">
+                              <input
+                                value={it.label}
+                                onChange={(e) => updateCompExtraItem(comp.key, it.id, { label: e.target.value })}
+                                className="min-w-0 flex-1 rounded-lg px-2 py-1 text-sm"
+                                style={{ border: `1px solid ${C.gold}` }}
+                              />
+                              <span className="shrink-0 text-[10px] font-bold" style={{ color: C.gold }} title="Mức/phần mới thêm">MỚI</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <input
+                                type="number" min="0"
+                                value={it.value}
+                                onChange={(e) => updateCompExtraItem(comp.key, it.id, { value: Number(e.target.value) })}
+                                className="w-16 rounded-lg px-2 py-1 text-center text-sm font-bold"
+                                style={{ border: `1px solid ${C.gold}` }}
+                              />
+                              <button onClick={() => removeCompExtraItem(comp.key, it.id)} className="text-xs font-bold" style={{ color: C.red }}>✕</button>
+                            </div>
+                          </div>
+                        ))}
+                        <div className="flex items-center gap-2 pt-1" style={{ borderTop: `1px dashed ${C.line}` }}>
+                          <input
+                            value={newItemLabel}
+                            onChange={(e) => setNewItemLabel(e.target.value)}
+                            placeholder={comp.type === 'parts' ? 'Tên phần mới (vd: Trình bày)' : 'Nhãn mức mới (vd: Làm thêm nâng cao)'}
+                            className="min-w-0 flex-1 rounded-lg px-2 py-1 text-sm"
+                            style={{ border: `1px solid ${C.line}` }}
+                          />
+                          <input
+                            type="number" min="0"
+                            value={newItemValue}
+                            onChange={(e) => setNewItemValue(Number(e.target.value))}
+                            className="w-16 rounded-lg px-2 py-1 text-center text-sm font-bold"
+                            style={{ border: `1px solid ${C.line}` }}
+                          />
+                          <button
+                            onClick={() => { addCompExtraItem(comp.key, newItemLabel, newItemValue); setNewItemLabel(''); setNewItemValue(10) }}
+                            disabled={!newItemLabel.trim()}
+                            className="shrink-0 rounded-lg px-2.5 py-1 text-xs font-bold"
+                            style={{ background: C.board, color: '#fff', opacity: newItemLabel.trim() ? 1 : 0.4 }}
+                          >
+                            + Thêm {comp.type === 'parts' ? 'phần' : 'mức'}
+                          </button>
+                        </div>
+                      </>
+                    )}
+
                     {comp.type === 'choice' ? (
                       <div className="pt-1 text-xs" style={{ color: '#B45309' }}>
                         ⚠ Đây là tiêu chí "Lựa chọn" — học sinh chỉ chọn ĐÚNG 1 mức, điểm hiển thị
@@ -845,7 +957,11 @@ export function RubricEditor() {
                     <span className="text-xs shrink-0" style={{ color: C.muted }}>{ec.max}đ</span>
                     {(ec.type === 'choice' || ec.type === 'parts' || !ec.type) && (
                       <button
-                        onClick={() => setEditingComp(isEditing ? null : ec.key)}
+                        onClick={() => {
+                          setEditingComp(isEditing ? null : ec.key)
+                          setNewItemLabel('')
+                          setNewItemValue(10)
+                        }}
                         className="shrink-0 rounded-lg px-2.5 py-1 text-xs font-bold"
                         style={{
                           color: isEditing ? '#fff' : C.board,
@@ -921,6 +1037,30 @@ export function RubricEditor() {
                           </div>
                         </div>
                       ))}
+                      <div className="flex items-center gap-2 pt-1" style={{ borderTop: `1px dashed ${C.line}` }}>
+                        <input
+                          value={newItemLabel}
+                          onChange={(e) => setNewItemLabel(e.target.value)}
+                          placeholder="Nhãn mức mới (vd: Làm thêm nâng cao)"
+                          className="min-w-0 flex-1 rounded-lg px-2 py-1 text-sm"
+                          style={{ border: `1px solid ${C.line}` }}
+                        />
+                        <input
+                          type="number" min="0"
+                          value={newItemValue}
+                          onChange={(e) => setNewItemValue(Number(e.target.value))}
+                          className="w-16 rounded-lg px-2 py-1 text-center text-sm font-bold"
+                          style={{ border: `1px solid ${C.line}` }}
+                        />
+                        <button
+                          onClick={() => { addExtraCompOption(ec.key, newItemLabel, newItemValue); setNewItemLabel(''); setNewItemValue(10) }}
+                          disabled={!newItemLabel.trim()}
+                          className="shrink-0 rounded-lg px-2.5 py-1 text-xs font-bold"
+                          style={{ background: C.board, color: '#fff', opacity: newItemLabel.trim() ? 1 : 0.4 }}
+                        >
+                          + Thêm mức
+                        </button>
+                      </div>
                       <div className="pt-1 text-xs" style={{ color: '#B45309' }}>
                         ⚠ Học sinh chỉ chọn ĐÚNG 1 mức trong các mức trên (không cộng dồn nhiều mức) — điểm tối
                         đa là mức cao nhất. Cần chấm nhiều phần độc lập rồi cộng lại? Xóa tiêu chí này và tạo
@@ -953,6 +1093,30 @@ export function RubricEditor() {
                           </div>
                         </div>
                       ))}
+                      <div className="flex items-center gap-2 pt-1" style={{ borderTop: `1px dashed ${C.line}` }}>
+                        <input
+                          value={newItemLabel}
+                          onChange={(e) => setNewItemLabel(e.target.value)}
+                          placeholder="Tên phần mới (vd: Trình bày)"
+                          className="min-w-0 flex-1 rounded-lg px-2 py-1 text-sm"
+                          style={{ border: `1px solid ${C.line}` }}
+                        />
+                        <input
+                          type="number" min="0"
+                          value={newItemValue}
+                          onChange={(e) => setNewItemValue(Number(e.target.value))}
+                          className="w-16 rounded-lg px-2 py-1 text-center text-sm font-bold"
+                          style={{ border: `1px solid ${C.line}` }}
+                        />
+                        <button
+                          onClick={() => { addExtraCompPart(ec.key, newItemLabel, newItemValue); setNewItemLabel(''); setNewItemValue(10) }}
+                          disabled={!newItemLabel.trim()}
+                          className="shrink-0 rounded-lg px-2.5 py-1 text-xs font-bold"
+                          style={{ background: C.gold, color: '#fff', opacity: newItemLabel.trim() ? 1 : 0.4 }}
+                        >
+                          + Thêm phần
+                        </button>
+                      </div>
                       <div className="pt-1 text-xs" style={{ color: C.muted }}>
                         Tổng điểm ({ec.parts.reduce((a, p) => a + p.max, 0)}đ) tự cộng lại từ các phần trên. Cần giữ lại ít nhất 1 phần.
                       </div>

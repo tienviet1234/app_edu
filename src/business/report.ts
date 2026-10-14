@@ -107,6 +107,13 @@ export interface SessionScoreItem {
    *  — nhãn mô tả ĐẦY ĐỦ của mức giáo viên đã chọn (không chỉ "30/30"), y hệt
    *  nội dung hiện ở màn nhập điểm. */
   selectedLabel?: string
+  /** "Đúng X/Y [đơn vị] (Z%)" — CHỈ có khi tiêu chí này có ô "Kết quả: ___/___"
+   *  (evidence type 'ratio', VD Bài tập về nhà/Từ vựng) VÀ giáo viên đã điền.
+   *  Tách riêng khỏi `value` vì đây là số liệu RIÊNG (số câu/từ đúng), độc lập
+   *  với điểm tổng của tiêu chí — trước đây giáo viên điền ô này xong thì KHÔNG
+   *  hiện ở đâu cả trong Báo cáo/Excel (chỉ cộng dồn âm thầm vào tổng kết cuối
+   *  kỳ), gây hiểu nhầm là "mất" dữ liệu đã nhập. */
+  ratioText?: string
 }
 
 export interface SessionDetailRow {
@@ -258,6 +265,19 @@ export function sessionDetailsOf(
           // điểm thô, để khớp đúng nội dung chi tiết giáo viên đã thấy khi chấm.
           const opt = (c.options ?? []).find((o) => o.id === s.entry.choice[c.key])
           if (opt) item.selectedLabel = opt.label
+        }
+        // Ô "Kết quả: ___/___" (evidence type 'ratio', VD Bài tập về nhà/Từ
+        // vựng) — số liệu RIÊNG (số câu/từ đúng), tách khỏi điểm tổng ở trên.
+        // Trước đây giáo viên điền xong là "biến mất" khỏi mọi báo cáo/Excel,
+        // chỉ âm thầm cộng vào tổng kết cuối kỳ — giờ hiện luôn ở đây.
+        const ratioEv = (c.evidence ?? []).find((ev) => ev.type === 'ratio')
+        if (ratioEv) {
+          const rv = s.entry.ev?.[c.key]?.[ratioEv.key] as { ok?: string | number; total?: string | number } | undefined
+          const ok = Number(rv?.ok)
+          const total = Number(rv?.total)
+          if (rv?.ok !== '' && rv?.ok != null && total > 0 && Number.isFinite(ok)) {
+            item.ratioText = `Đúng ${ok}/${total} ${ratioEv.unit ?? 'câu'} (${Math.round((ok / total) * 100)}%)`
+          }
         }
         scores.push(item)
       })

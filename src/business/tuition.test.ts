@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { billingPeriodsOf, sessionsBilledOf, currentProgressOf, periodPositionOf, sessionLabelOf } from './tuition'
+import { billingPeriodsOf, sessionsBilledOf, currentProgressOf, periodPositionOf, sessionLabelOf, unbilledSessionsOf } from './tuition'
 import { emptyEntry } from './seed'
 import type { AttendanceKey, Session, Student } from '@/types'
 
@@ -139,5 +139,44 @@ describe('sessionsBilledOf', () => {
   it('toàn bộ nghỉ → 0 buổi tính phí', () => {
     const st = student(8, 'absent')
     expect(sessionsBilledOf(st, 0, 8)).toBe(0)
+  })
+})
+
+describe('unbilledSessionsOf', () => {
+  it('không có buổi nào billed → trả nguyên danh sách', () => {
+    const st = student(5)
+    expect(unbilledSessionsOf(st)).toEqual(st.sessions)
+  })
+
+  it('lọc đúng các buổi billed=true, giữ nguyên thứ tự các buổi còn lại', () => {
+    const st: Student = {
+      id: 'st1', name: 'Test',
+      sessions: [
+        { ...sess(1, 'present'), billed: true },
+        { ...sess(2, 'present'), billed: true },
+        sess(3, 'present'),
+        sess(4, 'present'),
+      ],
+    }
+    const unbilled = unbilledSessionsOf(st)
+    expect(unbilled.map((s) => s.no)).toEqual([3, 4])
+  })
+
+  // Tái hiện ĐÚNG ca thật đã gặp: kỳ 1 (8 buổi) đã chốt + thu tiền, sau đó 2
+  // buổi lỗi/trùng trong kỳ đó bị xóa — nếu KHÔNG đánh dấu billed cho các
+  // buổi còn sót, billingPeriodsOf/currentProgressOf sẽ coi chúng là buổi
+  // MỚI chưa tính tiền, hiện thành 1 khoản "chưa tới hạn" ẢO (thu tiền
+  // trùng nếu admin lỡ chốt buổi). Đánh dấu billed cho các buổi còn lại
+  // (dù chỉ có 6-7/8, chưa đủ để tự tạo lại 1 TuitionNotice khác) phải chặn
+  // được việc này hoàn toàn.
+  it('ca thật: xóa 2/8 buổi đã thu tiền, 6 buổi còn lại đều billed → không còn buổi nào bị tính lại', () => {
+    const st: Student = {
+      id: 'st1', name: 'Kim Ngân',
+      sessions: Array.from({ length: 6 }, (_, i) => ({ ...sess(i + 1, 'present'), billed: true })),
+    }
+    const unbilled = unbilledSessionsOf(st)
+    expect(unbilled).toEqual([])
+    expect(billingPeriodsOf({ ...st, sessions: unbilled }, 8)).toEqual([])
+    expect(currentProgressOf({ ...st, sessions: unbilled }, 8)).toBeNull()
   })
 })

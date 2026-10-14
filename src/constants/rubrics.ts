@@ -182,19 +182,52 @@ export function applyCompLabelOverride(
   return next
 }
 
+/** Nối thêm mức/phần MỚI (admin tự thêm) vào 1 tiêu chí GỐC — KHÁC
+ *  `applyCompOverride` (chỉ sửa điểm mức/phần ĐÃ CÓ sẵn trong RUBRICS, không
+ *  thêm được mức mới). Dùng khi admin muốn "Bài tập về nhà" có thêm 1 mức
+ *  thứ 4 mà vẫn giữ nguyên 3 mức cũ + toàn bộ buổi đã chấm trước đó — khác
+ *  hẳn "Đổi kiểu" (thay HẲN 1 tiêu chí khác, ẩn tiêu chí cũ đi). Comp loại
+ *  'score' không có mức/phần nào để thêm, trả nguyên comp. */
+export function applyCompExtraItems(
+  comp: import('@/types').RubricComponent,
+  extra: Array<{ id: string; label: string; value: number }> | undefined,
+): import('@/types').RubricComponent {
+  if (!extra?.length) return comp
+  if (comp.type === 'parts') {
+    const parts = [...(comp.parts ?? []), ...extra.map((e) => ({ id: e.id, label: e.label, max: e.value }))]
+    return { ...comp, parts, max: parts.reduce((a, p) => a + p.max, 0) }
+  }
+  if (comp.type === 'choice') {
+    const options = [...(comp.options ?? []), ...extra.map((e) => ({ id: e.id, label: e.label, pts: e.value }))]
+    return { ...comp, options, max: options.reduce((a, o) => Math.max(a, o.pts), 0) }
+  }
+  if (comp.type === 'ticks') {
+    const items = [...(comp.items ?? []), ...extra.map((e) => ({ id: e.id, label: e.label, pts: e.value }))]
+    return { ...comp, items, max: items.reduce((a, it) => a + it.pts, 0) }
+  }
+  return comp
+}
+
 export function getClassRubric(cls: ClassData): RubricDef {
   const base = getRubric(cls.level)
   const hidden = new Set(cls.hiddenComps ?? [])
   const extras = cls.extraComps ?? []
   const overrides = cls.compOverrides ?? {}
   const labelOverrides = cls.compLabelOverrides ?? {}
-  if (!hidden.size && !extras.length && !Object.keys(overrides).length && !Object.keys(labelOverrides).length) return base
+  const extraItems = cls.compExtraItems ?? {}
+  if (
+    !hidden.size && !extras.length && !Object.keys(overrides).length &&
+    !Object.keys(labelOverrides).length && !Object.keys(extraItems).length
+  ) return base
   return {
     ...base,
     comps: [
       ...base.comps
         .filter((c) => !hidden.has(c.key))
-        .map((c) => applyCompLabelOverride(applyCompOverride(c, overrides[c.key]), labelOverrides[c.key])),
+        .map((c) => applyCompLabelOverride(
+          applyCompOverride(applyCompExtraItems(c, extraItems[c.key]), overrides[c.key]),
+          labelOverrides[c.key],
+        )),
       ...extras.map(extraToComp),
     ],
   }

@@ -117,6 +117,37 @@ describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình
     }])
   })
 
+  it('giáo viên điền ô "Kết quả: ___/___" (evidence ratio) — ratioText phải hiện ra, không "biến mất"', () => {
+    const r = getRubric('secondary')
+    const student: Student = {
+      id: 'st1', name: 'Minh Khôi',
+      sessions: [{
+        id: 's1', no: 1, date: '2026-01-01',
+        entry: {
+          ...emptyEntry(), attendance: 'present',
+          ticks: { hw: ['h_full', 'h_correct', 'h_ontime'] },
+          ev: { hw: { correct: { ok: 15, total: 20 } } },
+        },
+      }],
+    }
+    const rows = sessionDetailsOf(student, 0, 1, r)
+    expect(rows[0].scores).toHaveLength(1)
+    expect(rows[0].scores[0].ratioText).toBe('Đúng 15/20 câu (75%)')
+  })
+
+  it('chưa điền ô "Kết quả" — không có ratioText (không bịa số)', () => {
+    const r = getRubric('secondary')
+    const student: Student = {
+      id: 'st1', name: 'Minh Khôi',
+      sessions: [{
+        id: 's1', no: 1, date: '2026-01-01',
+        entry: { ...emptyEntry(), attendance: 'present', ticks: { hw: ['h_full'] } },
+      }],
+    }
+    const rows = sessionDetailsOf(student, 0, 1, r)
+    expect(rows[0].scores[0].ratioText).toBeUndefined()
+  })
+
   it('chấm đủ nhiều tiêu chí 1 buổi — liệt kê ĐẦY ĐỦ từng tiêu chí đã chấm, đúng mức chi tiết như màn nhập điểm', () => {
     const r = getRubric('secondary')
     const student: Student = {

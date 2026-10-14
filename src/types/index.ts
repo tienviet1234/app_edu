@@ -99,6 +99,14 @@ export interface Session {
   maxes?: Record<string, number> // overrides comp.max per session (e.g. mini=30, listen=15, hw__correct=20)
   createdByName?: string // giáo viên đã ghi buổi này
   recordedAt?: string    // thời điểm thực sự ghi buổi này (ISO datetime) — để xem giờ chi tiết
+  /** Buổi này ĐÃ nằm trong 1 khoản học phí đã gửi (TuitionNotice) hoặc được
+   *  admin tự xác nhận "đã tính tiền trước đó" — dùng để LOẠI RA khỏi mọi
+   *  phép tính "còn thiếu bao nhiêu buổi" (xem unbilledSessionsOf ở
+   *  business/tuition.ts). Không có field này thì KHÔNG ảnh hưởng gì (coi
+   *  như false) — chỉ đặt true khi admin xác nhận đã thu tiền buổi đó rồi,
+   *  tránh xóa buổi lỗi/trùng trong 1 kỳ đã thu tiền làm hệ thống "quên"
+   *  mất là đã thu, tính trùng lại các buổi còn sót. */
+  billed?: boolean
 }
 
 // ─── Extra scoring component (admin-added) ────────────────────────────────────
@@ -147,6 +155,12 @@ export interface ClassData {
   // Admin đổi TÊN tiêu chí gốc/tên từng phần nhỏ — cùng cấu trúc key như
   // compOverrides ở trên, riêng '_label' đổi tên chính tiêu chí đó.
   compLabelOverrides?: Record<string, Record<string, string>>
+  // Admin THÊM mức/phần MỚI vào 1 tiêu chí GỐC đã có sẵn (VD thêm mức thứ 4
+  // vào "Bài tập về nhà" đang có 3 mức) — giữ nguyên tiêu chí cũ + dữ liệu đã
+  // chấm, khác hẳn "Đổi kiểu" (thay hẳn 1 tiêu chí khác). key ngoài =
+  // comp.key, `value` = điểm (pts cho choice/ticks, max cho parts) —
+  // xem applyCompExtraItems ở constants/rubrics.ts.
+  compExtraItems?: Record<string, Array<{ id: string; label: string; value: number }>>
   // Câu nhận xét mẫu TỰ SOẠN riêng cho lớp này (khác với gợi ý tự sinh từ
   // điểm số) — admin/giáo viên tự thêm/sửa/xóa theo thói quen viết của họ,
   // hiện làm chip chọn nhanh ở màn Nhập điểm (xem EntryScreen).
