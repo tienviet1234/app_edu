@@ -7,13 +7,14 @@ import { created, notFound, ok, badRequest, forbidden } from '../utils/response.
 import { paginate } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { sendPushToUser } from '../services/pushService.js'
+import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
 
 /** Giáo viên chỉ được gửi thông báo cho học sinh trong lớp mình dạy, hoặc
  *  phụ huynh của học sinh đó — không cho gửi tới người dùng bất kỳ. Admin
  *  qua hết. */
 async function assertCanNotifyRecipient(authReq: AuthRequest, recipientId: string): Promise<boolean> {
   if (authReq.user?.role === 'admin') return true
-  const ownClasses = await Class.find({ teacherId: authReq.userId }, 'studentIds').lean()
+  const ownClasses = await Class.find(teacherScopeFilter(authReq.userId!), 'studentIds').lean()
   const studentIds = new Set(ownClasses.flatMap((c) => c.studentIds.map((id) => String(id))))
   if (studentIds.has(recipientId)) return true
   const recipient = await User.findById(recipientId, 'role childIds').lean()
@@ -26,8 +27,8 @@ async function assertCanNotifyRecipient(authReq: AuthRequest, recipientId: strin
 /** Giáo viên chỉ được thao tác trên lớp MÌNH dạy — admin qua hết. */
 async function assertTeacherOwnsClass(authReq: AuthRequest, classId: Types.ObjectId | string): Promise<boolean> {
   if (authReq.user?.role === 'admin') return true
-  const cls = await Class.findById(classId, 'teacherId').lean()
-  return !!cls?.teacherId && String(cls.teacherId) === String(authReq.userId)
+  const cls = await Class.findById(classId, 'teacherId assistantTeacherIds').lean()
+  return isClassTeacher(cls, authReq.userId!)
 }
 
 export async function listNotifications(req: Request, res: Response): Promise<void> {

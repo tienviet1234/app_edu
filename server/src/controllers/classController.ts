@@ -7,10 +7,11 @@ import { parsePagination } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit } from '../services/auditService.js'
 import { User } from '../models/User.js'
+import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
 
 export async function listClasses(req: Request, res: Response): Promise<void> {
   const authReq = req as AuthRequest
-  const teacherFilter = authReq.user?.role === 'teacher' ? { teacherId: authReq.userId } : {}
+  const teacherFilter = authReq.user?.role === 'teacher' ? teacherScopeFilter(authReq.userId!) : {}
   const studentFilter = authReq.user?.role === 'student' ? { studentIds: authReq.userId } : {}
 
   const filter = {
@@ -23,7 +24,7 @@ export async function listClasses(req: Request, res: Response): Promise<void> {
   }
   const { page, limit, skip, sort } = parsePagination(req.query)
   const [items, total] = await Promise.all([
-    Class.find(filter).sort(sort).skip(skip).limit(limit).populate('teacherId', 'name email').populate('studentIds', 'name'),
+    Class.find(filter).sort(sort).skip(skip).limit(limit).populate('teacherId', 'name email').populate('assistantTeacherIds', 'name email').populate('studentIds', 'name'),
     Class.countDocuments(filter),
   ])
   ok(res, { items, total, page, totalPages: Math.max(1, Math.ceil(total / limit)) })
@@ -45,6 +46,7 @@ export async function createClass(req: Request, res: Response): Promise<void> {
 export async function getClass(req: Request, res: Response): Promise<void> {
   const cls = await Class.findById(req.params.id)
     .populate('teacherId', 'name email')
+    .populate('assistantTeacherIds', 'name email')
     .populate('studentIds', 'name email')
     .populate('courseId', 'name level')
   if (!cls) {
@@ -56,12 +58,12 @@ export async function getClass(req: Request, res: Response): Promise<void> {
 
 export async function updateClass(req: Request, res: Response): Promise<void> {
   const authReq = req as AuthRequest
-  const cls = await Class.findById(req.params.id, 'teacherId')
+  const cls = await Class.findById(req.params.id, 'teacherId assistantTeacherIds')
   if (!cls) {
     notFound(res, 'Class not found.')
     return
   }
-  if (authReq.user?.role !== 'admin' && !cls.teacherId?.equals(authReq.userId!)) {
+  if (authReq.user?.role !== 'admin' && !isClassTeacher(cls, authReq.userId!)) {
     forbidden(res, 'You can only update your own classes.')
     return
   }
@@ -148,12 +150,12 @@ export async function getClassStudents(req: Request, res: Response): Promise<voi
 /** DELETE /api/classes/:id — teacher or admin deletes a class */
 export async function deleteClass(req: Request, res: Response): Promise<void> {
   const authReq = req as AuthRequest
-  const cls = await Class.findById(req.params.id, 'teacherId')
+  const cls = await Class.findById(req.params.id, 'teacherId assistantTeacherIds')
   if (!cls) {
     notFound(res, 'Class not found.')
     return
   }
-  if (authReq.user?.role !== 'admin' && !cls.teacherId?.equals(authReq.userId!)) {
+  if (authReq.user?.role !== 'admin' && !isClassTeacher(cls, authReq.userId!)) {
     forbidden(res, 'You can only delete your own classes.')
     return
   }
@@ -172,10 +174,10 @@ export async function addManagedStudents(req: Request, res: Response): Promise<v
     return
   }
 
-  const cls = await Class.findById(req.params.id, 'teacherId studentIds')
+  const cls = await Class.findById(req.params.id, 'teacherId assistantTeacherIds studentIds')
   if (!cls) { notFound(res, 'Class not found.'); return }
 
-  if (authReq.user?.role !== 'admin' && !cls.teacherId?.equals(authReq.userId!)) {
+  if (authReq.user?.role !== 'admin' && !isClassTeacher(cls, authReq.userId!)) {
     forbidden(res, 'You can only add students to your own classes.')
     return
   }

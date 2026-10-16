@@ -7,13 +7,14 @@ import { sendPushToUser } from '../services/pushService.js'
 import { ok, created, badRequest, forbidden, notFound } from '../utils/response.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
 import type { AuthRequest } from '../middleware/auth.js'
+import { isClassTeacher } from '../utils/classAuth.js'
 
 /** Giáo viên chỉ được ghi/xem/xác nhận nợ của lớp MÌNH dạy — cùng kiểm tra
  *  với submissionController.assertTeacherOwnsClass. Admin qua hết. */
 async function assertTeacherOwnsClass(authReq: AuthRequest, classId: string): Promise<boolean> {
   if (authReq.user?.role === 'admin') return true
-  const cls = await Class.findById(classId, 'teacherId').lean()
-  return !!cls?.teacherId && String(cls.teacherId) === String(authReq.userId)
+  const cls = await Class.findById(classId, 'teacherId assistantTeacherIds').lean()
+  return isClassTeacher(cls, authReq.userId!)
 }
 
 /** Chỉ admin/giáo viên/CHÍNH học sinh đó được xem/trả nợ — tính năng này

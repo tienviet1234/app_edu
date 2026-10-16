@@ -8,11 +8,14 @@ import { badRequest, created, forbidden, notFound, ok } from '../utils/response.
 import { paginate } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit } from '../services/auditService.js'
+import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
 
-/** Giáo viên chỉ được đọc/ghi điểm của lớp MÌNH dạy — admin qua hết. */
+/** Giáo viên chỉ được đọc/ghi điểm của lớp MÌNH dạy (kể cả giáo viên PHỤ,
+ *  `assistantTeacherIds` — 1 lớp có thể do 2 giáo viên cùng quản lý) — admin
+ *  qua hết. */
 async function assertTeacherOwnsClass(userId: string, classId: Types.ObjectId | string): Promise<boolean> {
-  const cls = await Class.findById(classId, 'teacherId').lean()
-  return !!cls?.teacherId && new Types.ObjectId(userId).equals(cls.teacherId as Types.ObjectId)
+  const cls = await Class.findById(classId, 'teacherId assistantTeacherIds').lean()
+  return isClassTeacher(cls, userId)
 }
 
 /**
@@ -33,8 +36,8 @@ export async function listScores(req: Request, res: Response): Promise<void> {
     if (req.query.classId) filter.classId = req.query.classId
   } else if (role === 'teacher') {
     if (req.query.classId) {
-      const cls = await Class.findById(req.query.classId, 'teacherId').lean()
-      if (!cls || !new Types.ObjectId(userId).equals(cls.teacherId as Types.ObjectId)) {
+      const cls = await Class.findById(req.query.classId, 'teacherId assistantTeacherIds').lean()
+      if (!isClassTeacher(cls, userId)) {
         forbidden(res, 'You do not have access to this class.')
         return
       }
@@ -42,8 +45,8 @@ export async function listScores(req: Request, res: Response): Promise<void> {
     } else if (req.query.sessionId) {
       const session = await ClassSession.findById(req.query.sessionId, 'classId').lean()
       if (session) {
-        const cls = await Class.findById(session.classId, 'teacherId').lean()
-        if (!cls || !new Types.ObjectId(userId).equals(cls.teacherId as Types.ObjectId)) {
+        const cls = await Class.findById(session.classId, 'teacherId assistantTeacherIds').lean()
+        if (!isClassTeacher(cls, userId)) {
           forbidden(res, 'You do not have access to this session.')
           return
         }
@@ -51,7 +54,7 @@ export async function listScores(req: Request, res: Response): Promise<void> {
       filter.sessionId = req.query.sessionId
     } else {
       // No specific filter — scope to teacher's own classes
-      const classes = await Class.find({ teacherId: userId }, '_id').lean()
+      const classes = await Class.find(teacherScopeFilter(userId), '_id').lean()
       filter.classId = { $in: classes.map((c) => c._id) }
     }
     if (req.query.studentId) filter.studentId = req.query.studentId
@@ -159,8 +162,8 @@ export async function updateScore(req: Request, res: Response): Promise<void> {
   if (role !== 'admin') {
     const existing = await Score.findById(req.params.id, 'classId').lean()
     if (existing) {
-      const cls = await Class.findById((existing as { classId: Types.ObjectId }).classId, 'teacherId').lean()
-      if (!cls || !new Types.ObjectId(userId).equals(cls.teacherId as Types.ObjectId)) {
+      const cls = await Class.findById((existing as { classId: Types.ObjectId }).classId, 'teacherId assistantTeacherIds').lean()
+      if (!isClassTeacher(cls, userId)) {
         forbidden(res, 'You do not have permission to update this score.')
         return
       }
@@ -195,8 +198,8 @@ export async function sessionSummary(req: Request, res: Response): Promise<void>
   if (role !== 'admin') {
     const session = await ClassSession.findById(req.params.sessionId, 'classId').lean()
     if (session) {
-      const cls = await Class.findById(session.classId, 'teacherId studentIds').lean()
-      const isTeacher = cls && new Types.ObjectId(userId).equals(cls.teacherId as Types.ObjectId)
+      const cls = await Class.findById(session.classId, 'teacherId assistantTeacherIds studentIds').lean()
+      const isTeacher = isClassTeacher(cls, userId)
       const isStudent = cls && (cls.studentIds as Types.ObjectId[]).some((id) => id.equals(userId))
       if (!isTeacher && !isStudent) {
         forbidden(res, 'You do not have access to this session.')

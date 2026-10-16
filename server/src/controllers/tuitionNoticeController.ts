@@ -5,13 +5,14 @@ import { Class } from '../models/Class.js'
 import { ok, created, badRequest, forbidden, notFound } from '../utils/response.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
 import type { AuthRequest } from '../middleware/auth.js'
+import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
 
 /** Giáo viên chỉ được ghi/xem/xóa hồ sơ học phí của lớp MÌNH dạy — cùng kiểm
  *  tra với submissionController.assertTeacherOwnsClass. Admin qua hết. */
 async function assertTeacherOwnsClass(authReq: AuthRequest, classId: string): Promise<boolean> {
   if (authReq.user?.role === 'admin') return true
-  const cls = await Class.findById(classId, 'teacherId').lean()
-  return !!cls?.teacherId && String(cls.teacherId) === String(authReq.userId)
+  const cls = await Class.findById(classId, 'teacherId assistantTeacherIds').lean()
+  return isClassTeacher(cls, authReq.userId!)
 }
 
 /** POST /api/tuition-notices — giáo viên đánh dấu ĐÃ GỬI báo cáo+học phí cho
@@ -90,7 +91,7 @@ export const getTuitionNoticeSummary = asyncHandler(async (req: Request, res: Re
   const authReq = req as AuthRequest
   const filter: Record<string, unknown> = { paymentStatus: 'unpaid' }
   if (authReq.user?.role !== 'admin') {
-    const ownClasses = await Class.find({ teacherId: authReq.userId }, '_id').lean()
+    const ownClasses = await Class.find(teacherScopeFilter(authReq.userId!), '_id').lean()
     filter.classId = { $in: ownClasses.map((c) => c._id) }
   }
   const unpaidCount = await TuitionNotice.countDocuments(filter)

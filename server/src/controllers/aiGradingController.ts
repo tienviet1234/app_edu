@@ -8,6 +8,7 @@ import { uploadImageToCloudinary } from '../services/storageService.js'
 import { ok, created, badRequest, forbidden } from '../utils/response.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
 import type { AuthRequest } from '../middleware/auth.js'
+import { isClassTeacher } from '../utils/classAuth.js'
 
 // Giữ 30 ngày — đủ để đối chiếu nếu phụ huynh thắc mắc điểm, sau đó tự xóa
 // (xem aiGradedPhotoService.runAiPhotoCleanup, gọi qua cron hàng ngày) —
@@ -18,8 +19,8 @@ const AI_PHOTO_RETENTION_DAYS = 30
  *  submissionController.assertTeacherOwnsClass. Admin qua hết. */
 async function assertTeacherOwnsClass(authReq: AuthRequest, classId: string): Promise<boolean> {
   if (authReq.user?.role === 'admin') return true
-  const cls = await Class.findById(classId, 'teacherId').lean()
-  return !!cls?.teacherId && String(cls.teacherId) === String(authReq.userId)
+  const cls = await Class.findById(classId, 'teacherId assistantTeacherIds').lean()
+  return isClassTeacher(cls, authReq.userId!)
 }
 
 // Multer: lưu tạm trong memory (không ghi ổ đĩa, không upload lên đâu cả).

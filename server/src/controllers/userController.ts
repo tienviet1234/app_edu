@@ -6,6 +6,7 @@ import { ok, notFound, forbidden } from '../utils/response.js'
 import { paginate } from '../utils/pagination.js'
 import { writeAudit } from '../services/auditService.js'
 import type { AuthRequest } from '../middleware/auth.js'
+import { teacherScopeFilter } from '../utils/classAuth.js'
 
 export function listUsersByRole(role: UserRole) {
   return async (req: Request, res: Response): Promise<void> => {
@@ -30,7 +31,7 @@ export function getUserByRole(role: UserRole) {
     // cùng trung tâm) giữ nguyên không giới hạn — không phải dữ liệu nhạy
     // cảm tương đương.
     if (role === 'student' && authReq.user?.role !== 'admin') {
-      const cls = await Class.findOne({ teacherId: authReq.userId, studentIds: targetId }, '_id').lean()
+      const cls = await Class.findOne({ studentIds: targetId, ...teacherScopeFilter(authReq.userId!) }, '_id').lean()
       if (!cls) {
         forbidden(res, 'Bạn chỉ có thể tra cứu học sinh trong lớp mình dạy.')
         return
@@ -74,7 +75,7 @@ export async function updateManagedStudent(req: Request, res: Response): Promise
   const studentId = req.params.id
 
   if (authReq.user?.role !== 'admin') {
-    const cls = await Class.findOne({ teacherId: authReq.userId, studentIds: studentId }, '_id').lean()
+    const cls = await Class.findOne({ studentIds: studentId, ...teacherScopeFilter(authReq.userId!) }, '_id').lean()
     if (!cls) {
       forbidden(res, 'Bạn chỉ có thể sửa học sinh trong lớp mình dạy.')
       return

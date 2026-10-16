@@ -6,13 +6,15 @@ import { ok, badRequest, forbidden } from '../utils/response.js'
 import { User } from '../models/User.js'
 import { Class } from '../models/Class.js'
 import { previewStudentMerge, runStudentMerge, MergeValidationError } from '../services/studentMergeService.js'
+import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
 
-/** Giáo viên chỉ thao tác trong lớp mình dạy (teacherId) — admin không giới
- *  hạn. Cùng nguyên tắc với classController (update/delete/enroll). */
+/** Giáo viên chỉ thao tác trong lớp mình dạy (chính hoặc phụ,
+ *  `assistantTeacherIds`) — admin không giới hạn. Cùng nguyên tắc với
+ *  classController (update/delete/enroll). */
 async function assertCanTouchClass(req: AuthRequest, classId: string, res: Response): Promise<boolean> {
   if (req.user?.role === 'admin') return true
-  const cls = await Class.findById(classId, 'teacherId').lean()
-  if (!cls || !cls.teacherId?.equals(req.userId!)) {
+  const cls = await Class.findById(classId, 'teacherId assistantTeacherIds').lean()
+  if (!isClassTeacher(cls, req.userId!)) {
     forbidden(res, 'Bạn chỉ thao tác được trên lớp mình dạy.')
     return false
   }
@@ -41,8 +43,10 @@ export const searchStudentsForMerge = asyncHandler(async (req: Request, res: Res
   const students = await User.find(filter, 'name email avatar').limit(20).lean()
   const studentIds = students.map((s) => s._id)
 
-  const classFilter: Record<string, unknown> = { studentIds: { $in: studentIds } }
-  if (authReq.user?.role !== 'admin') classFilter.teacherId = authReq.userId
+  const classFilter: Record<string, unknown> = {
+    studentIds: { $in: studentIds },
+    ...(authReq.user?.role !== 'admin' ? teacherScopeFilter(authReq.userId!) : {}),
+  }
   const classes = await Class.find(classFilter, 'name studentIds').lean()
 
   const classByStudent = new Map<string, { classId: string; className: string }>()

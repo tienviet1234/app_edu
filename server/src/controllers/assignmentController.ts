@@ -9,6 +9,7 @@ import { sendPushToUser } from '../services/pushService.js'
 import { ok, created, forbidden } from '../utils/response.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
 import type { AuthRequest } from '../middleware/auth.js'
+import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
 
 /** Học sinh/phụ huynh chỉ xem được bài tập của lớp mình (con mình) đang học
  *  — trước đây không kiểm tra, ai cũng đổi classId trong query để xem tiêu
@@ -33,8 +34,8 @@ async function assertCanViewClass(authReq: AuthRequest, classId: string): Promis
  *  nào. Admin qua hết. */
 async function assertTeacherOwnsClass(authReq: AuthRequest, classId: string): Promise<boolean> {
   if (authReq.user?.role === 'admin') return true
-  const cls = await Class.findById(classId, 'teacherId').lean()
-  return !!cls?.teacherId && String(cls.teacherId) === String(authReq.userId)
+  const cls = await Class.findById(classId, 'teacherId assistantTeacherIds').lean()
+  return isClassTeacher(cls, authReq.userId!)
 }
 
 function shuffle<T>(arr: T[]): T[] {
@@ -93,7 +94,7 @@ export const listAssignments = asyncHandler(async (req: Request, res: Response) 
         return
       }
     } else {
-      const ownClassIds = await Class.find({ teacherId: authReq.userId }, '_id').lean()
+      const ownClassIds = await Class.find(teacherScopeFilter(authReq.userId!), '_id').lean()
       filter.classId = { $in: ownClassIds.map((c) => c._id) }
     }
   }

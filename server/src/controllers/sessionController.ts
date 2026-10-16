@@ -6,14 +6,15 @@ import { badRequest, created, forbidden, notFound, ok } from '../utils/response.
 import { parsePagination } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit } from '../services/auditService.js'
+import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
 
 /** Giáo viên chỉ được xem/sửa/xóa buổi học của các lớp mình dạy — admin qua
  *  hết. Trước đây thiếu kiểm tra này, 1 giáo viên gọi thẳng API có thể
  *  sửa/xóa buổi (và cascade cả Score/Attendance) của lớp giáo viên khác. */
 async function canManageSessionOfClass(authReq: AuthRequest, classId: Types.ObjectId | string): Promise<boolean> {
   if (authReq.user?.role === 'admin') return true
-  const cls = await Class.findById(classId, 'teacherId')
-  return !!cls?.teacherId?.equals(authReq.userId!)
+  const cls = await Class.findById(classId, 'teacherId assistantTeacherIds')
+  return isClassTeacher(cls, authReq.userId!)
 }
 
 export async function listSessions(req: Request, res: Response): Promise<void> {
@@ -31,9 +32,24 @@ export async function listSessions(req: Request, res: Response): Promise<void> {
     // để màn "Buổi đã xóa" liệt kê đúng các buổi có thể khôi phục.
     ...(req.query.onlyDeleted === 'true' ? { deletedAt: { $exists: true } } : { deletedAt: { $exists: false } }),
   }
+  // BUG CŨ (phát hiện khi rà soát đồng bộ đa giáo viên): dòng dưới trước đây
+  // LUÔN ghi đè filter.classId bằng "mọi lớp giáo viên này dạy", kể cả khi
+  // client đã xin đúng 1 classId cụ thể — khiến GET /sessions?classId=X trả
+  // về buổi học của TẤT CẢ lớp giáo viên đó dạy, không riêng lớp X. Hậu quả:
+  // mở lớp A vẫn thấy lẫn buổi của lớp B nếu 1 học sinh có mặt ở cả 2 lớp
+  // (VD đang chuyển lớp giữa kỳ, tạm thời có mặt ở cả lớp cũ lẫn lớp mới).
   if (authReq.user?.role === 'teacher') {
-    const ownClassIds = await Class.find({ teacherId: authReq.userId }, '_id').lean()
-    filter.classId = { $in: ownClassIds.map((c) => c._id) }
+    if (req.query.classId) {
+      const cls = await Class.findById(String(req.query.classId), 'teacherId assistantTeacherIds').lean()
+      if (!isClassTeacher(cls, authReq.userId!)) {
+        forbidden(res, 'Bạn chỉ có thể xem buổi học của lớp mình dạy.')
+        return
+      }
+      // giữ nguyên filter.classId = req.query.classId đã gán ở trên — CHỈ lớp đó.
+    } else {
+      const ownClassIds = await Class.find(teacherScopeFilter(authReq.userId!), '_id').lean()
+      filter.classId = { $in: ownClassIds.map((c) => c._id) }
+    }
   }
   // paginate() không hỗ trợ .populate() — populate createdBy thủ công để client
   // biết giáo viên nào đã ghi buổi này (dùng tính lương/học phí theo buổi).

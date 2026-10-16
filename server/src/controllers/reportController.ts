@@ -10,6 +10,7 @@ import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit } from '../services/auditService.js'
 import { sendEmail, notificationEmail } from '../services/emailService.js'
 import { sendPushToUser } from '../services/pushService.js'
+import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
 
 /** Giáo viên chỉ được đọc/ghi báo cáo của lớp MÌNH dạy — trước đây chỉ cần
  *  authorize('teacher') là thao tác được báo cáo của bất kỳ lớp nào (kích
@@ -17,8 +18,8 @@ import { sendPushToUser } from '../services/pushService.js'
  *  Admin qua hết. */
 async function assertTeacherOwnsClass(authReq: AuthRequest, classId: Types.ObjectId | string): Promise<boolean> {
   if (authReq.user?.role === 'admin') return true
-  const cls = await Class.findById(classId, 'teacherId').lean()
-  return !!cls?.teacherId && String(cls.teacherId) === String(authReq.userId)
+  const cls = await Class.findById(classId, 'teacherId assistantTeacherIds').lean()
+  return isClassTeacher(cls, authReq.userId!)
 }
 
 export async function listReports(req: Request, res: Response): Promise<void> {
@@ -41,7 +42,7 @@ export async function listReports(req: Request, res: Response): Promise<void> {
         return
       }
     } else {
-      const ownClassIds = await Class.find({ teacherId: authReq.userId }, '_id').lean()
+      const ownClassIds = await Class.find(teacherScopeFilter(authReq.userId!), '_id').lean()
       filter.classId = { $in: ownClassIds.map((c) => c._id) }
     }
   }

@@ -17,6 +17,7 @@ import { ok, created, forbidden, badRequest, notFound } from '../utils/response.
 import { asyncHandler } from '../utils/asyncHandler.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { gradeQuiz } from '../services/quizGrading.js'
+import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
 
 /** Phụ huynh/học sinh chỉ được đọc/ghi bài nộp của CHÍNH học sinh đó (con
  *  mình, hoặc chính mình) — trước đây thiếu kiểm tra này, bất kỳ ai đăng
@@ -38,8 +39,8 @@ async function assertCanAccessStudent(authReq: AuthRequest, studentId: string): 
  *  (đoán/biết classId hoặc submissionId). Admin qua hết. */
 async function assertTeacherOwnsClass(authReq: AuthRequest, classId: Types.ObjectId | string): Promise<boolean> {
   if (authReq.user?.role === 'admin') return true
-  const cls = await Class.findById(classId, 'teacherId').lean()
-  return !!cls?.teacherId && String(cls.teacherId) === String(authReq.userId)
+  const cls = await Class.findById(classId, 'teacherId assistantTeacherIds').lean()
+  return isClassTeacher(cls, authReq.userId!)
 }
 
 // Multer: lưu trong memory, giới hạn 80MB (video đã nén 360p/5 phút)
@@ -89,7 +90,7 @@ export const listSubmissions = asyncHandler(async (req: Request, res: Response) 
     } else {
       // Không truyền classId/assignmentId nào xác định được — chỉ trả về
       // bài nộp thuộc các lớp giáo viên này thực sự dạy, không cho xem hết.
-      const ownClassIds = await Class.find({ teacherId: authReq.userId }, '_id').lean()
+      const ownClassIds = await Class.find(teacherScopeFilter(authReq.userId!), '_id').lean()
       filter.classId = { $in: ownClassIds.map((c) => c._id) }
     }
   }

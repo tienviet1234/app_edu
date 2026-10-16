@@ -19,6 +19,7 @@ import { isMongoid } from '@/utils/mongoid'
 import { toast } from '@/store/toastStore'
 import { DeletedSessionsPanel } from './DeletedSessionsPanel'
 import { StudentMergeModal } from './StudentMergeModal'
+import { AssistantTeachersPanel } from './AssistantTeachersPanel'
 
 function parseBulk(text: string): ClassData[] {
   return text
@@ -438,6 +439,12 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
               </div>
             </label>
           </div>
+
+          {isMongoid(cls.id) && (
+            <div className="mt-3">
+              <AssistantTeachersPanel classId={cls.id} />
+            </div>
+          )}
 
           {/* Tab: Học sinh / Buổi học */}
           <div className="mt-4">
