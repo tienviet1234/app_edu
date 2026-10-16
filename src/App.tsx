@@ -16,6 +16,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useClasses, useClassStudents, useSessions, useClassScores, usePwaInstall, useTuitionUnpaidCount, STUDENT_KEYS } from '@/hooks'
 import { isMongoid } from '@/utils/mongoid'
 import { emptyEntry } from '@/business/seed'
+import { pruneGoneFromServer } from '@/business/sync'
 import { autoLevel, getClassRubric } from '@/constants/rubrics'
 import { rescaleComp, sessionScore } from '@/business/scoring'
 import { sessionService } from '@/services/sessions'
@@ -414,20 +415,22 @@ export default function App() {
         }
       })
       // Gỡ học sinh đã đồng bộ (isMongoid) nhưng server không còn liệt kê
-      // trong lớp này nữa (VD: bị gộp/chuyển sang tài khoản khác qua script
-      // — Class.studentIds đổi nhưng cache local cũ vẫn còn giữ bản ghi cũ).
-      // Không đụng học sinh local-only (chưa isMongoid) vì đó là học sinh
-      // mới thêm chưa kịp đồng bộ lên server.
-      localCls.students = localCls.students.filter(
-        (s) => !isMongoid(s.id) || apiIds.has(s.id),
-      )
+      // trong lớp này nữa (VD: bị gộp/chuyển sang tài khoản khác qua tính
+      // năng "Chuyển lớp" — Class.studentIds đổi nhưng cache local cũ vẫn
+      // còn giữ bản ghi cũ). Không đụng học sinh local-only (chưa isMongoid).
+      localCls.students = pruneGoneFromServer(localCls.students, apiIds)
     }))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiStudentsKey, currentClassIndex])
 
   // Sync per-student sessions + scores from server into local store — fills in
   // sessions that don't exist locally yet (e.g. opening this class on a device
-  // for the first time), never touches sessions already present locally.
+  // for the first time) and gỡ buổi đã đồng bộ nhưng server không còn liệt kê
+  // trong lớp này nữa (VD: bị gộp/chuyển lớp qua tính năng "Chuyển lớp" —
+  // trước đây hiệu ứng này CHỈ THÊM, không bao giờ gỡ, nên máy nào đã mở lớp
+  // "nguồn" trước khi chuyển sẽ mãi mãi hiển thị buổi cũ trùng với buổi đã
+  // xuất hiện ở lớp đích — y hệt lỗi "sửa ở admin, giáo viên không thấy cập
+  // nhật" vì máy giáo viên đã cache lớp đó từ trước).
   // Restricted to teacher/admin: scores.list returns the WHOLE class's scores,
   // which must never land in a student/parent's local storage.
   const canSyncWholeClass = user?.role === 'teacher' || user?.role === 'admin'
@@ -437,8 +440,12 @@ export default function App() {
   const apiSessionsKey = apiSessions?.items.map((s) => s._id).join(',') ?? ''
   const apiScoresKey = apiScores?.items.map((s) => s._id + s.updatedAt).join(',') ?? ''
   useEffect(() => {
-    if (!cls) return
-    const perStudentSessions = (apiSessions?.items ?? []).filter((s) => s.studentId)
+    // apiSessions === undefined nghĩa là CHƯA tải xong (hoặc sync đang tắt vì
+    // role/lớp không hợp lệ) — không được coi là "server có 0 buổi" rồi gỡ
+    // sạch buổi đang có, phải đợi tải xong mới biết chắc danh sách thật.
+    if (!cls || !syncClassId || apiSessions === undefined) return
+    const perStudentSessions = apiSessions.items.filter((s) => s.studentId)
+    const serverSessionIds = new Set(perStudentSessions.map((s) => s._id))
     const scoresBySession = new Map((apiScores?.items ?? []).map((s) => [s.sessionId, s]))
     const toEntry = (score: NonNullable<ReturnType<typeof scoresBySession.get>>): SessionEntry => ({
       attendance: score.attendance,
@@ -464,7 +471,10 @@ export default function App() {
         st.sessions.some((s) => s.id === as._id && JSON.stringify(s.entry) === emptyJson),
       )
     })
-    if (!missing.length && !blank.length) return
+    const needsPrune = cls.students.some(
+      (st) => pruneGoneFromServer(st.sessions, serverSessionIds).length !== st.sessions.length,
+    )
+    if (!missing.length && !blank.length && !needsPrune) return
 
     setData(produce((d: AppData) => {
       const localCls = d.classes[currentClassIndex]
@@ -491,9 +501,12 @@ export default function App() {
         })
         student.sessions.sort((a, b) => a.no - b.no)
       })
+      localCls.students.forEach((st) => {
+        st.sessions = pruneGoneFromServer(st.sessions, serverSessionIds)
+      })
     }))
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiSessionsKey, apiScoresKey, currentClassIndex])
+  }, [apiSessionsKey, apiScoresKey, currentClassIndex, syncClassId])
 
   // Tự động đồng bộ học sinh + điểm còn kẹt lại máy này lên server — 1 lần
   // mỗi khi mở app (không lặp lại liên tục vì effect chỉ phụ thuộc userId,
