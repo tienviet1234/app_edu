@@ -18,6 +18,7 @@ import { useAuthStore } from '@/store/authStore'
 import { isMongoid } from '@/utils/mongoid'
 import { toast } from '@/store/toastStore'
 import { DeletedSessionsPanel } from './DeletedSessionsPanel'
+import { StudentMergeModal } from './StudentMergeModal'
 
 function parseBulk(text: string): ClassData[] {
   return text
@@ -63,6 +64,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
   // lúc rời ô (blur/Enter), tránh vừa gõ số 2 chữ số đã bị coi là đổi buổi.
   const [noDrafts, setNoDrafts] = useState<Record<string, string>>({})
   const [showDeletedSessions, setShowDeletedSessions] = useState(false)
+  const [mergeStudent, setMergeStudent] = useState<{ id: string; name: string } | null>(null)
   const [importError, setImportError] = useState('')
   const xlsxRef = useRef<HTMLInputElement>(null)
   const { user } = useAuthStore()
@@ -627,6 +629,16 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                             style={{ border: `1px solid ${C.line}`, background: '#fff' }}
                           />
                         </span>
+                        {isMongoid(st.id) && (
+                          <button
+                            className="text-xs font-bold"
+                            style={{ color: C.board2 }}
+                            title="Học sinh này đã chuyển sang lớp khác và bị tạo trùng tài khoản ở lớp mới? Gộp dữ liệu (buổi/điểm/học phí) vào đúng tài khoản đó."
+                            onClick={() => setMergeStudent({ id: st.id, name: st.name })}
+                          >
+                            🔀 Chuyển lớp
+                          </button>
+                        )}
                         <button
                           className="text-xs font-bold"
                           style={{ color: C.red }}
@@ -786,6 +798,15 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                     studentId={cls.students[Math.min(sessionStudentIdx, cls.students.length - 1)].id}
                     edit={edit}
                     onClose={() => setShowDeletedSessions(false)}
+                  />
+                )}
+                {mergeStudent && (
+                  <StudentMergeModal
+                    fromClassId={cls.id}
+                    fromClassName={cls.name}
+                    studentId={mergeStudent.id}
+                    studentName={mergeStudent.name}
+                    onClose={() => setMergeStudent(null)}
                   />
                 )}
               </div>
