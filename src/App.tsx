@@ -12,7 +12,8 @@ import { Sidebar } from '@/components/molecules/Sidebar'
 import { BottomNav } from '@/components/molecules/BottomNav'
 import { useAppStore } from '@/store/appStore'
 import { useAuthStore } from '@/store/authStore'
-import { useClasses, useClassStudents, useSessions, useClassScores, usePwaInstall, useTuitionUnpaidCount } from '@/hooks'
+import { useQueryClient } from '@tanstack/react-query'
+import { useClasses, useClassStudents, useSessions, useClassScores, usePwaInstall, useTuitionUnpaidCount, STUDENT_KEYS } from '@/hooks'
 import { isMongoid } from '@/utils/mongoid'
 import { emptyEntry } from '@/business/seed'
 import { autoLevel, getClassRubric } from '@/constants/rubrics'
@@ -201,6 +202,7 @@ async function autoSyncStrandedScores(
 async function autoSyncStrandedStudents(
   classes: ClassData[],
   setData: (fn: (d: AppData) => void) => void,
+  queryClient: ReturnType<typeof useQueryClient>,
 ) {
   const targets = classes.filter((c) => isMongoid(c.id) && c.students.some((s) => !isMongoid(s.id)))
   if (!targets.length) return
@@ -220,6 +222,11 @@ async function autoSyncStrandedStudents(
           if (stu2) stu2.id = newSt._id
         })
       }))
+      // Bắt buộc làm mới cache useClassStudents(c.id) — nếu không, cache cũ
+      // (staleTime 60s) vẫn thiếu các id vừa tạo, và effect "gỡ học sinh
+      // không còn trong lớp" (phía dưới) sẽ hiểu nhầm là bị gỡ khỏi lớp rồi
+      // xóa nhầm học sinh vừa đồng bộ xong khỏi local store.
+      await queryClient.invalidateQueries({ queryKey: STUDENT_KEYS.byClass(c.id) })
       ok += created.length
     } catch {
       fail += localOnly.length
@@ -260,6 +267,7 @@ export default function App() {
     exportData, importData, resetData,
   } = useAppStore()
   const { user, logout } = useAuthStore()
+  const queryClient = useQueryClient()
   const navigate = useNavigate()
   const fileRef = useRef<HTMLInputElement>(null)
   const { canInstall, install } = usePwaInstall()
@@ -295,7 +303,10 @@ export default function App() {
           ac.teacherId && typeof ac.teacherId === 'object' && 'name' in ac.teacherId
             ? (ac.teacherId as unknown as { name: string }).name
             : ac.teacherName ?? user?.name ?? ''
-        const level = autoLevel(ac.name)
+        // Ưu tiên `level` admin tự chọn tay (ô "Phiếu đánh giá") nếu có — chỉ
+        // suy theo số trong tên lớp (autoLevel) khi chưa ai chọn tay, dành
+        // cho lớp tên không có số (VD "Starters") vẫn chỉnh đúng Cấp được.
+        const level = ac.level ?? autoLevel(ac.name)
         d.classes.push({
           id: ac._id,
           name: ac.name,
@@ -344,11 +355,15 @@ export default function App() {
   useEffect(() => {
     if (!data || !apiAllClasses?.items.length) return
     const RUBRIC_FIELDS = ['hiddenComps', 'extraComps', 'compOverrides', 'compLabelOverrides', 'compExtraItems', 'customNotePhrases'] as const
+    // `level` so sánh RIÊNG (không gộp vào RUBRIC_FIELDS) vì localCls.level
+    // luôn là giá trị ĐÃ SUY RA (ac.level ?? autoLevel(ac.name)), so trực
+    // tiếp với ac.level thô sẽ luôn lệch (undefined) ở lớp chưa ai chọn tay.
     const changedIds = new Set(
       apiAllClasses.items
         .filter((ac) => {
           const localCls = data.classes.find((c) => c.id === ac._id)
           if (!localCls) return false
+          if (localCls.level !== (ac.level ?? autoLevel(ac.name))) return true
           return RUBRIC_FIELDS.some((f) => JSON.stringify(localCls[f] ?? null) !== JSON.stringify(ac[f] ?? null))
         })
         .map((ac) => ac._id),
@@ -358,6 +373,11 @@ export default function App() {
       d.classes.forEach((localCls) => {
         if (!changedIds.has(localCls.id)) return
         const ac = apiAllClasses.items.find((x) => x._id === localCls.id)!
+        const resolvedLevel = ac.level ?? autoLevel(ac.name)
+        if (localCls.level !== resolvedLevel) {
+          localCls.level = resolvedLevel
+          localCls.perMonth = resolvedLevel === 'primary' ? 8 : 12
+        }
         localCls.hiddenComps = ac.hiddenComps
         localCls.extraComps = ac.extraComps
         localCls.compOverrides = ac.compOverrides
@@ -378,6 +398,7 @@ export default function App() {
     if (!apiStudents?.length || !cls || !isMongoid(cls.id)) return
     setData(produce((d: AppData) => {
       const localCls = d.classes[currentClassIndex]
+      const apiIds = new Set(apiStudents.map((s) => s._id))
       apiStudents.forEach((apiSt) => {
         const existing = localCls.students.find((s) => s.id === apiSt._id)
         if (existing) {
@@ -392,6 +413,14 @@ export default function App() {
           })
         }
       })
+      // Gỡ học sinh đã đồng bộ (isMongoid) nhưng server không còn liệt kê
+      // trong lớp này nữa (VD: bị gộp/chuyển sang tài khoản khác qua script
+      // — Class.studentIds đổi nhưng cache local cũ vẫn còn giữ bản ghi cũ).
+      // Không đụng học sinh local-only (chưa isMongoid) vì đó là học sinh
+      // mới thêm chưa kịp đồng bộ lên server.
+      localCls.students = localCls.students.filter(
+        (s) => !isMongoid(s.id) || apiIds.has(s.id),
+      )
     }))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiStudentsKey, currentClassIndex])
@@ -479,7 +508,7 @@ export default function App() {
     autoSyncedForRef.current = user.id
     void (async () => {
       try {
-        await autoSyncStrandedStudents(data.classes, setData)
+        await autoSyncStrandedStudents(data.classes, setData, queryClient)
         const fresh = useAppStore.getState().data
         if (fresh) await autoSyncStrandedScores(fresh.classes, setData)
       } catch (err) {

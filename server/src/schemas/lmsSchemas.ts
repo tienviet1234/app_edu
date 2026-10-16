@@ -40,6 +40,9 @@ export const classBodySchema = z.object({
   endDate: optionalDateSchema,
   maxStudents: z.number().int().min(1).max(200).default(30),
   status: z.enum(['upcoming', 'active', 'completed', 'cancelled']).default('active'),
+  // Admin chọn tay Cấp 1/Cấp 2&3 ở ô "Phiếu đánh giá" (màn Lớp học) — ghi đè
+  // cách tự nhận diện qua số trong tên lớp. Xem ghi chú ở Class model.
+  level: z.enum(['primary', 'secondary']).optional(),
   // Admin tùy chỉnh tiêu chí chấm điểm (RubricEditor) — xem ghi chú ở Class model
   hiddenComps: z.array(z.string()).optional(),
   extraComps: z.array(z.record(z.string(), z.any())).optional(),

@@ -31,6 +31,12 @@ export interface IClass extends Document {
   maxStudents: number
   status: ClassStatus
   joinCode: string
+  // Cấp phiếu chấm điểm — ĐỂ TRỐNG mặc định (tự nhận diện qua số trong TÊN
+  // lớp, VD "Lớp 2" → primary, xem autoLevel() ở frontend constants/rubrics.ts)
+  // — chỉ đặt giá trị ở đây khi admin CHỦ Ý chọn tay ở ô "Phiếu đánh giá"
+  // (màn Lớp học), ghi đè cách tự nhận diện theo tên (hữu ích cho lớp tên
+  // không có số, VD "Starters"). Có giá trị ở đây thì LUÔN ưu tiên hơn tên.
+  level?: 'primary' | 'secondary'
   createdBy: Types.ObjectId
   createdAt: Date
   updatedAt: Date
@@ -95,6 +101,7 @@ const classSchema = new Schema<IClass>(
       default: 'active',
       index: true,
     },
+    level: { type: String, enum: ['primary', 'secondary'] },
     joinCode: {
       type: String,
       unique: true,

@@ -13,6 +13,9 @@ export interface ApiClass {
   name: string
   academicYear?: string
   status: 'upcoming' | 'active' | 'completed' | 'cancelled'
+  // Admin tự chọn tay Cấp 1/Cấp 2&3 ở ô "Phiếu đánh giá" (màn Lớp học) — ghi
+  // đè cách tự nhận diện qua số trong tên lớp (xem autoLevel ở App.tsx).
+  level?: 'primary' | 'secondary'
   schedule: Array<{ dayOfWeek: number; startTime: string; endTime: string; room?: string }>
   startDate?: string
   endDate?: string
