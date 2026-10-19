@@ -36,17 +36,23 @@ async function checkUnpaidTuition(): Promise<number> {
     }).lean()
     if (already) continue
 
-    const cls = await Class.findById(notice.classId, 'teacherId centerId name').lean()
+    const cls = await Class.findById(notice.classId, 'teacherId assistantTeacherIds centerId name').lean()
     if (!cls?.teacherId) continue
 
-    await Notification.create({
-      centerId: cls.centerId,
-      recipientId: cls.teacherId,
-      title: '💰 Học phí chưa thu',
-      body: `Lớp ${cls.name} — kỳ ${notice.periodLabel} đã gửi thông báo trên ${UNPAID_REMIND_AFTER_DAYS} ngày nhưng chưa ghi nhận đóng tiền (${notice.finalAmount.toLocaleString('vi-VN')}đ). Vào "Báo cáo + Học phí" để nhắc phụ huynh hoặc xác nhận nếu đã đóng.`,
-      type: 'announcement',
-      data: { kind: 'tuition-unpaid-reminder', noticeId: String(notice._id) },
-    }).catch((err) => console.error('Lỗi gửi nhắc học phí chưa thu:', err))
+    // Lớp có thể do 2 giáo viên cùng quản lý (xem utils/classAuth.ts) — nhắc
+    // CẢ giáo viên chính lẫn giáo viên phụ, vì người trực tiếp làm việc với
+    // phụ huynh lớp đó có thể là bất kỳ ai trong 2 người.
+    const recipientIds = [cls.teacherId, ...(cls.assistantTeacherIds ?? [])]
+    await Promise.all(recipientIds.map((recipientId) =>
+      Notification.create({
+        centerId: cls.centerId,
+        recipientId,
+        title: '💰 Học phí chưa thu',
+        body: `Lớp ${cls.name} — kỳ ${notice.periodLabel} đã gửi thông báo trên ${UNPAID_REMIND_AFTER_DAYS} ngày nhưng chưa ghi nhận đóng tiền (${notice.finalAmount.toLocaleString('vi-VN')}đ). Vào "Báo cáo + Học phí" để nhắc phụ huynh hoặc xác nhận nếu đã đóng.`,
+        type: 'announcement',
+        data: { kind: 'tuition-unpaid-reminder', noticeId: String(notice._id) },
+      }).catch((err) => console.error('Lỗi gửi nhắc học phí chưa thu:', err)),
+    ))
     count++
   }
   return count
