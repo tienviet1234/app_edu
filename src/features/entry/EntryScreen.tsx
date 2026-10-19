@@ -375,6 +375,35 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
     }
   }
 
+  // Tự động lưu lên server ~1.5 giây sau khi ngừng sửa — KHÔNG chỉ dựa vào
+  // lúc chuyển buổi/học sinh (nút "← Trước"/"Tiếp theo →"/đổi buổi) như
+  // trước đây. Trước đây nếu giáo viên nhập xong buổi/em CUỐI CÙNG trong
+  // buổi dạy rồi đóng tab luôn (không còn ai để bấm "tiếp theo"), điểm đó
+  // KHÔNG BAO GIỜ lên được server — chỉ nằm chờ tới lần mở app TIẾP THEO
+  // trên ĐÚNG máy đó mới được `autoSyncStrandedScores` nhặt lại (chạy đúng
+  // 1 lần/phiên đăng nhập). Sự cố thật đã gặp: nhập điểm xong nhiều em cuối
+  // buổi dạy rồi đóng app luôn, điểm "biến mất" vì chưa từng rời khỏi máy —
+  // không phải lỗi mất dữ liệu ở server, mà do CHƯA TỪNG CÓ CƠ HỘI gửi lên.
+  // Gọi lại nhiều lần vô hại (scoreService.upsert ghi đè, không tạo trùng).
+  useEffect(() => {
+    if (!st || !session) return
+    const timer = setTimeout(() => { void syncScore(st.id) }, 1500)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [st?.id, session?.id, session?.entry, session?.homework])
+
+  // Lưu NGAY (không đợi 1.5s) khi rời khỏi tab (chuyển app/ứng dụng khác,
+  // tắt màn hình điện thoại...) — bắt được đúng trường hợp thường gặp nhất
+  // của việc đóng app ngay sau khi nhập xong, sớm hơn khung 1.5s phía trên.
+  useEffect(() => {
+    function flush() {
+      if (document.visibilityState === 'hidden' && st) void syncScore(st.id)
+    }
+    document.addEventListener('visibilitychange', flush)
+    return () => document.removeEventListener('visibilitychange', flush)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [st?.id, session?.id, session?.entry, session?.homework])
+
   // Gom điểm đã nhập trước đây (còn kẹt trên máy này, chưa từng lên được
   // server do lỗi kiểu dữ liệu đã sửa) và đẩy lên server, 1 lần.
   async function backfillAllScores() {
