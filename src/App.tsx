@@ -471,10 +471,30 @@ export default function App() {
         st.sessions.some((s) => s.id === as._id && JSON.stringify(s.entry) === emptyJson),
       )
     })
+    // Buổi đã có trên máy, server đổi số buổi/ngày/bài tập/trạng thái đã thu
+    // tiền (VD admin sửa số buổi lệch, hoặc nơi khác resequence) — trước đây
+    // hiệu ứng này CHỈ fill `entry` lúc trống, KHÔNG BAO GIỜ cập nhật lại các
+    // field khác cho buổi đã có sẵn, nên máy đã cache buổi đó mãi mãi hiện số
+    // CŨ dù server đã sửa đúng (gặp thật: sửa xong số buổi Lớp 7 trên server,
+    // máy giáo viên đang dùng vẫn hiện số sai, F5 cũng không ăn thua vì bug
+    // nằm ở chỗ không có field nào được so sánh lại). Không đụng `entry`/
+    // `maxes` — đó là dữ liệu điểm/ghi đè riêng máy, server không có field
+    // tương ứng để so.
+    const metaChanged = perStudentSessions.filter((as) => {
+      const local = cls.students.flatMap((st) => st.sessions).find((s) => s.id === as._id)
+      if (!local) return false
+      const date = as.scheduledAt.slice(0, 10)
+      return (
+        local.no !== (as.lessonNo ?? local.no) ||
+        local.date !== date ||
+        local.homework !== (as.notes ?? '') ||
+        !!local.billed !== !!as.billed
+      )
+    })
     const needsPrune = cls.students.some(
       (st) => pruneGoneFromServer(st.sessions, serverSessionIds).length !== st.sessions.length,
     )
-    if (!missing.length && !blank.length && !needsPrune) return
+    if (!missing.length && !blank.length && !metaChanged.length && !needsPrune) return
 
     setData(produce((d: AppData) => {
       const localCls = d.classes[currentClassIndex]
@@ -484,6 +504,18 @@ export default function App() {
         const local = student?.sessions.find((s) => s.id === as._id)
         if (score && local) local.entry = toEntry(score)
       })
+      metaChanged.forEach((as) => {
+        const student = localCls.students.find((st) => st.sessions.some((s) => s.id === as._id))
+        const local = student?.sessions.find((s) => s.id === as._id)
+        if (!local) return
+        local.no = as.lessonNo ?? local.no
+        local.date = as.scheduledAt.slice(0, 10)
+        local.homework = as.notes ?? ''
+        local.billed = as.billed
+      })
+      if (metaChanged.length) {
+        localCls.students.forEach((st) => st.sessions.sort((a, b) => a.no - b.no))
+      }
       missing.forEach((as) => {
         const student = localCls.students.find((st) => st.id === as.studentId)
         if (!student) return

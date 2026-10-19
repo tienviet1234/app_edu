@@ -3,6 +3,7 @@ import type { ClassData } from '@/types'
 import { C } from '@/constants/colors'
 import { viDate } from '@/utils/format'
 import { isMongoid } from '@/utils/mongoid'
+import { sortSessionsByDate, sequentialNumbering } from '@/business/resequence'
 import { sessionService } from '@/services/sessions'
 import { logActivity } from '@/services/activity'
 import { Card } from '@/components/atoms/Card'
@@ -53,7 +54,7 @@ function saveUndo(studentId: string, applied: Applied[] | null) {
  *  trong lúc đang mở màn hình này). */
 export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Props) {
   const student = cls.students.find((s) => s.id === studentId)
-  const sorted = [...(student?.sessions ?? [])].sort((a, b) => a.date.localeCompare(b.date) || a.no - b.no)
+  const sorted = sortSessionsByDate(student?.sessions ?? [])
 
   const [drafts, setDrafts] = useState<Record<string, string>>(() =>
     Object.fromEntries(sorted.map((s) => [s.id, String(s.no)])),
@@ -70,7 +71,8 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
   if (!student) return null
 
   function suggestByDate() {
-    setDrafts(Object.fromEntries(sorted.map((s, i) => [s.id, String(i + 1)])))
+    const byId = sequentialNumbering(student!.sessions)
+    setDrafts(Object.fromEntries(sorted.map((s) => [s.id, String(byId[s.id])])))
     setError('')
   }
 
