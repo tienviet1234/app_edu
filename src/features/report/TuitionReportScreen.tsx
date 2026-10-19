@@ -125,6 +125,10 @@ export function TuitionReportScreen({ cls, update }: Props) {
   // Cho admin tự chọn xem theo trạng thái (mặc định) hay theo học sinh (gộp
   // các kỳ của 1 em lại gần nhau theo đúng thứ tự thời gian).
   const [overviewView, setOverviewView] = useState<'status' | 'student'>('status')
+  // Lọc bảng Tổng quan CHỈ hiện 1 trạng thái — danh sách gộp cả 4-5 trạng
+  // thái cùng lúc (toàn lớp 20 em) cuộn rất dài, khó tìm đúng việc cần làm
+  // (VD chỉ muốn xem "Đang nợ" để nhắc phụ huynh). 'all' = hiện hết (mặc định).
+  const [statusFilter, setStatusFilter] = useState<string>('all')
   const [showCustomBill, setShowCustomBill] = useState(false)
   const [customStudentId, setCustomStudentId] = useState('')
   const [customFrom, setCustomFrom] = useState('')
@@ -583,6 +587,21 @@ export function TuitionReportScreen({ cls, update }: Props) {
       byStudent.get(id)!.sort((a, b) => (a.sessionDetails[0]?.no ?? 0) - (b.sessionDetails[0]?.no ?? 0)))
   }, [overviewRows, overviewView])
 
+  // Thứ tự ưu tiên cố định cho ô chọn trạng thái — chỉ liệt kê trạng thái
+  // THỰC SỰ đang có trong lớp (lớp chưa ai "Chốt buổi" thì không hiện lựa
+  // chọn đó, đỡ rối).
+  const STATUS_FILTER_ORDER = [
+    '🔴 Đã tới hạn - chưa gửi',
+    '✂️ Chốt buổi (nghỉ ngang) - chưa gửi',
+    'Đang nợ (đã gửi, chưa đóng)',
+    'Đã đóng xong',
+    'Chưa tới hạn',
+  ] as const
+  const availableStatuses = STATUS_FILTER_ORDER.filter((s) => overviewRows.some((r) => r.status === s))
+  const overviewRowsFiltered = statusFilter === 'all'
+    ? overviewRowsSorted
+    : overviewRowsSorted.filter((r) => r.status === statusFilter)
+
   function toggleOverview(studentId: string) {
     setExpandedOverview((prev) => {
       const next = new Set(prev)
@@ -613,15 +632,15 @@ export function TuitionReportScreen({ cls, update }: Props) {
     ]
   }
 
-  /** Xuất Excel "Tổng quan" — gộp CẢ 4 trạng thái đang hiện trên màn hình
-   *  (đã tới hạn chưa gửi / đang nợ đã gửi / đã đóng xong / chưa tới hạn),
-   *  khớp đúng y như bảng đang hiện trên app — khác nút "Xuất Excel" nhanh
-   *  phía trên (chỉ xuất phần "chưa gửi" để chuẩn bị gửi ngay). */
+  /** Xuất Excel "Tổng quan" — khớp ĐÚNG những dòng đang hiện trên màn hình,
+   *  kể cả khi đang lọc theo 1 trạng thái (xem `statusFilter`) — khác nút
+   *  "Xuất Excel" nhanh phía trên (chỉ xuất phần "chưa gửi" để chuẩn bị gửi
+   *  ngay). */
   function exportAll() {
     exportTuitionOverview(
       cls.name,
-      overviewRows.map(({ sessionDetails: _sd, ratePerSession: _rp, ...rest }) => rest),
-      overviewRows.flatMap(detailRowsWithTotal),
+      overviewRowsFiltered.map(({ sessionDetails: _sd, ratePerSession: _rp, ...rest }) => rest),
+      overviewRowsFiltered.flatMap(detailRowsWithTotal),
     )
   }
 
@@ -748,27 +767,45 @@ export function TuitionReportScreen({ cls, update }: Props) {
         <div className="px-4 py-3" style={{ background: C.board, color: '#fff' }}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <div className="text-lg font-bold">Tổng quan — {overviewRows.length} học sinh</div>
+              <div className="text-lg font-bold">
+                Tổng quan — {overviewRowsFiltered.length}{statusFilter !== 'all' ? `/${overviewRows.length}` : ''} học sinh
+              </div>
               <div className="text-xs opacity-80">Đúng nội dung sẽ có trong file Excel khi bấm nút xuất bên dưới</div>
             </div>
-            <div className="flex shrink-0 gap-1 rounded-lg p-0.5" style={{ background: '#ffffff22' }}>
-              {([
-                { key: 'status', label: 'Theo trạng thái' },
-                { key: 'student', label: 'Theo học sinh' },
-              ] as const).map((o) => (
-                <button
-                  key={o.key}
-                  onClick={() => setOverviewView(o.key)}
-                  title={o.key === 'student' ? 'Gộp các kỳ (tháng) của cùng 1 học sinh lại gần nhau, đỡ nhầm là trùng dữ liệu' : 'Ai cần thu tiền lên đầu (mặc định)'}
-                  className="rounded-md px-2.5 py-1 text-xs font-bold"
-                  style={{
-                    background: overviewView === o.key ? '#fff' : 'transparent',
-                    color: overviewView === o.key ? C.board : '#fff',
-                  }}
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {availableStatuses.length > 1 && (
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  title="Chỉ hiện 1 trạng thái — đỡ phải cuộn qua hết cả lớp"
+                  className="rounded-lg px-2 py-1 text-xs font-bold"
+                  style={{ background: '#fff', color: C.board, border: 'none' }}
                 >
-                  {o.label}
-                </button>
-              ))}
+                  <option value="all">Tất cả trạng thái</option>
+                  {availableStatuses.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              )}
+              <div className="flex gap-1 rounded-lg p-0.5" style={{ background: '#ffffff22' }}>
+                {([
+                  { key: 'status', label: 'Theo trạng thái' },
+                  { key: 'student', label: 'Theo học sinh' },
+                ] as const).map((o) => (
+                  <button
+                    key={o.key}
+                    onClick={() => setOverviewView(o.key)}
+                    title={o.key === 'student' ? 'Gộp các kỳ (tháng) của cùng 1 học sinh lại gần nhau, đỡ nhầm là trùng dữ liệu' : 'Ai cần thu tiền lên đầu (mặc định)'}
+                    className="rounded-md px-2.5 py-1 text-xs font-bold"
+                    style={{
+                      background: overviewView === o.key ? '#fff' : 'transparent',
+                      color: overviewView === o.key ? C.board : '#fff',
+                    }}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -787,7 +824,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
               </tr>
             </thead>
             <tbody>
-              {overviewRowsSorted.map((r, i) => {
+              {overviewRowsFiltered.map((r, i) => {
                 const bg =
                   r.status === '🔴 Đã tới hạn - chưa gửi' ? '#FEE2E2' :
                   r.status === 'Đang nợ (đã gửi, chưa đóng)' ? '#FFEDD5' :
@@ -923,7 +960,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
       </Card>
 
       <Btn kind="ghost" onClick={exportAll}>
-        📊 Xuất Excel Tổng quan (toàn lớp — đủ cả 4 trạng thái như đang xem trên màn hình)
+        📊 Xuất Excel Tổng quan ({statusFilter === 'all' ? 'toàn lớp — đủ các trạng thái' : `chỉ "${statusFilter}"`} như đang xem trên màn hình)
       </Btn>
 
       {dueRows.length > 0 && (
