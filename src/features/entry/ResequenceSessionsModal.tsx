@@ -85,17 +85,28 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
   ) {
     setSaving(true)
     let okCount = 0
-    let failCount = 0
+    const failedDates: string[] = []
     const applied: Applied[] = []
     for (const t of targets) {
       const ss = student!.sessions.find((s) => s.id === t.sessionId)
       if (!ss || ss.no === t.newNo) continue
       const oldNo = opts.oldNoOverride?.[t.sessionId] ?? ss.no
       if (isMongoid(t.sessionId)) {
-        try {
-          await sessionService.update(t.sessionId, { lessonNo: t.newNo })
-        } catch {
-          failCount += 1
+        // Thử lại tối đa 2 lần nữa nếu lỗi mạng thoáng qua — trước đây 1 lần
+        // lưu hàng loạt rớt mạng giữa chừng để lại buổi kẹt VĨNH VIỄN ở số
+        // tạm (dải +1000, xem applySafely), hiện "Buổi 1014"/"Buổi 1016" cho
+        // học sinh/phụ huynh thấy (sự cố thật đã gặp ở Lớp 7).
+        let ok = false
+        for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+          try {
+            await sessionService.update(t.sessionId, { lessonNo: t.newNo })
+            ok = true
+          } catch {
+            if (attempt < 2) await new Promise((r) => setTimeout(r, 500))
+          }
+        }
+        if (!ok) {
+          failedDates.push(ss.date)
           continue
         }
       }
@@ -116,9 +127,16 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
       logActivity('session.resequence', { className: cls.name, studentName: student!.name, count: okCount }, 'ClassSession')
       setLastApplied(applied)
     }
-    if (failCount) toast.error(`Lưu được ${okCount} buổi, lỗi ${failCount} buổi — thử lại các buổi lỗi sau.`, { persist: true })
-    else if (okCount && !opts.silent) toast.success(successMsg(okCount))
-    return failCount === 0
+    if (failedDates.length) {
+      // Nêu đích danh ngày bị kẹt + giục thử NGAY (không phải "để sau") — lần
+      // trước báo "lỗi N buổi — thử lại sau" quá mờ nhạt, bị bỏ sót nhiều
+      // tuần tới khi phụ huynh/giáo viên mới phát hiện số buổi hiện sai.
+      toast.error(
+        `Lưu được ${okCount} buổi, LỖI ${failedDates.length} buổi (ngày ${failedDates.map(viDate).join(', ')}) — các buổi này đang hiện SỐ SAI, mở lại ngay và thử lưu lại, đừng để qua hôm sau.`,
+        { persist: true },
+      )
+    } else if (okCount && !opts.silent) toast.success(successMsg(okCount))
+    return failedDates.length === 0
   }
 
   /** Áp 1 loạt đổi số buổi AN TOÀN — tự phát hiện và xử lý trường hợp ĐỔI
