@@ -357,9 +357,19 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
       await scoreService.upsert({ classId: cls.id, sessionId, studentId, ...target.entry, total })
       setSyncStatus('saved')
       setTimeout(() => setSyncStatus('idle'), 2000)
-    } catch {
+    } catch (err) {
       setSyncStatus('error')
-      toast.error(`Lỗi lưu điểm Buổi ${target.no} của ${student.name}`, { persist: true })
+      // Nêu đúng lý do server từ chối (VD "đã có Buổi N rồi") thay vì câu
+      // chung chung — trước đây giáo viên chỉ thấy "Lỗi lưu điểm", tưởng
+      // không nhập được buổi mới trong khi thật ra server đang từ chối vì
+      // 1 lý do cụ thể (thường là trùng số buổi với 1 bản ghi còn sót lại).
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      toast.error(
+        msg
+          ? `Không lưu được Buổi ${target.no} của ${student.name} — ${msg}`
+          : `Lỗi lưu điểm Buổi ${target.no} của ${student.name} — kiểm tra mạng rồi thử lại.`,
+        { persist: true },
+      )
     }
   }
 
