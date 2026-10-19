@@ -21,7 +21,7 @@ import { autoLevel, getClassRubric } from '@/constants/rubrics'
 import { rescaleComp, sessionScore } from '@/business/scoring'
 import { sessionService } from '@/services/sessions'
 import { scoreService } from '@/services/scores'
-import { classService } from '@/services/classes'
+import { classService, type ApiClass } from '@/services/classes'
 import { toast } from '@/store/toastStore'
 import type { AppData, ClassData, SessionEntry } from '@/types'
 
@@ -103,6 +103,17 @@ const ALL_TABS = [
   { key: 'notifications', label: 'Thông báo', icon: '🔔', roles: ['teacher', 'admin', 'student'] },
   { key: 'my-child', label: 'Con tôi', icon: '👶', roles: ['parent'] },
 ]
+
+/** Suy ra tên giáo viên hiển thị cho 1 lớp — ưu tiên tên tài khoản giáo viên
+ *  THẬT đã gán (`teacherId`, populate sẵn từ server), chỉ dùng `teacherName`
+ *  (chữ tự do, giáo viên tự gõ ở ô "Giáo viên") khi chưa gán tài khoản nào.
+ *  Dùng CHUNG cho lúc tạo lớp lần đầu lẫn lúc đồng bộ lại lớp đã có sẵn —
+ *  tránh lệch công thức giữa 2 chỗ. */
+function resolveTeacherName(ac: ApiClass, fallback: string): string {
+  return ac.teacherId && typeof ac.teacherId === 'object' && 'name' in ac.teacherId
+    ? (ac.teacherId as unknown as { name: string }).name
+    : ac.teacherName ?? fallback
+}
 
 /** Tự động đẩy lên server các buổi học đã chấm điểm nhưng còn "kẹt lại"
  *  trên máy này (tạo cục bộ, chưa từng gửi lên server — do đổi buổi/học
@@ -300,10 +311,7 @@ export default function App() {
     if (!missing.length) return
     setData(produce((d: AppData) => {
       missing.forEach((ac) => {
-        const teacherName =
-          ac.teacherId && typeof ac.teacherId === 'object' && 'name' in ac.teacherId
-            ? (ac.teacherId as unknown as { name: string }).name
-            : ac.teacherName ?? user?.name ?? ''
+        const teacherName = resolveTeacherName(ac, user?.name ?? '')
         // Ưu tiên `level` admin tự chọn tay (ô "Phiếu đánh giá") nếu có — chỉ
         // suy theo số trong tên lớp (autoLevel) khi chưa ai chọn tay, dành
         // cho lớp tên không có số (VD "Starters") vẫn chỉnh đúng Cấp được.
@@ -352,19 +360,25 @@ export default function App() {
   // này (giáo viên không tự sửa) nên ghi đè thẳng từ server, không cần merge
   // như sessions/scores. Dùng updatedAt trong key để effect chạy lại đúng lúc
   // admin vừa lưu thay đổi, dù danh sách classId không đổi.
+  // Cùng chỗ này đồng bộ luôn `name`/`teacher` (đổi tên lớp/tên giáo viên ở
+  // máy khác trước đây KHÔNG BAO GIỜ tới được máy đã mở lớp đó sẵn — 1 tài
+  // khoản đăng nhập 2 máy sẽ thấy 2 tên khác nhau, y hệt gotcha "chỉ thêm
+  // không gỡ/không cập nhật" đã gặp với học sinh/buổi học).
   const apiAllClassesRubricKey = apiAllClasses?.items.map((c) => `${c._id}:${c.updatedAt}`).join(',') ?? ''
   useEffect(() => {
     if (!data || !apiAllClasses?.items.length) return
     const RUBRIC_FIELDS = ['hiddenComps', 'extraComps', 'compOverrides', 'compLabelOverrides', 'compExtraItems', 'customNotePhrases'] as const
-    // `level` so sánh RIÊNG (không gộp vào RUBRIC_FIELDS) vì localCls.level
-    // luôn là giá trị ĐÃ SUY RA (ac.level ?? autoLevel(ac.name)), so trực
-    // tiếp với ac.level thô sẽ luôn lệch (undefined) ở lớp chưa ai chọn tay.
+    // `level`/`teacher` so sánh RIÊNG (không gộp vào RUBRIC_FIELDS) vì cả 2
+    // đều là giá trị ĐÃ SUY RA từ server (qua autoLevel/resolveTeacherName),
+    // so trực tiếp với field thô sẽ luôn lệch ở lớp chưa ai chọn tay/gán tài khoản.
     const changedIds = new Set(
       apiAllClasses.items
         .filter((ac) => {
           const localCls = data.classes.find((c) => c.id === ac._id)
           if (!localCls) return false
           if (localCls.level !== (ac.level ?? autoLevel(ac.name))) return true
+          if (localCls.name !== ac.name) return true
+          if (localCls.teacher !== resolveTeacherName(ac, localCls.teacher)) return true
           return RUBRIC_FIELDS.some((f) => JSON.stringify(localCls[f] ?? null) !== JSON.stringify(ac[f] ?? null))
         })
         .map((ac) => ac._id),
@@ -379,6 +393,8 @@ export default function App() {
           localCls.level = resolvedLevel
           localCls.perMonth = resolvedLevel === 'primary' ? 8 : 12
         }
+        localCls.name = ac.name
+        localCls.teacher = resolveTeacherName(ac, localCls.teacher)
         localCls.hiddenComps = ac.hiddenComps
         localCls.extraComps = ac.extraComps
         localCls.compOverrides = ac.compOverrides
