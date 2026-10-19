@@ -9,6 +9,7 @@ import { sessionScore, rescaleComp, detectMissingComps } from '@/business/scorin
 import { sessionStatusFragments } from '@/business/report'
 import { periodPositionOf, sessionLabelOf } from '@/business/tuition'
 import { emptyEntry } from '@/business/seed'
+import { resolvePlausibleNo } from '@/business/sync'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { Pick } from '@/components/atoms/Pick'
@@ -201,19 +202,25 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   const [renameDraft, setRenameDraft] = useState('')
 
   const st = cls.students[cur]
+  // Mốc "xa nhất hợp lý" cả lớp đã chạm tới — dùng để thẩm định số buổi lưu
+  // sẵn trên máy (noByStudent) VÀ để tính maxNo cho dropdown bên dưới, tránh
+  // lệch công thức giữa 2 chỗ.
+  const classWideMaxNo = Math.max(cls.perMonth, ...cls.students.flatMap((s) => s.sessions.map((ss) => ss.no)))
   /** Số buổi đang xem của 1 học sinh bất kỳ (riêng từng em). `noByStudent`
    *  lưu RAW SỐ (không phải id buổi) vào localStorage — nếu buổi đó đã bị
    *  xếp lại số (resequence/sửa dữ liệu lệch) thì số cũ lưu sẵn trên máy này
    *  không còn khớp buổi nào nữa, cứ dùng thẳng sẽ hiện sai cả "Buổi"/"Tháng"
    *  (gặp thật: sửa đúng số buổi Lớp 7 trên server, máy vẫn hiện "Tháng 85"
    *  vì localStorage của máy đó còn nhớ số buổi RẤT LỚN đã bị xóa từ trước).
-   *  Phải xác nhận số lưu sẵn còn khớp 1 buổi thật của đúng học sinh này mới
-   *  dùng, không thì về lại mặc định. */
+   *  Chỉ dùng số lưu sẵn khi nó khớp 1 buổi thật, HOẶC nằm trong mốc hợp lý
+   *  (buổi KẾ TIẾP chưa tạo, VD vừa bấm "Chọn tháng" sang Tháng 2 — buổi đó
+   *  CHƯA tồn tại cho tới khi thật sự nhập điểm, không được coi là "số rác"
+   *  — bug đã gặp thật: chọn Tháng 2 xong vừa gõ điểm là bị nhảy ngược về
+   *  Tháng 1 vì lúc đó buổi Tháng 2 chưa có bản ghi nào để khớp). */
   const noOf = (studentId: string): number => {
     const student = cls.students.find((s) => s.id === studentId)
-    const stored = noByStudent[studentId]
-    if (stored != null && student?.sessions.some((s) => s.no === stored)) return stored
-    return defaultNoFor(student)
+    const resolved = resolvePlausibleNo(noByStudent[studentId], student?.sessions.map((s) => s.no) ?? [], classWideMaxNo)
+    return resolved ?? defaultNoFor(student)
   }
   const selectedNo = st ? noOf(st.id) : 1
   /** Đổi buổi đang xem CHỈ của học sinh hiện tại. */
@@ -291,12 +298,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   // giáo viên không chọn được buổi kế tiếp để nhập tiếp ("hết chỗ" trong
   // dropdown) — đã gặp thật, phải tạm dùng lại 1 số buổi cũ để nhập cho qua.
   const myMaxNo = Math.max(0, ...(st?.sessions.map((ss) => ss.no) ?? []))
-  const maxNo = Math.max(
-    cls.perMonth,
-    selectedNo,
-    myMaxNo + 1,
-    ...cls.students.flatMap((s) => s.sessions.map((ss) => ss.no)),
-  )
+  const maxNo = Math.max(classWideMaxNo, selectedNo, myMaxNo + 1)
 
   // Session-level overrides (comp max + ratio totals) — áp dụng cho ngày đang chọn
   const sessionMaxes = session?.maxes ?? {}

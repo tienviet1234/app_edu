@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { pruneGoneFromServer } from './sync'
+import { pruneGoneFromServer, resolvePlausibleNo } from './sync'
 
 const MONGOID_A = 'a'.repeat(24)
 const MONGOID_B = 'b'.repeat(24)
@@ -39,5 +39,39 @@ describe('pruneGoneFromServer', () => {
 
   it('mảng rỗng trả về mảng rỗng', () => {
     expect(pruneGoneFromServer([], new Set())).toEqual([])
+  })
+})
+
+describe('resolvePlausibleNo', () => {
+  it('khớp đúng 1 buổi đã có sẵn thì giữ nguyên', () => {
+    expect(resolvePlausibleNo(5, [1, 2, 3, 4, 5], 12)).toBe(5)
+  })
+
+  it('cho phép buổi KẾ TIẾP chưa tạo (VD vừa chọn "Tháng 2") — bug thật đã gặp: trước đây bị validate rớt, tự nhảy về Tháng 1', () => {
+    // Học sinh đang có 12 buổi (1..12), vừa chọn Tháng 2 → buổi 13 (chưa tạo)
+    expect(resolvePlausibleNo(13, Array.from({ length: 12 }, (_, i) => i + 1), 12)).toBe(13)
+  })
+
+  it('cho phép buổi kế tiếp xa hơn 1 bậc nếu cả lớp đã chạm mốc đó (classWideMaxNo)', () => {
+    // Em này mới có 5 buổi, nhưng cả lớp đã có bạn tới buổi 20 — chọn Tháng 2 (buổi 13) vẫn hợp lệ
+    expect(resolvePlausibleNo(13, [1, 2, 3, 4, 5], 20)).toBe(13)
+  })
+
+  it('gỡ số RÁC bị kẹt từ trước (VD "1014" ở Lớp 7) — vượt xa mốc hợp lý', () => {
+    expect(resolvePlausibleNo(1014, [1, 2, 3, 4, 5], 12)).toBeNull()
+  })
+
+  it('không có số lưu sẵn (chưa từng mở học sinh này) trả về null', () => {
+    expect(resolvePlausibleNo(undefined, [1, 2, 3], 12)).toBeNull()
+    expect(resolvePlausibleNo(null, [1, 2, 3], 12)).toBeNull()
+  })
+
+  it('số 0 hoặc âm luôn là rác dù trong mốc hợp lý', () => {
+    expect(resolvePlausibleNo(0, [], 12)).toBeNull()
+    expect(resolvePlausibleNo(-1, [], 12)).toBeNull()
+  })
+
+  it('học sinh chưa có buổi nào, chọn buổi 1 (kế tiếp) vẫn hợp lệ', () => {
+    expect(resolvePlausibleNo(1, [], 8)).toBe(1)
   })
 })
