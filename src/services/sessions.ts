@@ -62,4 +62,15 @@ export const sessionService = {
 
   complete: (id: string) =>
     api.post<{ data: ApiSession }>(`/sessions/${id}/complete`, {}).then((r) => r.data.data),
+
+  /** Đổi số buổi HÀNG LOẠT trong 1 giao dịch atomic ở server — HOẶC đổi đủ
+   *  tất cả, HOẶC không đổi gì cả nếu có lỗi giữa chừng (mất mạng...). Thay
+   *  hẳn cách cũ lưu tuần tự từng buổi 1 (có thể kẹt lại nửa chừng ở số tạm
+   *  — sự cố thật đã gặp, xem CLAUDE.md). Tối đa 200 buổi/lần. */
+  batchRenumber: (updates: Array<{ sessionId: string; newNo: number }>) =>
+    api
+      .post<{ data: { updated: Array<{ sessionId: string; oldNo: number | null; newNo: number }> } }>(
+        '/sessions/batch-renumber', { updates },
+      )
+      .then((r) => r.data.data),
 }

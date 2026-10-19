@@ -100,6 +100,16 @@ export const sessionBodySchema = z.object({
 
 export const sessionUpdateSchema = sessionBodySchema.partial().omit({ centerId: true, classId: true, studentId: true })
 
+// Đổi số buổi HÀNG LOẠT trong 1 giao dịch atomic — xem
+// services/sessionRenumberService.ts. Tối đa 200 buổi/lần (đủ cho cả học kỳ
+// 1 học sinh, chặn lạm dụng gửi batch khổng lồ).
+export const sessionRenumberBodySchema = z.object({
+  updates: z.array(z.object({
+    sessionId: objectIdSchema,
+    newNo: z.number().int().min(1),
+  })).min(1).max(200),
+})
+
 // ─── Attendance ───────────────────────────────────────────────────────────────
 export const attendanceBodySchema = z.object({
   centerId: objectIdSchema,

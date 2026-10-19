@@ -7,6 +7,7 @@ import { parsePagination } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit } from '../services/auditService.js'
 import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
+import { renumberSessions, RenumberValidationError } from '../services/sessionRenumberService.js'
 
 /** Giáo viên chỉ được xem/sửa/xóa buổi học của các lớp mình dạy — admin qua
  *  hết. Trước đây thiếu kiểm tra này, 1 giáo viên gọi thẳng API có thể
@@ -169,6 +170,32 @@ export async function restoreSession(req: Request, res: Response): Promise<void>
   await session.save()
   await writeAudit(req, { action: 'session.restore', resource: 'ClassSession', resourceId: String(session._id) })
   ok(res, session)
+}
+
+/** POST /api/sessions/batch-renumber — đổi số buổi HÀNG LOẠT trong 1 giao
+ *  dịch atomic (xem services/sessionRenumberService.ts) — thay hẳn cách cũ
+ *  đổi tuần tự từng buổi 1, vốn có thể kẹt lại nửa chừng nếu mất mạng. */
+export async function batchRenumberSessions(req: Request, res: Response): Promise<void> {
+  const authReq = req as AuthRequest
+  const { updates } = req.body as { updates: { sessionId: string; newNo: number }[] }
+  try {
+    const result = await renumberSessions(updates, {
+      userId: authReq.userId!,
+      isAdmin: authReq.user?.role === 'admin',
+    })
+    await writeAudit(req, {
+      action: 'session.batchRenumber',
+      resource: 'ClassSession',
+      metadata: { count: result.updated.length, updates: result.updated },
+    })
+    ok(res, result)
+  } catch (err) {
+    if (err instanceof RenumberValidationError) {
+      badRequest(res, err.message)
+      return
+    }
+    throw err
+  }
 }
 
 export async function completeSession(req: Request, res: Response): Promise<void> {

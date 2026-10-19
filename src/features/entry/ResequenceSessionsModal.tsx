@@ -76,105 +76,50 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
     setError('')
   }
 
-  /** `oldNoOverride`: khi gọi sau bước "dọn chỗ tạm" (xem handleSave), số `no`
-   *  SỐNG của session lúc này đã là số tạm, không còn đúng số GỐC thật trước
-   *  khi admin bắt đầu sửa — phải truyền tay oldNo thật vào đây để nút
-   *  "↩️ Hoàn tác" trả lại đúng số ban đầu, không trả về số tạm. */
-  async function applyChanges(
-    targets: { sessionId: string; newNo: number }[],
-    successMsg: (n: number) => string,
-    opts: { silent?: boolean; oldNoOverride?: Record<string, number> } = {},
-  ) {
-    setSaving(true)
-    let okCount = 0
-    const failedDates: string[] = []
-    const applied: Applied[] = []
-    for (const t of targets) {
-      const ss = student!.sessions.find((s) => s.id === t.sessionId)
-      if (!ss || ss.no === t.newNo) continue
-      const oldNo = opts.oldNoOverride?.[t.sessionId] ?? ss.no
-      if (isMongoid(t.sessionId)) {
-        // Thử lại tối đa 2 lần nữa nếu lỗi mạng thoáng qua — trước đây 1 lần
-        // lưu hàng loạt rớt mạng giữa chừng để lại buổi kẹt VĨNH VIỄN ở số
-        // tạm (dải +1000, xem applySafely), hiện "Buổi 1014"/"Buổi 1016" cho
-        // học sinh/phụ huynh thấy (sự cố thật đã gặp ở Lớp 7).
-        let ok = false
-        for (let attempt = 0; attempt < 3 && !ok; attempt++) {
-          try {
-            await sessionService.update(t.sessionId, { lessonNo: t.newNo })
-            ok = true
-          } catch {
-            if (attempt < 2) await new Promise((r) => setTimeout(r, 500))
-          }
-        }
-        if (!ok) {
-          failedDates.push(ss.date)
-          continue
-        }
-      }
-      update((cData) => {
-        const stu = cData.students.find((s) => s.id === studentId)
-        const s = stu?.sessions.find((s2) => s2.id === t.sessionId)
-        if (s) s.no = t.newNo
-      })
-      applied.push({ sessionId: t.sessionId, oldNo, newNo: t.newNo })
-      okCount += 1
-    }
-    update((cData) => {
-      const stu = cData.students.find((s) => s.id === studentId)
-      stu?.sessions.sort((a, b) => a.no - b.no)
-    })
-    setSaving(false)
-    if (okCount && !opts.silent) {
-      logActivity('session.resequence', { className: cls.name, studentName: student!.name, count: okCount }, 'ClassSession')
-      setLastApplied(applied)
-    }
-    if (failedDates.length) {
-      // Nêu đích danh ngày bị kẹt + giục thử NGAY (không phải "để sau") — lần
-      // trước báo "lỗi N buổi — thử lại sau" quá mờ nhạt, bị bỏ sót nhiều
-      // tuần tới khi phụ huynh/giáo viên mới phát hiện số buổi hiện sai.
-      toast.error(
-        `Lưu được ${okCount} buổi, LỖI ${failedDates.length} buổi (ngày ${failedDates.map(viDate).join(', ')}) — các buổi này đang hiện SỐ SAI, mở lại ngay và thử lưu lại, đừng để qua hôm sau.`,
-        { persist: true },
-      )
-    } else if (okCount && !opts.silent) toast.success(successMsg(okCount))
-    return failedDates.length === 0
-  }
-
-  /** Áp 1 loạt đổi số buổi AN TOÀN — tự phát hiện và xử lý trường hợp ĐỔI
-   *  CHÉO (VD Buổi 2 ↔ Buổi 3, hoặc hoàn tác 1 lần đổi chéo trước đó). Server
-   *  chặn trùng số buổi/1 học sinh (đúng và cần thiết cho sửa đơn lẻ) — nhưng
-   *  lưu TUẦN TỰ từng buổi 1 thì đổi chéo sẽ bị chặn ngay ở bước đầu vì số
-   *  đích vẫn còn "có chủ" (buổi kia chưa kịp nhường chỗ). Nếu phát hiện kiểu
-   *  này, dọn chỗ bằng cách đẩy TẠM toàn bộ buổi đang sửa sang 1 dải số lớn,
-   *  chắc chắn không đụng ai, rồi mới gán số thật ở bước 2 — dùng chung cho cả
-   *  Lưu lẫn Hoàn tác, vì hoàn tác 1 lần đổi chéo cũng là 1 phép đổi chéo khác. */
-  async function applySafely(targets: { sessionId: string; newNo: number }[], successMsg: (n: number) => string) {
+  /** Áp 1 loạt đổi số buổi — phần buổi ĐÃ đồng bộ (isMongoid) gửi gộp
+   *  TRONG 1 LẦN GỌI DUY NHẤT tới `/sessions/batch-renumber`, server ghi
+   *  trong 1 giao dịch atomic: HOẶC đổi đủ tất cả, HOẶC không đổi gì cả nếu
+   *  có lỗi giữa chừng. Không còn khả năng "đổi được nửa chừng rồi kẹt ở số
+   *  tạm" — sự cố thật đã gặp (Lớp 7 và nhiều lớp khác, "Buổi 1014") khi
+   *  cách cũ lưu tuần tự từng buổi 1, mỗi buổi 1 request độc lập có thể
+   *  thành/bại riêng. Buổi CHƯA đồng bộ (local-only, chưa có id thật) không
+   *  gửi server, chỉ đổi tại máy — không có gì để mất nếu lỗi.
+   *  Đổi chéo số (VD Buổi 2 ↔ Buổi 3) cũng an toàn: server không cần "dọn
+   *  chỗ tạm" nữa vì cả batch ghi trong cùng 1 giao dịch, MongoDB không ép
+   *  ràng buộc duy nhất `lessonNo` giữa chừng (xem sessionRenumberService.ts). */
+  async function applyChanges(targets: { sessionId: string; newNo: number }[], successMsg: (n: number) => string) {
     const changed = targets.filter((t) => student!.sessions.find((s) => s.id === t.sessionId)?.no !== t.newNo)
     if (!changed.length) return
-    // Số GỐC thật của từng buổi TRƯỚC khi sửa — giữ lại ngay từ đầu để nút
-    // Hoàn tác luôn trả về đúng số này, kể cả khi phải đi qua bước tạm bên dưới.
     const trueOldNo = Object.fromEntries(changed.map((t) => [t.sessionId, student!.sessions.find((s) => s.id === t.sessionId)!.no]))
-    const changingIds = new Set(changed.map((t) => t.sessionId))
-    const currentNos = new Set(student!.sessions.map((s) => s.no))
-    const targetNos = new Set(changed.map((t) => t.newNo))
-    // Cần dọn chỗ tạm khi số đích của 1 buổi đang sửa HIỆN ĐANG là số của 1
-    // buổi KHÁC cũng đang được sửa trong cùng lượt này — vì không chắc buổi
-    // kia đã kịp "nhường chỗ" (đổi đi số khác) trước khi buổi này xin số đó.
-    const needsStaging = changed.some((t) => {
-      const occupant = student!.sessions.find((s) => s.no === t.newNo)
-      return occupant && occupant.id !== t.sessionId && changingIds.has(occupant.id)
-    })
-    if (needsStaging) {
-      const tempBase = Math.max(0, ...currentNos, ...targetNos) + 1000
-      const stagingTargets = changed.map((t, i) => ({ sessionId: t.sessionId, newNo: tempBase + i }))
-      const staged = await applyChanges(stagingTargets, () => '', { silent: true })
-      if (!staged) {
-        setError('Lỗi ở bước tạm thời khi đổi chéo số buổi — chưa đổi gì cả, thử lại.')
+    const synced = changed.filter((t) => isMongoid(t.sessionId))
+
+    setSaving(true)
+    if (synced.length) {
+      try {
+        await sessionService.batchRenumber(synced)
+      } catch (err) {
+        setSaving(false)
+        const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+        // Giao dịch atomic — lỗi nghĩa là CHƯA ĐỔI GÌ CẢ, không có buổi nào bị
+        // kẹt nửa chừng, cứ thử lại nguyên lần nữa là an toàn.
+        setError(msg ?? 'Lỗi khi lưu — CHƯA đổi gì cả (giao dịch an toàn), thử lại.')
         return
       }
     }
-    await applyChanges(changed, successMsg, { oldNoOverride: trueOldNo })
+
+    update((cData) => {
+      const stu = cData.students.find((s) => s.id === studentId)
+      if (!stu) return
+      changed.forEach((t) => {
+        const s = stu.sessions.find((s2) => s2.id === t.sessionId)
+        if (s) s.no = t.newNo
+      })
+      stu.sessions.sort((a, b) => a.no - b.no)
+    })
+    setSaving(false)
+    logActivity('session.resequence', { className: cls.name, studentName: student!.name, count: changed.length }, 'ClassSession')
+    setLastApplied(changed.map((t) => ({ sessionId: t.sessionId, oldNo: trueOldNo[t.sessionId], newNo: t.newNo })))
+    toast.success(successMsg(changed.length))
   }
 
   async function handleSave() {
@@ -193,13 +138,13 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
     }
     // Không tự đóng màn hình sau khi lưu — để nút "↩️ Hoàn tác" kịp hiện ra
     // ngay, lỡ tay sửa sai còn trả lại được ngay tại chỗ.
-    await applySafely(targets, (n) => `Đã lưu ${n} buổi thay đổi cho ${student!.name}.`)
+    await applyChanges(targets, (n) => `Đã lưu ${n} buổi thay đổi cho ${student!.name}.`)
   }
 
   async function handleUndo() {
     if (!lastApplied) return
     const targets = lastApplied.map((a) => ({ sessionId: a.sessionId, newNo: a.oldNo }))
-    await applySafely(targets, (n) => `Đã hoàn tác, trả lại số cũ cho ${n} buổi.`)
+    await applyChanges(targets, (n) => `Đã hoàn tác, trả lại số cũ cho ${n} buổi.`)
     setLastApplied(null)
   }
 
