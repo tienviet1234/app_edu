@@ -789,7 +789,10 @@ export function TuitionReportScreen({ cls, update }: Props) {
               )}
               <div className="flex gap-1 rounded-lg p-0.5" style={{ background: '#ffffff22' }}>
                 {([
-                  { key: 'status', label: 'Theo trạng thái' },
+                  // "Theo trạng thái" chỉ có ý nghĩa khi đang xem "Tất cả" —
+                  // đã lọc còn đúng 1 trạng thái thì mọi dòng cùng 1 nhóm sẵn
+                  // rồi, bấm nút này không đổi gì cả, ẩn luôn đỡ rối.
+                  ...(statusFilter === 'all' ? [{ key: 'status', label: 'Theo trạng thái' } as const] : []),
                   { key: 'student', label: 'Theo học sinh' },
                 ] as const).map((o) => (
                   <button
