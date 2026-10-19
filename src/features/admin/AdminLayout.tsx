@@ -61,12 +61,12 @@ export function AdminLayout({ page, setPage, children }: AdminLayoutProps) {
                 <div className="text-xs opacity-50">Quản trị viên</div>
               </div>
               <button
-               
                onClick={() => logout()}
                 className="rounded-lg px-2 py-1 text-xs font-semibold opacity-70 hover:opacity-100"
                 style={{ background: '#ffffff20', color: '#fff' }}
+                title="Đăng xuất — lần sau cần đăng nhập lại. Chỉ muốn đóng app mà vẫn nhớ đăng nhập thì đóng tab/trình duyệt, đừng bấm nút này."
               >
-                Thoát
+                Đăng xuất
               </button>
             </div>
           )}

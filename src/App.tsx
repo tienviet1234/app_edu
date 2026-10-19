@@ -715,10 +715,10 @@ export default function App() {
                   background: 'rgb(255 255 255 / 0.08)',
                   borderColor: 'rgb(255 255 255 / 0.20)',
                 }}
-                title="Đăng xuất"
+                title="Đăng xuất — lần sau cần đăng nhập lại. Chỉ muốn đóng app mà vẫn nhớ đăng nhập thì đóng tab/trình duyệt, đừng bấm nút này."
               >
                 <span className="text-base sm:hidden">→</span>
-                <span className="hidden sm:inline">Thoát</span>
+                <span className="hidden sm:inline">Đăng xuất</span>
               </button>
             </div>
           )}
