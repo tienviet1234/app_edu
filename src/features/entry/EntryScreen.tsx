@@ -201,11 +201,19 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   const [renameDraft, setRenameDraft] = useState('')
 
   const st = cls.students[cur]
-  /** Số buổi đang xem của 1 học sinh bất kỳ (riêng từng em). */
+  /** Số buổi đang xem của 1 học sinh bất kỳ (riêng từng em). `noByStudent`
+   *  lưu RAW SỐ (không phải id buổi) vào localStorage — nếu buổi đó đã bị
+   *  xếp lại số (resequence/sửa dữ liệu lệch) thì số cũ lưu sẵn trên máy này
+   *  không còn khớp buổi nào nữa, cứ dùng thẳng sẽ hiện sai cả "Buổi"/"Tháng"
+   *  (gặp thật: sửa đúng số buổi Lớp 7 trên server, máy vẫn hiện "Tháng 85"
+   *  vì localStorage của máy đó còn nhớ số buổi RẤT LỚN đã bị xóa từ trước).
+   *  Phải xác nhận số lưu sẵn còn khớp 1 buổi thật của đúng học sinh này mới
+   *  dùng, không thì về lại mặc định. */
   const noOf = (studentId: string): number => {
+    const student = cls.students.find((s) => s.id === studentId)
     const stored = noByStudent[studentId]
-    if (stored != null) return stored
-    return defaultNoFor(cls.students.find((s) => s.id === studentId))
+    if (stored != null && student?.sessions.some((s) => s.no === stored)) return stored
+    return defaultNoFor(student)
   }
   const selectedNo = st ? noOf(st.id) : 1
   /** Đổi buổi đang xem CHỈ của học sinh hiện tại. */
