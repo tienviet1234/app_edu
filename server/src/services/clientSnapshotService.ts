@@ -9,7 +9,7 @@ const PREFIX = 'client-snapshots/'
 const KEEP_PER_DEVICE = 60
 const isMongoid = (id: string) => /^[a-f0-9]{24}$/i.test(id)
 
-interface AppDataLike { classes?: Array<{ students?: Array<{ sessions?: Array<{ id?: string }> }> }> }
+interface AppDataLike { classes?: Array<{ students?: Array<{ sessions?: Array<{ id?: string; dirty?: boolean }> }> }> }
 
 export async function saveClientSnapshot(input: {
   userId: string; deviceId: string; userAgent?: string; raw: string
@@ -31,7 +31,8 @@ export async function saveClientSnapshot(input: {
     sizeBytes: buffer.byteLength, contentHash,
     classCount: data.classes?.length ?? 0,
     sessionCount: sessions.length,
-    unsyncedSessionCount: sessions.filter((s) => !s.id || !isMongoid(s.id)).length,
+    // Chưa lên server = id tạm, HOẶC đã sửa trên máy mà server chưa xác nhận.
+    unsyncedSessionCount: sessions.filter((s) => !s.id || !isMongoid(s.id) || s.dirty === true).length,
   })
 
   const old = await ClientSnapshot.find({ userId, deviceId: input.deviceId }, 'r2Key').sort({ createdAt: -1 }).skip(KEEP_PER_DEVICE).lean()

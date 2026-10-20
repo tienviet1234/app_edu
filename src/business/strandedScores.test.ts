@@ -13,7 +13,7 @@ function job(over: Partial<ScoreJob>): ScoreJob {
   return {
     classId: CLS, className: 'Lớp 10', studentId: STU, studentName: 'Thịnh',
     sessionLocalId: 'local-1', no: 13, date: '2026-10-17',
-    entry: { ...emptyEntry(), scores: { mini: 10 } }, total: 60, homework: '', needsCreate: true,
+    entry: { ...emptyEntry(), scores: { mini: 10 } }, total: 60, homework: '', needsCreate: true, dirty: false,
     ...over,
   }
 }

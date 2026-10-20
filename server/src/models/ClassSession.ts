@@ -37,6 +37,12 @@ export interface IClassSession extends Document {
   // Mặc định không có = false, không ảnh hưởng hành vi cũ.
   billed?: boolean
 
+  // "Số câu" riêng buổi này (VD { mini: 30, listen: 20 }) — ghi đè max mặc
+  // định của tiêu chí khi tính %. Trước đây CHỈ nằm trên máy giáo viên, nên
+  // máy khác (admin/giáo viên phụ) tính % theo số câu mặc định → báo cáo,
+  // xếp hạng lệch giữa các máy.
+  maxes?: Record<string, number>
+
   createdAt: Date
   updatedAt: Date
 }
@@ -65,6 +71,7 @@ const classSessionSchema = new Schema<IClassSession>(
     legacySharedSessionId: { type: Schema.Types.ObjectId, ref: 'ClassSession' },
     deletedAt: { type: Date },
     billed: { type: Boolean },
+    maxes: { type: Schema.Types.Mixed },
   },
   { timestamps: true },
 )

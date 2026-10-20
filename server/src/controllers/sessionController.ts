@@ -7,6 +7,7 @@ import { parsePagination } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit } from '../services/auditService.js'
 import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
+import { isStudentInClass, resolveSessionCreator } from '../utils/dataRules.js'
 import { renumberSessions, RenumberValidationError, createSessionPlacedByDate } from '../services/sessionRenumberService.js'
 
 /** Giáo viên chỉ được xem/sửa/xóa buổi học của các lớp mình dạy — admin qua
@@ -81,16 +82,22 @@ async function findConflictingSession(
 
 export async function createSession(req: Request, res: Response): Promise<void> {
   const authReq = req as AuthRequest
+  // Trước đây không kiểm tra — giáo viên nào cũng tạo được buổi vào lớp người
+  // khác (update/delete thì có kiểm tra). Giáo viên phụ vẫn qua (isClassTeacher).
+  if (!(await canManageSessionOfClass(authReq, String(req.body.classId)))) {
+    forbidden(res, 'Bạn chỉ có thể tạo buổi học cho lớp mình dạy.')
+    return
+  }
   const { onBehalfOf, ...body } = req.body as { onBehalfOf?: string; [k: string]: unknown }
   // Admin khôi phục hộ từ bản chụp máy giáo viên → người tạo là giáo viên đó.
-  const creatorId = authReq.user?.role === 'admin' && onBehalfOf ? onBehalfOf : authReq.userId!
+  const creatorId = resolveSessionCreator(authReq.user?.role, authReq.userId!, onBehalfOf)
   // placeByDate: đẩy buổi đang KẸT trên máy lên — không từ chối vì trùng số,
   // tự xếp đúng vị trí theo ngày (xem createSessionPlacedByDate).
   if (body.placeByDate === true && body.studentId) {
     // Máy giữ bản CŨ có thể còn học sinh đã bị gộp/chuyển khỏi lớp — không
     // tạo lại buổi cho em đó (đồng bộ nền/khôi phục từ bản chụp đều đi đường này).
     const cls = await Class.findById(String(body.classId), 'studentIds').lean()
-    if (!cls || !cls.studentIds.some((id) => String(id) === String(body.studentId))) {
+    if (!isStudentInClass(cls, String(body.studentId))) {
       res.status(409).json({ success: false, code: 'NOT_IN_CLASS', message: 'Học sinh này không còn trong lớp — không tạo buổi.' })
       return
     }

@@ -96,6 +96,9 @@ export const sessionBodySchema = z.object({
   // đã thu trước đó) — loại ra khỏi mọi phép tính "còn thiếu bao nhiêu buổi"
   // ở frontend. Xem ghi chú ở ClassSession model.
   billed: z.boolean().optional(),
+  // "Số câu" riêng buổi — xem ClassSession.maxes. Thiếu dòng này Zod âm thầm
+  // xóa field (gotcha CLAUDE.md) → máy khác tính % theo số câu mặc định.
+  maxes: z.record(z.number().positive().max(10000)).optional(),
   // Đẩy buổi KẸT trên máy lên — xem createSessionPlacedByDate. Thiếu dòng
   // này Zod sẽ âm thầm xóa field (gotcha CLAUDE.md).
   placeByDate: z.boolean().optional(),
@@ -104,7 +107,7 @@ export const sessionBodySchema = z.object({
   onBehalfOf: objectIdSchema.optional(),
 })
 
-export const sessionUpdateSchema = sessionBodySchema.partial().omit({ centerId: true, classId: true, studentId: true })
+export const sessionUpdateSchema = sessionBodySchema.partial().omit({ centerId: true, classId: true, studentId: true, placeByDate: true, onBehalfOf: true })
 
 // Đổi số buổi HÀNG LOẠT trong 1 giao dịch atomic — xem
 // services/sessionRenumberService.ts. Tối đa 200 buổi/lần (đủ cho cả học kỳ

@@ -145,12 +145,16 @@ export function ImportHomeworkModal({ cls, studentId, teacherName, update, onClo
         })
         update((c) => {
           const stu = c.students.find((s) => s.id === studentId)
-          stu?.sessions.push({
-            id: apiSession._id, no: r.no, date: r.date, homework: r.homeworkText,
+          // Đồng bộ nền có thể đã kịp thêm đúng buổi này từ server — không
+          // thêm lần 2 (2 bản cùng id trên máy).
+          if (!stu || stu.sessions.some((s) => s.id === apiSession._id)) return
+          stu.sessions.push({
+            id: apiSession._id, no: apiSession.lessonNo ?? r.no, date: r.date, homework: r.homeworkText,
             entry: { ...emptyEntry(), note: r.note },
             createdByName: teacherName, recordedAt: apiSession.createdAt,
+            synced: true, // vừa được server xác nhận
           })
-          stu?.sessions.sort((a, b) => a.no - b.no)
+          stu.sessions.sort((a, b) => a.no - b.no)
         })
         okCount += 1
       } catch {

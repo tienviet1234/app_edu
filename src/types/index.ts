@@ -107,9 +107,20 @@ export interface Session {
    *  tránh xóa buổi lỗi/trùng trong 1 kỳ đã thu tiền làm hệ thống "quên"
    *  mất là đã thu, tính trùng lại các buổi còn sót. */
   billed?: boolean
+  /** CHỈ trên máy, không gửi lên server. true = máy này đã sửa điểm/bài tập/
+   *  số câu của buổi mà server CHƯA xác nhận — phải đẩy lên (kể cả ghi đè),
+   *  không được để server ghi đè ngược xuống. Đặt ở findOrCreateSession
+   *  (mọi chỗ sửa ở Nhập điểm đều đi qua), xóa khi server xác nhận ĐÚNG bản
+   *  đã gửi. Xem business/sync.ts syncStudentsFromServer. */
+  dirty?: boolean
+  /** CHỈ trên máy. true = nội dung buổi này ĐÃ khớp server ít nhất 1 lần (tải
+   *  từ server hoặc server xác nhận lưu) → an toàn để làm mới từ server khi
+   *  máy khác sửa. Không có (dữ liệu cũ trước bản cập nhật) = không biết bản
+   *  nào đúng → không tự ghi đè bằng bản server. */
+  synced?: boolean
 }
 
-// ─── Extra scoring component (admin-added) ────────────────────────────────────
+// ─── Extra scoring component (admin-added)────────────────────────────────────
 export interface ExtraComp {
   key: string
   label: string

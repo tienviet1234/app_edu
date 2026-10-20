@@ -123,6 +123,7 @@ export function StrandedRecoveryCard({ snapshots }: { snapshots: ClientSnapshotM
             const created = await sessionService.create({
               classId: item.classId, studentId: item.studentId, title: `Buổi ${item.no}`, lessonNo: item.no,
               scheduledAt: `${item.date}T00:00:00.000Z`, notes: item.homework || undefined, placeByDate: true,
+              ...(item.maxes ? { maxes: item.maxes } : {}),
               ...(owner?.role === 'teacher' ? { onBehalfOf: owner._id } : {}),
             })
             sessionId = created._id
@@ -206,6 +207,7 @@ export function StrandedRecoveryCard({ snapshots }: { snapshots: ClientSnapshotM
                           <span style={{ color: C.muted }}>
                             máy: {i.entry.attendance === 'excused' ? 'vắng phép' : i.entry.attendance === 'absent' ? 'vắng' : `${i.total}đ`}
                             {i.serverTotal != null && ` · server: ${i.serverTotal}đ`}
+                            {i.dirty && i.kind === 'conflict' && ' · máy có sửa chưa lên server'}
                             {i.result === 'done' && <b style={{ color: C.emerald }}> · ✓ đã lên</b>}
                             {i.result === 'already' && <b style={{ color: C.muted }}> · đã có</b>}
                             {i.result === 'conflict' && <b style={{ color: C.amber }}> · khác server, giữ bản server</b>}

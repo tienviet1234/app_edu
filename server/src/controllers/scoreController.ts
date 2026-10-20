@@ -9,6 +9,7 @@ import { paginate } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit } from '../services/auditService.js'
 import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
+import { decideIfAbsent, resolveScoreClassId } from '../utils/dataRules.js'
 
 /** Giáo viên chỉ được đọc/ghi điểm của lớp MÌNH dạy (kể cả giáo viên PHỤ,
  *  `assistantTeacherIds` — 1 lớp có thể do 2 giáo viên cùng quản lý) — admin
@@ -115,15 +116,19 @@ export async function upsertScore(req: Request, res: Response): Promise<void> {
     [key: string]: unknown
   }
 
-  if (role !== 'admin' && !(await assertTeacherOwnsClass(userId, classId))) {
-    forbidden(res, 'Bạn chỉ có thể chấm điểm cho lớp mình dạy.')
-    return
-  }
-
   // Bảo vệ tính nhất quán: nếu session đã được gắn cho 1 học sinh cụ thể
   // (per-student session), không cho ghi điểm cho học sinh khác vào đó.
   // Bỏ qua kiểm tra nếu session chưa có studentId (bản ghi cũ, dùng chung).
-  const session = await ClassSession.findById(sessionId, 'studentId deletedAt').lean()
+  const session = await ClassSession.findById(sessionId, 'studentId deletedAt classId').lean()
+  // classId LẤY THEO BUỔI HỌC, không tin classId máy gửi lên — máy giữ bản cũ
+  // (VD học sinh vừa được gộp/chuyển lớp, buổi đã chuyển sang lớp mới) gửi
+  // classId lớp CŨ sẽ kéo điểm về lại lớp cũ → điểm "biến mất" khỏi lớp mới.
+  const effectiveClassId = resolveScoreClassId(session, classId)
+
+  if (role !== 'admin' && !(await assertTeacherOwnsClass(userId, effectiveClassId))) {
+    forbidden(res, 'Bạn chỉ có thể chấm điểm cho lớp mình dạy.')
+    return
+  }
   if (session?.studentId && String(session.studentId) !== studentId) {
     badRequest(res, 'Buổi học này không thuộc về học sinh đang chấm.')
     return
@@ -133,12 +138,15 @@ export async function upsertScore(req: Request, res: Response): Promise<void> {
   // Trước đây mỗi lần mở app, máy nào cũng gửi lại toàn bộ điểm trên máy
   // (last write wins) → máy giữ bản CŨ đè mất điểm mới hơn của máy khác.
   if (ifAbsent) {
-    if (!session || session.deletedAt) {
+    const existing = session && !session.deletedAt
+      ? await Score.findOne({ sessionId: new Types.ObjectId(sessionId), studentId: new Types.ObjectId(studentId) }).lean()
+      : null
+    const decision = decideIfAbsent(session, existing)
+    if (decision === 'skipDeleted') {
       ok(res, { skipped: true, deleted: true })
       return
     }
-    const existing = await Score.findOne({ sessionId: new Types.ObjectId(sessionId), studentId: new Types.ObjectId(studentId) }).lean()
-    if (existing) {
+    if (decision === 'skipExisting') {
       ok(res, { ...existing, skipped: true })
       return
     }
@@ -153,7 +161,7 @@ export async function upsertScore(req: Request, res: Response): Promise<void> {
       ...rest,
       sessionId: new Types.ObjectId(sessionId),
       studentId: new Types.ObjectId(studentId),
-      classId: new Types.ObjectId(classId),
+      classId: new Types.ObjectId(effectiveClassId),
       recordedBy: new Types.ObjectId(authReq.userId),
     },
     { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true },

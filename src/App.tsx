@@ -16,15 +16,17 @@ import { startClientSnapshotLoop } from '@/utils/clientSnapshot'
 import { useQueryClient } from '@tanstack/react-query'
 import { useClasses, useClassStudents, useSessions, useClassScores, usePwaInstall, useTuitionUnpaidCount, STUDENT_KEYS } from '@/hooks'
 import { isMongoid } from '@/utils/mongoid'
-import { emptyEntry } from '@/business/seed'
-import { pruneGoneFromServer } from '@/business/sync'
+import {
+  pruneGoneFromServer, syncStudentsFromServer, adoptServerSession, markSessionSaved, type ServerScoreForSync,
+} from '@/business/sync'
 import { autoLevel } from '@/constants/rubrics'
 import { collectScoreJobs, sameEntry } from '@/business/strandedScores'
+import { tryLockSession, unlockSession } from '@/utils/syncLocks'
 import { sessionService } from '@/services/sessions'
 import { scoreService } from '@/services/scores'
 import { classService, type ApiClass } from '@/services/classes'
 import { toast } from '@/store/toastStore'
-import type { AppData, ClassData, SessionEntry } from '@/types'
+import type { AppData, ClassData } from '@/types'
 
 // Các màn theo tab tách thành chunk riêng, chỉ tải khi thực sự mở tab đó —
 // trước đây tất cả (kể cả recharts ở Dashboard/Report/Leaderboard, xlsx ở
@@ -132,37 +134,36 @@ async function autoSyncStrandedScores(
   const jobs = collectScoreJobs(classes)
   if (!jobs.length) return
 
-  /** Gắn bản tạm trên máy vào buổi server đã có — CHỈ gọi sau khi server
-   *  đã xác nhận. Không xóa dữ liệu: nếu máy đã có sẵn bản của buổi server
-   *  đó mà còn trống thì chuyển dữ liệu vào, có dữ liệu rồi thì mới bỏ bản tạm
-   *  (bản tạm vẫn còn trong bản chụp sao lưu trên server). */
-  const adoptServerSession = (job: (typeof jobs)[number], serverId: string, serverNo: number | undefined) => {
+  // Mọi thay đổi trên máy chỉ áp dụng SAU khi server xác nhận, qua hàm thuần
+  // có test (business/sync.ts) — tìm đúng học sinh theo id lớp, không theo
+  // "lớp đang chọn".
+  const onStudent = (job: (typeof jobs)[number], fn: (st: ClassData['students'][number]) => void) =>
     setData(produce((d: AppData) => {
-      const stu2 = d.classes.find((c) => c.id === job.classId)?.students.find((s) => s.id === job.studentId)
-      const temp = stu2?.sessions.find((s) => s.id === job.sessionLocalId)
-      if (!stu2 || !temp) return
-      const twin = stu2.sessions.find((s) => s.id === serverId)
-      if (!twin) {
-        temp.id = serverId
-        if (serverNo) temp.no = serverNo
-        return
-      }
-      const twinEmpty = !Object.keys(twin.entry?.scores ?? {}).length && !Object.keys(twin.entry?.ticks ?? {}).length
-      if (twinEmpty) { twin.entry = temp.entry; if (!twin.homework) twin.homework = temp.homework }
-      stu2.sessions = stu2.sessions.filter((s) => s.id !== job.sessionLocalId)
+      const st = d.classes.find((c) => c.id === job.classId)?.students.find((s) => s.id === job.studentId)
+      if (st) fn(st)
     }))
-  }
 
   let fail = 0
   let recovered = 0
   const stuckSameDate: string[] = []
   for (const job of jobs) {
+    if (!tryLockSession(job.sessionLocalId)) continue // Nhập điểm đang gửi đúng buổi này
+    const sent = { entry: job.entry, homework: job.homework, maxes: job.maxes }
     try {
       if (!job.needsCreate) {
-        // Buổi đã có id server — chỉ điền điểm nếu server CHƯA có (VD tạo
-        // buổi được nhưng gửi điểm lỗi). TRƯỚC ĐÂY gửi đè vô điều kiện mỗi lần
-        // mở app → máy giữ bản CŨ đè mất điểm mới hơn do máy khác/admin sửa.
-        await scoreService.upsert({ classId: job.classId, sessionId: job.sessionLocalId, studentId: job.studentId, ...job.entry, total: job.total, ifAbsent: true })
+        if (job.dirty) {
+          // Máy đã SỬA mà server chưa xác nhận (lần lưu trước lỗi/đóng tab) →
+          // đây mới là bản mới nhất, gửi THẬT (ghi đè).
+          await sessionService.update(job.sessionLocalId, { notes: job.homework, ...(job.maxes ? { maxes: job.maxes } : {}) })
+          await scoreService.upsert({ classId: job.classId, sessionId: job.sessionLocalId, studentId: job.studentId, ...job.entry, total: job.total })
+          onStudent(job, (st) => markSessionSaved(st, job.sessionLocalId, sent))
+        } else {
+          // Không sửa gì trên máy này → chỉ là bản sao, CHỈ điền nếu server
+          // CHƯA có (VD tạo buổi được nhưng gửi điểm lỗi). TRƯỚC ĐÂY gửi đè vô
+          // điều kiện mỗi lần mở app → máy giữ bản CŨ đè mất điểm mới hơn do
+          // máy khác/admin sửa (máy Mac 1 giáo viên đè 82 điểm mỗi lần F5).
+          await scoreService.upsert({ classId: job.classId, sessionId: job.sessionLocalId, studentId: job.studentId, ...job.entry, total: job.total, ifAbsent: true })
+        }
         continue
       }
       // placeByDate: server tự xếp buổi đúng vị trí theo NGÀY, không từ
@@ -175,10 +176,11 @@ async function autoSyncStrandedScores(
           lessonNo: job.no,
           scheduledAt: `${job.date}T00:00:00.000Z`,
           notes: job.homework || undefined,
+          ...(job.maxes ? { maxes: job.maxes } : {}),
           placeByDate: true,
         })
         await scoreService.upsert({ classId: job.classId, sessionId: apiSession._id, studentId: job.studentId, ...job.entry, total: job.total, ifAbsent: true })
-        adoptServerSession(job, apiSession._id, apiSession.lessonNo)
+        onStudent(job, (st) => adoptServerSession(st, job.sessionLocalId, apiSession._id, apiSession.lessonNo, sent))
         recovered++
       } catch (err) {
         const resp = (err as { response?: { status?: number; data?: { code?: string; data?: { existingId?: string; lessonNo?: number } } } }).response
@@ -199,11 +201,14 @@ async function autoSyncStrandedScores(
           stuckSameDate.push(`${job.studentName} (${job.date})`)
           continue
         }
-        adoptServerSession(job, existingId, resp.data.data.lessonNo)
+        const lessonNo = resp.data.data.lessonNo
+        onStudent(job, (st) => adoptServerSession(st, job.sessionLocalId, existingId, lessonNo, sent))
         if (!res.skipped) recovered++
       }
     } catch {
       fail++
+    } finally {
+      unlockSession(job.sessionLocalId)
     }
   }
   if (recovered > 0) {
@@ -470,109 +475,35 @@ export default function App() {
   const canSyncWholeClass = user?.role === 'teacher' || user?.role === 'admin'
   const syncClassId = canSyncWholeClass && cls && isMongoid(cls.id) ? cls.id : ''
   const { data: apiSessions } = useSessions(syncClassId)
-  const { data: apiScores } = useClassScores(syncClassId)
-  const apiSessionsKey = apiSessions?.items.map((s) => s._id).join(',') ?? ''
+  const { data: apiScores, isError: scoresError } = useClassScores(syncClassId)
+  // Có updatedAt: admin đổi số buổi/ngày/bài tập/số câu (id không đổi) thì
+  // máy khác cũng phải nhận ra — trước đây chỉ có id nên không bao giờ biết.
+  const apiSessionsKey = apiSessions?.items.map((s) => s._id + s.updatedAt).join(',') ?? ''
   const apiScoresKey = apiScores?.items.map((s) => s._id + s.updatedAt).join(',') ?? ''
   useEffect(() => {
     // apiSessions === undefined nghĩa là CHƯA tải xong (hoặc sync đang tắt vì
     // role/lớp không hợp lệ) — không được coi là "server có 0 buổi" rồi gỡ
     // sạch buổi đang có, phải đợi tải xong mới biết chắc danh sách thật.
-    if (!cls || !syncClassId || apiSessions === undefined) return
-    const perStudentSessions = apiSessions.items.filter((s) => s.studentId)
-    const serverSessionIds = new Set(perStudentSessions.map((s) => s._id))
-    const scoresBySession = new Map((apiScores?.items ?? []).map((s) => [s.sessionId, s]))
-    const toEntry = (score: NonNullable<ReturnType<typeof scoresBySession.get>>): SessionEntry => ({
-      attendance: score.attendance,
-      scores: score.scores,
-      tags: score.tags,
-      ticks: score.ticks,
-      choice: score.choice,
-      parts: score.parts,
-      skip: score.skip,
-      ev: score.ev as SessionEntry['ev'],
-      note: score.note ?? '',
-    })
-    const emptyJson = JSON.stringify(emptyEntry())
-    const missing = perStudentSessions.filter(
-      (as) => !cls.students.some((st) => st.sessions.some((s) => s.id === as._id)),
-    )
-    // Buổi đã có trên máy nhưng còn TRỐNG HOÀN TOÀN trong khi server có điểm —
-    // (VD tạo từ lần tải trước khi điểm chưa về kịp) điền lại từ server. Không
-    // đụng buổi máy này đã nhập gì, để không ghi đè dữ liệu đang làm dở.
-    const blank = perStudentSessions.filter((as) => {
-      if (!scoresBySession.has(as._id)) return false
-      return cls.students.some((st) =>
-        st.sessions.some((s) => s.id === as._id && JSON.stringify(s.entry) === emptyJson),
-      )
-    })
-    // Buổi đã có trên máy, server đổi số buổi/ngày/bài tập/trạng thái đã thu
-    // tiền (VD admin sửa số buổi lệch, hoặc nơi khác resequence) — trước đây
-    // hiệu ứng này CHỈ fill `entry` lúc trống, KHÔNG BAO GIỜ cập nhật lại các
-    // field khác cho buổi đã có sẵn, nên máy đã cache buổi đó mãi mãi hiện số
-    // CŨ dù server đã sửa đúng (gặp thật: sửa xong số buổi Lớp 7 trên server,
-    // máy giáo viên đang dùng vẫn hiện số sai, F5 cũng không ăn thua vì bug
-    // nằm ở chỗ không có field nào được so sánh lại). Không đụng `entry`/
-    // `maxes` — đó là dữ liệu điểm/ghi đè riêng máy, server không có field
-    // tương ứng để so.
-    const metaChanged = perStudentSessions.filter((as) => {
-      const local = cls.students.flatMap((st) => st.sessions).find((s) => s.id === as._id)
-      if (!local) return false
-      const date = as.scheduledAt.slice(0, 10)
-      return (
-        local.no !== (as.lessonNo ?? local.no) ||
-        local.date !== date ||
-        local.homework !== (as.notes ?? '') ||
-        !!local.billed !== !!as.billed
-      )
-    })
-    const needsPrune = cls.students.some(
-      (st) => pruneGoneFromServer(st.sessions, serverSessionIds).length !== st.sessions.length,
-    )
-    if (!missing.length && !blank.length && !metaChanged.length && !needsPrune) return
-
-    setData(produce((d: AppData) => {
-      const localCls = d.classes[currentClassIndex]
-      blank.forEach((as) => {
-        const score = scoresBySession.get(as._id)
-        const student = localCls.students.find((st) => st.id === as.studentId)
-        const local = student?.sessions.find((s) => s.id === as._id)
-        if (score && local) local.entry = toEntry(score)
-      })
-      metaChanged.forEach((as) => {
-        const student = localCls.students.find((st) => st.sessions.some((s) => s.id === as._id))
-        const local = student?.sessions.find((s) => s.id === as._id)
-        if (!local) return
-        local.no = as.lessonNo ?? local.no
-        local.date = as.scheduledAt.slice(0, 10)
-        local.homework = as.notes ?? ''
-        local.billed = as.billed
-      })
-      if (metaChanged.length) {
-        localCls.students.forEach((st) => st.sessions.sort((a, b) => a.no - b.no))
-      }
-      missing.forEach((as) => {
-        const student = localCls.students.find((st) => st.id === as.studentId)
-        if (!student) return
-        const score = scoresBySession.get(as._id)
-        const teacherName = as.createdBy && typeof as.createdBy === 'object' ? as.createdBy.name : undefined
-        student.sessions.push({
-          id: as._id,
-          no: as.lessonNo ?? student.sessions.length + 1,
-          date: as.scheduledAt.slice(0, 10),
-          homework: as.notes ?? '',
-          createdByName: teacherName,
-          recordedAt: as.createdAt,
-          billed: as.billed,
-          entry: score ? toEntry(score) : emptyEntry(),
-        })
-        student.sessions.sort((a, b) => a.no - b.no)
-      })
-      localCls.students.forEach((st) => {
-        st.sessions = pruneGoneFromServer(st.sessions, serverSessionIds)
-      })
+    // Điểm chưa tải xong cũng đợi — nếu không, buổi mới về sẽ được thêm với
+    // nội dung TRỐNG rồi đánh dấu synced, sau đó điểm server về lại phải ghi đè.
+    // (Tải điểm LỖI thì vẫn đồng bộ danh sách buổi — không có điểm server thì
+    // hàm đồng bộ không đụng nội dung buổi nào.)
+    if (!cls || !syncClassId || apiSessions === undefined || (apiScores === undefined && !scoresError)) return
+    // Quy tắc đồng bộ (ai thắng khi máy và server khác nhau) nằm ở hàm thuần
+    // có test — business/sync.ts syncStudentsFromServer. Trước đây viết thẳng
+    // ở đây và CHỈ điền buổi trống → máy A sửa điểm, máy B mãi hiện điểm cũ.
+    const serverSessions = apiSessions.items.map((as) => ({
+      _id: as._id, studentId: as.studentId, scheduledAt: as.scheduledAt, lessonNo: as.lessonNo,
+      notes: as.notes, billed: as.billed, maxes: as.maxes, createdAt: as.createdAt,
+      createdByName: as.createdBy && typeof as.createdBy === 'object' ? as.createdBy.name : undefined,
     }))
+    const scoresBySession = new Map((apiScores?.items ?? []).map((s) => [s.sessionId, s as unknown as ServerScoreForSync]))
+    setData((d: AppData) => {
+      const localCls = d.classes.find((c) => c.id === syncClassId)
+      if (localCls) syncStudentsFromServer(localCls.students, serverSessions, scoresBySession)
+    })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiSessionsKey, apiScoresKey, currentClassIndex, syncClassId])
+  }, [apiSessionsKey, apiScoresKey, syncClassId, scoresError])
 
   // Tự động đồng bộ học sinh + điểm còn kẹt lại máy này lên server — 1 lần
   // mỗi khi mở app (không lặp lại liên tục vì effect chỉ phụ thuộc userId,

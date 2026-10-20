@@ -17,6 +17,9 @@ export interface ScoreJob {
   homework: string
   /** true = buổi chưa từng lên server (id tạm), phải tạo buổi trước. */
   needsCreate: boolean
+  /** Máy đã sửa mà server chưa xác nhận — xem Session.dirty. */
+  dirty: boolean
+  maxes?: Record<string, number>
 }
 
 /** Gom mọi buổi có dữ liệu của các lớp/học sinh ĐÃ có id server. Dùng chung
@@ -39,11 +42,14 @@ export function collectScoreJobs(classes: ClassData[]): ScoreJob[] {
           // dữ liệu điểm danh thật phải lên server — trước đây bị bỏ qua nên
           // điểm danh vắng phép kẹt mãi trên máy.
           const excused = s.entry?.attendance === 'excused'
-          if (score === null && !excused) continue // buổi trống — không có gì để đẩy
+          // Sửa riêng "Bài tập về nhà" (chưa chấm điểm) cũng là dữ liệu cần lên.
+          const dirtyHomework = s.dirty === true && !!s.homework?.trim()
+          if (score === null && !excused && !dirtyHomework) continue // buổi trống — không có gì để đẩy
           jobs.push({
             classId: c.id, className: c.name, studentId: stu.id, studentName: stu.name,
             sessionLocalId: s.id, no: s.no, date: s.date, entry: s.entry, total: score ?? 0,
             homework: s.homework ?? '', needsCreate: !isMongoid(s.id),
+            dirty: s.dirty === true, maxes: s.maxes,
           })
         }
       }
@@ -91,9 +97,22 @@ export interface ServerScoreLite {
   ticks?: Record<string, string[]>
   choice?: Record<string, string>
   parts?: Record<string, Record<string, unknown>>
+  tags?: Record<string, string[]>
+  skip?: Record<string, boolean>
+  ev?: Record<string, unknown>
+  note?: string
 }
 
-type EntryLike = Pick<ServerScoreLite, 'scores' | 'ticks' | 'choice' | 'parts'> & { attendance?: string }
+type EntryLike = Pick<ServerScoreLite, 'scores' | 'ticks' | 'choice' | 'parts'> & {
+  attendance?: string
+  tags?: Record<string, string[]>
+  skip?: Record<string, boolean>
+  ev?: Record<string, unknown>
+  note?: string
+}
+
+const sortedEntries = <T>(rec: Record<string, T> | undefined, keep: (v: T) => boolean) =>
+  Object.entries(rec ?? {}).filter(([, v]) => keep(v)).sort(([a], [b]) => (a < b ? -1 : 1))
 
 const canonNums = (rec?: Record<string, unknown>) =>
   Object.entries(rec ?? {})
@@ -104,12 +123,18 @@ const canonNums = (rec?: Record<string, unknown>) =>
 /** Dạng chuẩn để so 2 bản điểm — bỏ ô trống, "8" = 8, thứ tự tick không quan
  *  trọng. So NỘI DUNG chứ không so tổng (tổng đổi theo rubric lớp lúc tính). */
 function canonEntry(e: EntryLike): string {
+  const sortedArrays = (rec?: Record<string, string[]>) =>
+    sortedEntries(rec, (a) => !!a?.length).map(([k, a]) => [k, [...a].sort()])
   return JSON.stringify([
     e.attendance ?? 'present',
     canonNums(e.scores),
-    Object.entries(e.ticks ?? {}).filter(([, a]) => a?.length).map(([k, a]) => [k, [...a].sort()]).sort(([a], [b]) => (a < b ? -1 : 1)),
-    Object.entries(e.choice ?? {}).filter(([, v]) => v !== '' && v != null).sort(([a], [b]) => (a < b ? -1 : 1)),
+    sortedArrays(e.ticks),
+    sortedEntries(e.choice, (v) => v !== '' && v != null),
     Object.entries(e.parts ?? {}).map(([k, v]) => [k, canonNums(v)] as const).filter(([, v]) => v.length).sort(([a], [b]) => (a < b ? -1 : 1)),
+    sortedArrays(e.tags),
+    sortedEntries(e.skip, (v) => !!v).map(([k]) => k),
+    JSON.stringify(sortedEntries(e.ev, (v) => v != null && v !== '' && !(typeof v === 'object' && !Object.keys(v as object).length))),
+    (e.note ?? '').trim(),
   ])
 }
 

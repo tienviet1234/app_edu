@@ -47,6 +47,13 @@ function normalizeSession(s: unknown, i: number): Session {
     maxes: raw.maxes,
     createdByName: raw.createdByName,
     recordedAt: raw.recordedAt,
+    // Trước đây 3 field dưới bị BỎ MẤT mỗi lần mở app (normalize chỉ chép
+    // field liệt kê ở đây) — `billed` mất thì buổi đã thu tiền bị đếm lại là
+    // chưa thu cho tới khi đồng bộ lại đúng lớp đó; `dirty` mất thì sửa đổi
+    // chưa lên server bị coi như đã lưu.
+    billed: raw.billed,
+    dirty: raw.dirty,
+    synced: raw.synced,
   }
 }
 

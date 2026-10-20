@@ -10,8 +10,9 @@ import { sessionService } from '@/services/sessions'
 import { scoreService } from '@/services/scores'
 import { useAppStore } from '@/store/appStore'
 import { getClassRubric } from '@/constants/rubrics'
-import { applyPercentToComp, sessionScore } from '@/business/scoring'
+import { applyPercentToComp, rescaleComp, sessionScore } from '@/business/scoring'
 import { emptyEntry } from '@/business/seed'
+import { adoptServerSession, markSessionSaved } from '@/business/sync'
 import { isMongoid } from '@/utils/mongoid'
 import { todayISO } from '@/utils/format'
 import type { AppData } from '@/types'
@@ -155,37 +156,57 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
     if (!comp) return
 
     try {
-      let session = student.sessions.find((s) => s.date === syncDate)
+      // Chỉ dùng buổi ĐÃ có trên server — buổi id tạm (chưa lên) mà gửi id đó
+      // thì server từ chối (trước đây báo "cộng điểm bị lỗi" mà không rõ vì sao).
+      const session = student.sessions.find((s) => s.date === syncDate && isMongoid(s.id))
+      const localTemp = student.sessions.find((s) => s.date === syncDate && !isMongoid(s.id))
       let sessionId = session?.id ?? ''
+      let lessonNo: number | undefined
       if (!session) {
-        const apiSession = await sessionService.create({
-          classId: cls.id, studentId: student.id,
-          title: `Buổi ${student.sessions.length + 1}`,
-          lessonNo: student.sessions.length + 1,
-          scheduledAt: `${syncDate}T00:00:00.000Z`,
-        })
-        sessionId = apiSession._id
+        try {
+          // placeByDate: server tự xếp đúng vị trí theo ngày — trước đây tự
+          // đặt số "số buổi + 1", máy giữ số cũ là bị từ chối vì trùng số.
+          const apiSession = await sessionService.create({
+            classId: cls.id, studentId: student.id,
+            title: `Buổi ${student.sessions.length + 1}`,
+            lessonNo: student.sessions.length + 1,
+            scheduledAt: `${syncDate}T00:00:00.000Z`,
+            placeByDate: true,
+          })
+          sessionId = apiSession._id
+          lessonNo = apiSession.lessonNo
+        } catch (err) {
+          const resp = (err as { response?: { status?: number; data?: { code?: string; data?: { existingId?: string; lessonNo?: number } } } }).response
+          if (resp?.status !== 409 || resp.data?.code !== 'SAME_DATE' || !resp.data.data?.existingId) throw err
+          sessionId = resp.data.data.existingId
+          lessonNo = resp.data.data.lessonNo
+        }
       }
-      const baseEntry = session ? { ...session.entry } : emptyEntry()
+      const baseEntry = session ? { ...session.entry } : localTemp ? { ...localTemp.entry } : emptyEntry()
       const entry = applyPercentToComp(comp, pct, baseEntry)
       if (!entry) return
 
       const r = getClassRubric(cls)
-      const total = sessionScore(entry, r) ?? 0
+      const maxes = (session ?? localTemp)?.maxes ?? {}
+      const total = sessionScore(entry, { ...r, comps: r.comps.map((c) => (maxes[c.key] != null ? rescaleComp(c, maxes[c.key]) : c)) }) ?? 0
       await scoreService.upsert({ classId: cls.id, sessionId, studentId: student.id, ...entry, total })
 
       setData(produce((d: AppData) => {
         const c2 = d.classes.find((x) => x.id === cls.id)
         const st2 = c2?.students.find((x) => x.id === student.id)
         if (!st2) return
+        // Bản tạm cùng ngày trên máy (nếu có) → gắn vào buổi server, không để 2 bản.
+        if (localTemp) adoptServerSession(st2, localTemp.id, sessionId, lessonNo)
         let ss2 = st2.sessions.find((x) => x.id === sessionId)
         if (!ss2) {
-          ss2 = { id: sessionId, no: st2.sessions.length + 1, date: syncDate, homework: '', entry }
+          ss2 = { id: sessionId, no: lessonNo ?? st2.sessions.length + 1, date: syncDate, homework: '', entry }
           st2.sessions.push(ss2)
           st2.sessions.sort((a, b) => a.no - b.no)
         } else {
           ss2.entry = entry
         }
+        // Server vừa xác nhận đúng bản này.
+        markSessionSaved(st2, sessionId, { entry, homework: ss2.homework, maxes: ss2.maxes })
       }))
     } catch {
       toast.error('Đã duyệt bài, nhưng cộng điểm vào Báo cáo bị lỗi — thử lại ở Nhập điểm.')

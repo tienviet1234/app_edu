@@ -1,4 +1,7 @@
 import { isMongoid } from '@/utils/mongoid'
+import type { Session, SessionEntry } from '@/types'
+import { emptyEntry } from '@/business/seed'
+import { sameEntry } from '@/business/strandedScores'
 
 /**
  * App lưu 1 bản sao dữ liệu lớp/học sinh/buổi vào local storage từng máy để
@@ -53,4 +56,197 @@ export function resolvePlausibleNo(
   const myMaxNo = existingNos.length ? Math.max(...existingNos) : 0
   const plausibleBound = Math.max(classWideMaxNo, myMaxNo + 1)
   return stored >= 1 && stored <= plausibleBound ? stored : null
+}
+
+/** 1 buổi (theo học sinh) như server trả về — đủ field để đồng bộ xuống máy. */
+export interface ServerSessionForSync {
+  _id: string
+  studentId?: string
+  scheduledAt: string
+  lessonNo?: number
+  notes?: string
+  billed?: boolean
+  maxes?: Record<string, number>
+  createdByName?: string
+  createdAt?: string
+}
+
+/** Điểm của 1 buổi trên server (cùng hình dạng SessionEntry). */
+export type ServerScoreForSync = Omit<SessionEntry, 'ev'> & { sessionId: string; ev: unknown }
+
+const sameMaxes = (a?: Record<string, number>, b?: Record<string, number>) =>
+  JSON.stringify(Object.entries(a ?? {}).sort()) === JSON.stringify(Object.entries(b ?? {}).sort())
+
+export const toSessionEntry = (sc: ServerScoreForSync): SessionEntry => ({
+  attendance: sc.attendance,
+  scores: sc.scores ?? {},
+  tags: sc.tags ?? {},
+  ticks: sc.ticks ?? {},
+  choice: sc.choice ?? {},
+  parts: sc.parts ?? {},
+  skip: sc.skip ?? {},
+  ev: (sc.ev ?? {}) as SessionEntry['ev'],
+  note: sc.note ?? '',
+})
+
+const isBlankEntry = (e: SessionEntry | undefined) => JSON.stringify(e ?? emptyEntry()) === JSON.stringify(emptyEntry())
+
+/**
+ * Đồng bộ server → máy cho các học sinh của 1 lớp (sửa TRỰC TIẾP mảng được
+ * truyền vào — gọi trong immer `produce`). Trả về true nếu có thay đổi.
+ *
+ * Quy tắc (mỗi quy tắc đều từng là 1 sự cố thật — xem test):
+ *  - Số buổi / ngày / đã thu tiền (`no`/`date`/`billed`): server quyết định,
+ *    luôn lấy theo server (admin xếp lại số, sửa ngày, đánh dấu đã thu).
+ *  - Nội dung (điểm, nhận xét, bài tập về nhà, số câu):
+ *      · máy đang `dirty` (sửa chưa được server xác nhận) → GIỮ bản máy, không
+ *        bao giờ để server ghi đè ngược (trước đây bài tập về nhà đang gõ bị
+ *        server ghi đè lại nếu danh sách tải lại đúng lúc).
+ *      · máy đã `synced` mà không dirty → bản máy chỉ là bản sao → LẤY THEO
+ *        SERVER (trước đây không bao giờ làm mới → máy A sửa điểm, máy B mãi
+ *        hiện điểm cũ — "1 tài khoản 2 máy 2 dữ liệu").
+ *      · dữ liệu cũ (chưa có cờ synced): chỉ điền khi máy còn trống, khớp
+ *        nhau thì đánh dấu synced; KHÁC nhau thì giữ nguyên (không biết bản
+ *        nào đúng — công cụ "Dữ liệu kẹt" của admin sẽ báo).
+ *  - Buổi server có mà máy chưa có → thêm (đánh dấu synced).
+ *  - Buổi đã đồng bộ mà server không còn → gỡ, TRỪ khi máy đang dirty (sửa
+ *    chưa lên — gỡ là mất; danh sách server có thể chỉ là bản cache cũ chưa
+ *    có buổi vừa tạo).
+ *  - Buổi id tạm (chưa lên server) không bao giờ bị đụng tới.
+ */
+export function syncStudentsFromServer(
+  students: Array<{ id: string; sessions: Session[] }>,
+  serverSessions: ServerSessionForSync[],
+  scoresBySession: Map<string, ServerScoreForSync>,
+): boolean {
+  let changed = false
+  const perStudent = serverSessions.filter((s) => s.studentId)
+  const serverIds = new Set(perStudent.map((s) => s._id))
+  const localById = new Map<string, Session>()
+  for (const st of students) for (const s of st.sessions) localById.set(s.id, s)
+
+  for (const as of perStudent) {
+    const local = localById.get(as._id)
+    const score = scoresBySession.get(as._id)
+    const date = as.scheduledAt.slice(0, 10)
+    if (!local) {
+      const student = students.find((st) => st.id === as.studentId)
+      if (!student) continue
+      student.sessions.push({
+        id: as._id,
+        no: as.lessonNo ?? student.sessions.length + 1,
+        date,
+        homework: as.notes ?? '',
+        createdByName: as.createdByName,
+        recordedAt: as.createdAt,
+        billed: as.billed,
+        maxes: as.maxes,
+        entry: score ? toSessionEntry(score) : emptyEntry(),
+        synced: true,
+      })
+      changed = true
+      continue
+    }
+    // Phần server quyết định.
+    const no = as.lessonNo ?? local.no
+    if (local.no !== no) { local.no = no; changed = true }
+    if (local.date !== date) { local.date = date; changed = true }
+    if (!!local.billed !== !!as.billed) { local.billed = as.billed; changed = true }
+
+    if (local.dirty) continue // sửa chưa lên server — không ghi đè ngược
+    const serverEntry = score ? toSessionEntry(score) : null
+    const serverHomework = as.notes ?? ''
+    if (local.synced) {
+      if (serverEntry && !sameEntry(local.entry, serverEntry)) { local.entry = serverEntry; changed = true }
+      if ((local.homework ?? '') !== serverHomework) { local.homework = serverHomework; changed = true }
+      if (as.maxes && !sameMaxes(local.maxes, as.maxes)) { local.maxes = as.maxes; changed = true }
+      continue
+    }
+    // Dữ liệu cũ, chưa biết đã khớp server chưa.
+    if (serverEntry && isBlankEntry(local.entry)) { local.entry = serverEntry; changed = true }
+    // Bài tập về nhà: giữ hành vi cũ — server thắng (luôn được gửi kèm mỗi
+    // lần lưu điểm nên server là bản chuẩn); máy đang sửa dở đã được chặn ở
+    // nhánh dirty phía trên.
+    if ((local.homework ?? '') !== serverHomework) { local.homework = serverHomework; changed = true }
+    if (as.maxes && !local.maxes) { local.maxes = as.maxes; changed = true }
+    const contentMatches = (serverEntry ? sameEntry(local.entry, serverEntry) : isBlankEntry(local.entry))
+      && (local.homework ?? '') === serverHomework
+      && (!as.maxes || sameMaxes(local.maxes, as.maxes))
+    if (contentMatches) { local.synced = true; changed = true }
+  }
+
+  for (const st of students) {
+    const kept = st.sessions.filter((s) => !isMongoid(s.id) || serverIds.has(s.id) || s.dirty)
+    if (kept.length !== st.sessions.length) { st.sessions = kept; changed = true }
+  }
+  if (changed) for (const st of students) st.sessions.sort((a, b) => a.no - b.no)
+  return changed
+}
+
+/**
+ * Gắn bản tạm trên máy (`tempId`, chưa lên server) vào buổi server đã có
+ * (`serverId`) — gọi SAU khi server đã xác nhận đã có dữ liệu. Không xóa dữ
+ * liệu: máy chưa có bản nào của buổi server → đổi id bản tạm thành id
+ * server; máy đã có bản của buổi server mà còn trống → chuyển dữ liệu bản tạm
+ * vào đó rồi mới bỏ bản tạm; bản đó đã có dữ liệu → giữ nó, bỏ bản tạm (bản
+ * tạm trùng nội dung đã lên server, vẫn còn trong bản chụp sao lưu).
+ * Trước đây trùng ngày thì XÓA bản tạm NGAY rồi mới gửi điểm — gửi lỗi là
+ * mất cả 2 nơi.
+ */
+export function adoptServerSession(
+  student: { sessions: Session[] },
+  tempId: string,
+  serverId: string,
+  serverNo?: number,
+  /** Bản server ĐÃ LƯU XONG — chỉ khi có mới xóa dirty (và chỉ nếu máy chưa
+   *  sửa thêm trong lúc gửi). Không truyền = mới tạo buổi, điểm chưa gửi
+   *  xong → giữ nguyên dirty (gửi điểm lỗi thì lần sau còn gửi lại). */
+  sent?: SentContent,
+): void {
+  const temp = student.sessions.find((s) => s.id === tempId)
+  if (!temp) return
+  const twin = student.sessions.find((s) => s.id === serverId)
+  if (!twin) {
+    temp.id = serverId
+    if (serverNo) temp.no = serverNo
+    if (sent) {
+      temp.synced = true
+      if (sameContent(temp, sent)) temp.dirty = false
+    }
+    return
+  }
+  if (isBlankEntry(twin.entry)) {
+    twin.entry = temp.entry
+    if (!twin.homework?.trim()) twin.homework = temp.homework
+    if (!twin.maxes) twin.maxes = temp.maxes
+  }
+  student.sessions = student.sessions.filter((s) => s.id !== tempId)
+}
+
+/** Nội dung đã gửi lên server trong 1 lần lưu. */
+export interface SentContent { entry: SessionEntry; homework?: string; maxes?: Record<string, number> }
+
+const sameContent = (s: Session, sent: SentContent) =>
+  sameEntry(s.entry, sent.entry) && (s.homework ?? '') === (sent.homework ?? '') && sameMaxes(s.maxes, sent.maxes)
+
+/** Server đã xác nhận lưu `sent` cho buổi `sessionId` → đánh dấu synced; CHỈ
+ *  xóa cờ dirty nếu nội dung trên máy VẪN đúng là bản đã gửi — giáo viên gõ
+ *  thêm trong lúc đang gửi thì vẫn còn dirty để lần sau gửi tiếp (không được
+ *  coi là "đã lưu" phần chưa gửi). */
+export function markSessionSaved(student: { sessions: Session[] }, sessionId: string, sent: SentContent): void {
+  const s = student.sessions.find((x) => x.id === sessionId)
+  if (!s) return
+  s.synced = true
+  if (sameContent(s, sent)) s.dirty = false
+}
+
+/** Các buổi máy này đã sửa mà server chưa xác nhận (hoặc chưa từng lên
+ *  server) — việc của bộ tự lưu nền ở Nhập điểm. */
+export function pendingSessionsOf(students: Array<{ id: string; sessions: Session[] }>): Array<{ studentId: string; sessionId: string }> {
+  const out: Array<{ studentId: string; sessionId: string }> = []
+  for (const st of students) {
+    if (!isMongoid(st.id)) continue
+    for (const s of st.sessions) if (s.dirty === true) out.push({ studentId: st.id, sessionId: s.id })
+  }
+  return out
 }

@@ -9,7 +9,9 @@ import { sessionScore, rescaleComp, detectMissingComps } from '@/business/scorin
 import { sessionStatusFragments } from '@/business/report'
 import { periodPositionOf, sessionLabelOf } from '@/business/tuition'
 import { emptyEntry } from '@/business/seed'
-import { resolvePlausibleNo } from '@/business/sync'
+import { resolvePlausibleNo, pendingSessionsOf, adoptServerSession, markSessionSaved } from '@/business/sync'
+import { sameEntry } from '@/business/strandedScores'
+import { tryLockSession, unlockSession } from '@/utils/syncLocks'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { Pick } from '@/components/atoms/Pick'
@@ -36,6 +38,9 @@ interface EntryScreenProps {
 }
 
 const FIELDS = ['scores', 'tags', 'ticks', 'choice', 'parts', 'skip', 'ev'] as const
+
+/** Tự lưu nền gặp lỗi (mất mạng...) thì thử lại sau chừng này. */
+const RETRY_MS = 60_000
 
 const cloneEntry = (e: SessionEntry): SessionEntry =>
   JSON.parse(JSON.stringify(e)) as SessionEntry
@@ -122,6 +127,11 @@ function findOrCreateSession(c: ClassData, studentId: string, no: number, dateFo
     student.sessions.push(session)
     student.sessions.sort((a, b) => a.no - b.no)
   }
+  // MỌI chỗ sửa điểm/bài tập/số câu ở màn này đều đi qua hàm này → đánh dấu
+  // "máy đã sửa, chờ server xác nhận" (xem Session.dirty). Bộ tự lưu nền đẩy
+  // mọi buổi dirty của cả lớp lên — kể cả "Mặc định cả lớp"/chép nhóm, trước
+  // đây chỉ em ĐANG XEM được tự lưu, các em khác nằm chờ trên máy.
+  session.dirty = true
   return session
 }
 
@@ -135,9 +145,6 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
     return persisted
   })
   const [draftDate, setDraftDate] = useState(todayISO())
-  const pendingAutosaveRef = useRef<(() => void) | null>(null)
-  const autosaveBaseRef = useRef<{ key: string; entry: unknown; homework?: string } | null>(null)
-  const lastSentRef = useRef(new Map<string, { entry: unknown; homework?: string }>())
   const [cur, setCur] = useState(() => {
     if (initialTarget) {
       const idx = cls.students.findIndex((s) => s.id === initialTarget.studentId)
@@ -243,7 +250,18 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
         if (ss) ss.date = newDate
       })
       if (isMongoid(session.id)) {
-        sessionService.update(session.id, { scheduledAt: `${newDate}T00:00:00.000Z` }).catch(() => {})
+        // Trước đây lỗi bị nuốt im lặng (.catch(() => {})) — máy hiện ngày
+        // mới, server vẫn ngày cũ, lần đồng bộ sau âm thầm trả về ngày cũ.
+        const sessionId = session.id
+        const oldDate = session.date
+        const studentId = st?.id
+        sessionService.update(sessionId, { scheduledAt: `${newDate}T00:00:00.000Z` }).catch(() => {
+          toast.error(`Không lưu được ngày mới lên server — đã trả lại ngày ${viDate(oldDate)}. Kiểm tra mạng rồi đổi lại.`, { persist: true })
+          update((c) => {
+            const ss = c.students.find((s) => s.id === studentId)?.sessions.find((y) => y.id === sessionId)
+            if (ss) ss.date = oldDate
+          })
+        })
       }
     } else {
       setDraftDate(newDate)
@@ -310,56 +328,97 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   )
   const r2 = { ...r, comps: effectiveComps }
 
+  /** Lưu buổi ĐANG XEM của 1 học sinh (nút Trước/Tiếp theo/đổi buổi). */
   async function syncScore(studentId: string, opts: { silent?: boolean } = {}) {
+    const target = cls.students.find((s) => s.id === studentId)?.sessions.find((s) => s.no === noOf(studentId))
+    if (target) await syncSession(studentId, target.id, opts)
+  }
+
+  /** Đẩy 1 buổi (theo id trên máy) lên server. Chỉ gửi khi máy THẬT SỰ có
+   *  sửa (dirty) hoặc buổi chưa từng lên server — bản sao không sửa gì thì
+   *  không gửi lại (trước đây bấm Trước/Tiếp theo là gửi lại nguyên bản
+   *  trên máy → máy giữ bản cũ đè mất điểm mới hơn do máy khác sửa). */
+  async function syncSession(studentId: string, sessionLocalId: string, opts: { silent?: boolean } = {}) {
     if (!isMongoid(cls.id) || !isMongoid(studentId)) return
     const student = cls.students.find((s) => s.id === studentId)
-    const targetNo = noOf(studentId)
-    const target = student?.sessions.find((s) => s.no === targetNo)
+    const target = student?.sessions.find((s) => s.id === sessionLocalId)
     if (!student || !target) return // chưa nhập gì cho học sinh này buổi này — không có gì để lưu
-    const maxes = target.maxes ?? {}
-    const comps = r.comps.map((c) => (maxes[c.key] != null ? rescaleComp(c, maxes[c.key]) : c))
-    const total = sessionScore(target.entry, { ...r, comps }) ?? 0
     // Nhãn + tên học sinh chụp lại NGAY LÚC GỌI (trước khi màn hình có thể
     // đã chuyển sang học sinh khác) — để thông báo lưu xong vẫn nói đúng
     // tên, dù lúc đó người dùng đã đang xem học sinh khác rồi.
     const label = sessionLabelOf(target.no, cls.perMonth, student.sessionOffset)
+    if (isMongoid(target.id) && !target.dirty) {
+      // Đã khớp server (server xác nhận lần lưu trước) — báo cho giáo viên
+      // yên tâm, không gửi lại.
+      if (!opts.silent && target.synced) toast.success(`✓ ${label} của ${student.name} đã lưu trên server`)
+      return
+    }
+    // Đang gửi đúng buổi này (tự lưu nền / đồng bộ lúc mở app) — phần sửa
+    // thêm vẫn còn dirty, lượt sau sẽ gửi tiếp.
+    if (!tryLockSession(target.id)) return
+    const maxes = target.maxes ?? {}
+    const comps = r.comps.map((c) => (maxes[c.key] != null ? rescaleComp(c, maxes[c.key]) : c))
+    const total = sessionScore(target.entry, { ...r, comps }) ?? 0
     const wasNew = !isMongoid(target.id)
+    const sent = { entry: target.entry, homework: target.homework, maxes: target.maxes }
     setSyncStatus('saving')
     try {
       let sessionId = target.id
-      if (!isMongoid(sessionId)) {
-        const apiSession = await sessionService.create({
-          classId: cls.id,
-          studentId,
-          title: `Buổi ${target.no}`,
-          lessonNo: target.no,
-          scheduledAt: `${target.date}T00:00:00.000Z`,
-          notes: target.homework || undefined,
-          // Không để server từ chối vì trùng số buổi (máy này có thể đang
-          // giữ số buổi cũ) — server tự xếp đúng vị trí theo NGÀY. Trước đây
-          // trùng số là bị từ chối, điểm kẹt lại máy (sự cố thật 18/10).
-          placeByDate: true,
-        })
-        sessionId = apiSession._id
-        const finalNo = apiSession.lessonNo ?? target.no
+      let scoreAlreadySaved = false
+      if (wasNew) {
+        let finalNo = target.no
+        try {
+          const apiSession = await sessionService.create({
+            classId: cls.id,
+            studentId,
+            title: `Buổi ${target.no}`,
+            lessonNo: target.no,
+            scheduledAt: `${target.date}T00:00:00.000Z`,
+            notes: target.homework || undefined,
+            ...(target.maxes ? { maxes: target.maxes } : {}),
+            // Không để server từ chối vì trùng số buổi (máy này có thể đang
+            // giữ số buổi cũ) — server tự xếp đúng vị trí theo NGÀY. Trước đây
+            // trùng số là bị từ chối, điểm kẹt lại máy (sự cố thật 18/10).
+            placeByDate: true,
+          })
+          sessionId = apiSession._id
+          finalNo = apiSession.lessonNo ?? target.no
+        } catch (err) {
+          // Server đã có buổi CÙNG NGÀY của em này (VD đồng bộ lúc mở app vừa
+          // đẩy đúng buổi này lên) → điền vào đó, nhưng CHỈ khi buổi đó chưa có
+          // điểm hoặc trùng nội dung; khác nội dung thì báo lỗi bên dưới.
+          const resp = (err as { response?: { status?: number; data?: { code?: string; data?: { existingId?: string; lessonNo?: number } } } }).response
+          const existingId = resp?.status === 409 && resp.data?.code === 'SAME_DATE' ? resp.data.data?.existingId : undefined
+          if (!existingId) throw err
+          const res = await scoreService.upsert({ classId: cls.id, sessionId: existingId, studentId, ...target.entry, total, ifAbsent: true })
+          if (res.deleted || (res.skipped && !sameEntry(target.entry, res))) throw err
+          sessionId = existingId
+          finalNo = resp?.data?.data?.lessonNo ?? target.no
+          scoreAlreadySaved = true
+        }
         const localId = target.id
+        const newId = sessionId
         update((c) => {
           const stu = c.students.find((s) => s.id === studentId)
-          const ss = stu?.sessions.find((s) => s.id === localId)
-          if (ss) { ss.id = sessionId; ss.no = finalNo }
+          if (stu) adoptServerSession(stu, localId, newId, finalNo)
         })
         if (finalNo !== target.no) {
           setNoByStudent((prev) => ({ ...prev, [studentId]: finalNo }))
         }
         logActivity('session.create', { className: cls.name, sessionNo: target.no, studentName: student.name }, 'ClassSession')
       } else {
-        // Buổi đã có sẵn trên server — "Bài tập về nhà" trước đây KHÔNG BAO
-        // GIỜ được gửi lên đây cả, nên tải lại trang/đổi máy là mất sạch. Đồng
-        // bộ lại mỗi lần lưu điểm (cùng nhịp với điểm) để không lệch dữ liệu.
-        await sessionService.update(sessionId, { notes: target.homework ?? '' })
+        // Buổi đã có sẵn trên server — gửi kèm "Bài tập về nhà" + "Số câu"
+        // (trước đây bài tập không bao giờ được gửi, số câu thì chỉ nằm trên
+        // máy → máy khác tính % theo số câu mặc định).
+        await sessionService.update(sessionId, { notes: target.homework ?? '', ...(target.maxes ? { maxes: target.maxes } : {}) })
       }
-      await scoreService.upsert({ classId: cls.id, sessionId, studentId, ...target.entry, total })
-      lastSentRef.current.set(`${studentId}|${sessionId}`, { entry: target.entry, homework: target.homework })
+      if (!scoreAlreadySaved) await scoreService.upsert({ classId: cls.id, sessionId, studentId, ...target.entry, total })
+      const savedId = sessionId
+      update((c) => {
+        const stu = c.students.find((s) => s.id === studentId)
+        if (stu) markSessionSaved(stu, savedId, sent)
+      })
+      failedAtRef.current.delete(sessionLocalId)
       setSyncStatus('saved')
       setTimeout(() => setSyncStatus('idle'), 2000)
       // CHỈ báo "Đã lưu" SAU KHI server xác nhận thành công thật sự — trước
@@ -381,79 +440,73 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
       const msg = resp?.data?.code === 'SAME_DATE'
         ? `ngày ${viDate(target.date)} em này đã có Buổi ${resp.data.data?.lessonNo ?? '?'} rồi — chọn đúng buổi đó để nhập, hoặc đổi ngày cho buổi này`
         : resp?.data?.message
-      toast.error(
-        msg
-          ? `Không lưu được Buổi ${target.no} của ${student.name} — ${msg}`
-          : `Lỗi lưu điểm Buổi ${target.no} của ${student.name} — kiểm tra mạng rồi thử lại.`,
-        { persist: true },
-      )
+      // Tự lưu nền thử lại sau 1 phút — chỉ báo LẦN ĐẦU mỗi buổi để không
+      // dồn thông báo lỗi; bấm lưu tay (Trước/Tiếp theo) thì luôn báo.
+      const firstFailure = !failedAtRef.current.has(sessionLocalId)
+      failedAtRef.current.set(sessionLocalId, Date.now())
+      setTimeout(() => setRetryTick((t) => t + 1), RETRY_MS)
+      if (!opts.silent || firstFailure) {
+        toast.error(
+          msg
+            ? `Không lưu được Buổi ${target.no} của ${student.name} — ${msg}`
+            : `Lỗi lưu điểm Buổi ${target.no} của ${student.name} — kiểm tra mạng, app sẽ tự thử lại.`,
+          { persist: true },
+        )
+      }
+    } finally {
+      unlockSession(target.id)
     }
   }
 
-  // Tự động lưu lên server ~1.5 giây sau khi ngừng sửa — KHÔNG chỉ dựa vào
-  // lúc chuyển buổi/học sinh (nút "← Trước"/"Tiếp theo →"/đổi buổi) như
-  // trước đây. Trước đây nếu giáo viên nhập xong buổi/em CUỐI CÙNG trong
-  // buổi dạy rồi đóng tab luôn (không còn ai để bấm "tiếp theo"), điểm đó
-  // KHÔNG BAO GIỜ lên được server — chỉ nằm chờ tới lần mở app TIẾP THEO
-  // trên ĐÚNG máy đó mới được `autoSyncStrandedScores` nhặt lại (chạy đúng
-  // 1 lần/phiên đăng nhập). Sự cố thật đã gặp: nhập điểm xong nhiều em cuối
-  // buổi dạy rồi đóng app luôn, điểm "biến mất" vì chưa từng rời khỏi máy —
-  // không phải lỗi mất dữ liệu ở server, mà do CHƯA TỪNG CÓ CƠ HỘI gửi lên.
-  //
-  // CHỈ lưu khi THẬT SỰ có sửa trên máy này — trước đây cứ mở 1 buổi là 1.5s
-  // sau gửi nguyên bản trên máy đè lên server dù không sửa gì (máy giữ bản
-  // cũ đè mất điểm mới hơn do máy khác sửa). Mốc so sánh = bản ĐÃ GỬI lần
-  // cuối (lastSentRef), chưa gửi lần nào thì là bản lúc mới mở buổi — nên
-  // phần gõ thêm đúng lúc buổi mới đang được tạo (id đổi tạm → thật giữa
-  // chừng) vẫn được lưu. Buổi chưa có id server thì luôn lưu.
+  // BỘ TỰ LƯU NỀN cho CẢ LỚP — ~1.5 giây sau khi ngừng sửa, đẩy MỌI buổi
+  // máy này đã sửa mà server chưa xác nhận (dirty), không riêng em đang xem.
+  // Lịch sử: (1) ban đầu chỉ lưu khi bấm Trước/Tiếp theo → nhập xong em cuối
+  // rồi đóng tab là điểm KHÔNG BAO GIỜ lên server (sự cố thật: nhiều học sinh
+  // 3 lớp "mất điểm"); (2) sau đó tự lưu riêng em đang xem → "Mặc định cả
+  // lớp"/chép nhóm sửa các em khác vẫn nằm chờ trên máy; (3) tự lưu cũ còn
+  // gửi lại cả bản KHÔNG sửa gì → máy giữ bản cũ đè mất điểm mới của máy
+  // khác. Giờ: chỉ gửi buổi dirty, của cả lớp; lỗi thì thử lại sau 1 phút.
+  const failedAtRef = useRef(new Map<string, number>())
+  const [retryTick, setRetryTick] = useState(0)
+  const pushPendingRef = useRef<(() => void) | null>(null)
   useEffect(() => {
-    pendingAutosaveRef.current = null
-    if (!st || !session) return
-    const viewKey = `${st.id}|${session.id}`
-    if (isMongoid(session.id)) {
-      const sent = lastSentRef.current.get(viewKey)
-      if (sent) {
-        if (sent.entry === session.entry && sent.homework === session.homework) return
-      } else if (autosaveBaseRef.current?.key !== viewKey) {
-        autosaveBaseRef.current = { key: viewKey, entry: session.entry, homework: session.homework }
-        return
-      } else if (autosaveBaseRef.current.entry === session.entry && autosaveBaseRef.current.homework === session.homework) {
-        return
-      }
-    }
-    // Chạy đúng 1 lần dù được gọi từ hẹn giờ lẫn lúc rời tab/rời màn — gọi 2
-    // lần cho buổi MỚI sẽ tạo buổi 2 lần song song (lần 2 bị 409 SAME_DATE).
+    pushPendingRef.current = null
+    const now = Date.now()
+    const pending = pendingSessionsOf(cls.students).filter((p) => {
+      const failedAt = failedAtRef.current.get(p.sessionId)
+      return !failedAt || now - failedAt >= RETRY_MS
+    })
+    if (!pending.length) return
+    // Chạy đúng 1 lần dù được gọi từ hẹn giờ lẫn lúc rời tab/rời màn.
     let done = false
     const run = () => {
       if (done) return
       done = true
-      pendingAutosaveRef.current = null
-      void syncScore(st.id, { silent: true })
+      pushPendingRef.current = null
+      void (async () => {
+        for (const p of pending) await syncSession(p.studentId, p.sessionId, { silent: true })
+      })()
     }
-    pendingAutosaveRef.current = run
+    pushPendingRef.current = run
     const timer = setTimeout(run, 1500)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [st?.id, session?.id, session?.entry, session?.homework])
+  }, [cls, retryTick])
 
   // Rời màn (đổi lớp / đổi tab) trong 1.5s sau khi gõ: trước đây lượt tự lưu
   // đang chờ bị HỦY luôn (clearTimeout), điểm nằm kẹt trên máy. Giờ lưu ngay.
-  // Không flush khi chỉ đổi học sinh/buổi — các nút đó đã tự gọi syncScore,
-  // gọi thêm sẽ tạo buổi mới 2 lần song song (lần 2 bị 409 SAME_DATE).
-  useEffect(() => () => { pendingAutosaveRef.current?.() }, [])
+  useEffect(() => () => { pushPendingRef.current?.() }, [])
 
   // Lưu NGAY (không đợi 1.5s) khi rời khỏi tab (chuyển app/ứng dụng khác,
-  // tắt màn hình điện thoại...) — bắt được đúng trường hợp thường gặp nhất
-  // của việc đóng app ngay sau khi nhập xong, sớm hơn khung 1.5s phía trên.
+  // tắt màn hình điện thoại...) — đúng trường hợp thường gặp nhất của việc
+  // đóng app ngay sau khi nhập xong.
   useEffect(() => {
     function flush() {
-      // Chỉ khi đang có sửa chưa kịp lưu — không gửi lại bản không đổi.
-      if (document.visibilityState === 'hidden') pendingAutosaveRef.current?.()
+      if (document.visibilityState === 'hidden') pushPendingRef.current?.()
     }
     document.addEventListener('visibilitychange', flush)
     return () => document.removeEventListener('visibilitychange', flush)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [st?.id, session?.id, session?.entry, session?.homework])
+  }, [])
 
   // Gom điểm đã nhập trước đây (còn kẹt trên máy này, chưa từng lên được
   // server do lỗi kiểu dữ liệu đã sửa) và đẩy lên server, 1 lần.

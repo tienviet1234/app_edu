@@ -18,6 +18,8 @@ export interface ApiSession {
   /** Buổi này ĐÃ tính tiền (đã gửi khoản học phí, hoặc admin tự xác nhận đã
    *  thu trước đó) — xem ghi chú ở business/tuition.ts unbilledSessionsOf. */
   billed?: boolean
+  /** "Số câu" riêng buổi này — xem ClassSession.maxes ở server. */
+  maxes?: Record<string, number>
   createdAt: string
   updatedAt: string
 }
@@ -43,6 +45,7 @@ export const sessionService = {
     scheduledAt?: string
     durationMinutes?: number
     notes?: string
+    maxes?: Record<string, number>
     /** Đẩy buổi KẸT trên máy lên — server tự xếp đúng vị trí theo ngày,
      *  không từ chối vì trùng số (409 SAME_DATE nếu đã có buổi cùng ngày). */
     placeByDate?: boolean
@@ -66,7 +69,7 @@ export const sessionService = {
   get: (id: string) =>
     api.get<{ data: ApiSession }>(`/sessions/${id}`).then((r) => r.data.data),
 
-  update: (id: string, body: { title?: string; lessonNo?: number; scheduledAt?: string; durationMinutes?: number; notes?: string; billed?: boolean }) =>
+  update: (id: string, body: { title?: string; lessonNo?: number; scheduledAt?: string; durationMinutes?: number; notes?: string; billed?: boolean; maxes?: Record<string, number> }) =>
     api.patch<{ data: ApiSession }>(`/sessions/${id}`, body).then((r) => r.data.data),
 
   remove: (id: string) =>
