@@ -18,8 +18,8 @@ import { useClasses, useClassStudents, useSessions, useClassScores, usePwaInstal
 import { isMongoid } from '@/utils/mongoid'
 import { emptyEntry } from '@/business/seed'
 import { pruneGoneFromServer } from '@/business/sync'
-import { autoLevel, getClassRubric } from '@/constants/rubrics'
-import { rescaleComp, sessionScore } from '@/business/scoring'
+import { autoLevel } from '@/constants/rubrics'
+import { collectScoreJobs, sameEntry } from '@/business/strandedScores'
 import { sessionService } from '@/services/sessions'
 import { scoreService } from '@/services/scores'
 import { classService, type ApiClass } from '@/services/classes'
@@ -127,110 +127,81 @@ async function autoSyncStrandedScores(
   classes: ClassData[],
   setData: (fn: (d: AppData) => void) => void,
 ) {
-  interface Job {
-    classId: string
-    studentId: string
-    sessionLocalId: string
-    no: number
-    date: string
-    entry: SessionEntry
-    total: number
-    // true = buổi chưa từng lên server, cần tạo mới trước khi gửi điểm.
-    // false = buổi ĐÃ có id thật (đã tạo được) nhưng bước gửi điểm lúc đó
-    // có thể đã lỗi giữa chừng — vẫn phải gửi lại điểm, chỉ là không cần
-    // tạo buổi mới nữa. Trước đây bỏ qua thẳng nếu buổi đã có id thật, nên
-    // đúng những buổi "tạo được nhưng điểm gửi lỗi" này không bao giờ được
-    // đồng bộ lại — nhìn tưởng đã xong nhưng điểm thật ra vẫn trống trên server.
-    needsCreate: boolean
-    homework: string
-    studentName: string
-  }
-  const jobs: Job[] = []
-  // Bọc riêng từng lớp — 1 lớp có rubric/dữ liệu bất thường (VD override trỏ
-  // tới tiêu chí đã bị xóa) ném lỗi ở đây trước đây làm literal DỪNG NGANG cả
-  // vòng lặp, khiến MỌI lớp khác (kể cả bình thường) cũng không được quét,
-  // và vì hàm này không có try/catch ở nơi gọi nên lỗi biến mất hoàn toàn,
-  // không có gì báo cho biết vì sao điểm không lên được server.
-  classes.forEach((c) => {
-    try {
-      if (!isMongoid(c.id)) return
-      const r = getClassRubric(c)
-      c.students.forEach((stu) => {
-        if (!isMongoid(stu.id)) return
-        stu.sessions.forEach((s) => {
-          const maxes = s.maxes ?? {}
-          const comps = r.comps.map((comp) => (maxes[comp.key] != null ? rescaleComp(comp, maxes[comp.key]) : comp))
-          const total = sessionScore(s.entry, { ...r, comps })
-          if (total === null) return // buổi trống, chưa nhập gì — không có gì để đẩy
-          jobs.push({ classId: c.id, studentId: stu.id, sessionLocalId: s.id, no: s.no, date: s.date, entry: s.entry, total, needsCreate: !isMongoid(s.id), homework: s.homework ?? '', studentName: stu.name })
-        })
-      })
-    } catch (err) {
-      console.error('autoSyncStrandedScores: lỗi khi quét lớp', c.id, err)
-    }
-  })
+  // Công thức gom chung với công cụ "Dữ liệu kẹt" của admin (business/
+  // strandedScores.ts) — bọc riêng từng lớp, tính cả buổi chỉ "vắng phép".
+  const jobs = collectScoreJobs(classes)
   if (!jobs.length) return
 
-  let ok = 0
+  /** Gắn bản tạm trên máy vào buổi server đã có — CHỈ gọi sau khi server
+   *  đã xác nhận. Không xóa dữ liệu: nếu máy đã có sẵn bản của buổi server
+   *  đó mà còn trống thì chuyển dữ liệu vào, có dữ liệu rồi thì mới bỏ bản tạm
+   *  (bản tạm vẫn còn trong bản chụp sao lưu trên server). */
+  const adoptServerSession = (job: (typeof jobs)[number], serverId: string, serverNo: number | undefined) => {
+    setData(produce((d: AppData) => {
+      const stu2 = d.classes.find((c) => c.id === job.classId)?.students.find((s) => s.id === job.studentId)
+      const temp = stu2?.sessions.find((s) => s.id === job.sessionLocalId)
+      if (!stu2 || !temp) return
+      const twin = stu2.sessions.find((s) => s.id === serverId)
+      if (!twin) {
+        temp.id = serverId
+        if (serverNo) temp.no = serverNo
+        return
+      }
+      const twinEmpty = !Object.keys(twin.entry?.scores ?? {}).length && !Object.keys(twin.entry?.ticks ?? {}).length
+      if (twinEmpty) { twin.entry = temp.entry; if (!twin.homework) twin.homework = temp.homework }
+      stu2.sessions = stu2.sessions.filter((s) => s.id !== job.sessionLocalId)
+    }))
+  }
+
   let fail = 0
   let recovered = 0
   const stuckSameDate: string[] = []
   for (const job of jobs) {
     try {
-      let sessionId = job.sessionLocalId
-      if (job.needsCreate) {
-        // placeByDate: server tự xếp buổi đúng vị trí theo NGÀY, không từ
-        // chối vì trùng số — trước đây máy tính số buổi theo dữ liệu cũ (VD
-        // admin đã thêm bù buổi đầu kỳ) nên gửi số đã "có chủ", server từ
-        // chối, buổi nằm KẸT trên máy mãi mãi, mở lại app bao nhiêu lần cũng
-        // gửi lại đúng số đó và lại bị từ chối (sự cố thật 18/10).
-        try {
-          const apiSession = await sessionService.create({
-            classId: job.classId,
-            studentId: job.studentId,
-            title: `Buổi ${job.no}`,
-            lessonNo: job.no,
-            scheduledAt: `${job.date}T00:00:00.000Z`,
-            notes: job.homework || undefined,
-            placeByDate: true,
-          })
-          sessionId = apiSession._id
-          const finalNo = apiSession.lessonNo ?? job.no
-          setData(produce((d: AppData) => {
-            const cls2 = d.classes.find((c) => c.id === job.classId)
-            const stu2 = cls2?.students.find((s) => s.id === job.studentId)
-            const ss2 = stu2?.sessions.find((s) => s.id === job.sessionLocalId)
-            if (ss2) { ss2.id = sessionId; ss2.no = finalNo }
-          }))
-          recovered++
-        } catch (err) {
-          const resp = (err as { response?: { status?: number; data?: { code?: string; data?: { existingId?: string } } } }).response
-          if (resp?.status !== 409 || resp.data?.code !== 'SAME_DATE' || !resp.data.data?.existingId) throw err
-          // Server đã có 1 buổi CÙNG NGÀY của em này — chỉ gộp vào nếu buổi đó
-          // CHƯA có điểm (an toàn, không đè dữ liệu nào); có điểm rồi thì giữ
-          // nguyên bản trên máy, báo đích danh để giáo viên tự xem.
-          const existingId = resp.data.data.existingId
-          const existing = await scoreService.sessionSummary(existingId).catch(() => [])
-          if (existing.some((sc) => String((sc.studentId as unknown as { _id?: string })?._id ?? sc.studentId) === job.studentId)) {
-            stuckSameDate.push(`${job.studentName} (${job.date})`)
-            continue
-          }
-          sessionId = existingId
-          setData(produce((d: AppData) => {
-            const cls2 = d.classes.find((c) => c.id === job.classId)
-            const stu2 = cls2?.students.find((s) => s.id === job.studentId)
-            if (!stu2) return
-            // bỏ bản tạm trên máy, dùng đúng buổi server đã có
-            stu2.sessions = stu2.sessions.filter((s) => s.id !== job.sessionLocalId)
-          }))
-          recovered++
-        }
+      if (!job.needsCreate) {
+        // Buổi đã có id server — chỉ điền điểm nếu server CHƯA có (VD tạo
+        // buổi được nhưng gửi điểm lỗi). TRƯỚC ĐÂY gửi đè vô điều kiện mỗi lần
+        // mở app → máy giữ bản CŨ đè mất điểm mới hơn do máy khác/admin sửa.
+        await scoreService.upsert({ classId: job.classId, sessionId: job.sessionLocalId, studentId: job.studentId, ...job.entry, total: job.total, ifAbsent: true })
+        continue
       }
-      await scoreService.upsert({
-        classId: job.classId, sessionId, studentId: job.studentId,
-        ...job.entry, total: job.total,
-      })
-      ok++
+      // placeByDate: server tự xếp buổi đúng vị trí theo NGÀY, không từ
+      // chối vì trùng số (sự cố thật 18/10 — buổi kẹt vì máy giữ số cũ).
+      try {
+        const apiSession = await sessionService.create({
+          classId: job.classId,
+          studentId: job.studentId,
+          title: `Buổi ${job.no}`,
+          lessonNo: job.no,
+          scheduledAt: `${job.date}T00:00:00.000Z`,
+          notes: job.homework || undefined,
+          placeByDate: true,
+        })
+        await scoreService.upsert({ classId: job.classId, sessionId: apiSession._id, studentId: job.studentId, ...job.entry, total: job.total, ifAbsent: true })
+        adoptServerSession(job, apiSession._id, apiSession.lessonNo)
+        recovered++
+      } catch (err) {
+        const resp = (err as { response?: { status?: number; data?: { code?: string; data?: { existingId?: string; lessonNo?: number } } } }).response
+        // Học sinh đã bị gộp/chuyển khỏi lớp — dữ liệu cũ trên máy, bỏ qua
+        // (vẫn còn trong bản chụp sao lưu), không báo "lỗi mạng" mỗi lần mở app.
+        if (resp?.status === 409 && resp.data?.code === 'NOT_IN_CLASS') {
+          console.warn('autoSyncStrandedScores: học sinh không còn trong lớp, bỏ qua', job.studentName, job.date)
+          continue
+        }
+        if (resp?.status !== 409 || resp.data?.code !== 'SAME_DATE' || !resp.data.data?.existingId) throw err
+        // Server đã có buổi CÙNG NGÀY của em này. Chưa có điểm → điền vào.
+        // Có điểm GIỐNG HỆT (VD admin đã đẩy hộ từ bản chụp) → chỉ liên kết.
+        // Có điểm KHÁC → giữ nguyên cả 2, báo đích danh (không ghi đè).
+        const existingId = resp.data.data.existingId
+        const res = await scoreService.upsert({ classId: job.classId, sessionId: existingId, studentId: job.studentId, ...job.entry, total: job.total, ifAbsent: true })
+        const same = !res.skipped || sameEntry(job.entry, res)
+        if (res.deleted || !same) {
+          stuckSameDate.push(`${job.studentName} (${job.date})`)
+          continue
+        }
+        adoptServerSession(job, existingId, resp.data.data.lessonNo)
+        if (!res.skipped) recovered++
+      }
     } catch {
       fail++
     }

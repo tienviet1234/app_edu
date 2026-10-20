@@ -46,8 +46,22 @@ export const sessionService = {
     /** Đẩy buổi KẸT trên máy lên — server tự xếp đúng vị trí theo ngày,
      *  không từ chối vì trùng số (409 SAME_DATE nếu đã có buổi cùng ngày). */
     placeByDate?: boolean
+    /** Chỉ admin: ghi giáo viên này là người tạo buổi (khôi phục hộ từ bản
+     *  chụp máy giáo viên — Thống kê buổi/lương tính theo người tạo). */
+    onBehalfOf?: string
   }) =>
     api.post<{ data: ApiSession }>('/sessions', body).then((r) => r.data.data),
+
+  /** Mọi buổi (chưa xóa) khớp bộ lọc — server cắt 100 dòng/trang. */
+  listAll: async (params: Record<string, string>) => {
+    const items: ApiSession[] = []
+    for (let page = 1; page <= 100; page++) {
+      const r = await sessionService.list({ ...params, limit: '100', page: String(page) })
+      items.push(...r.items)
+      if (!r.items.length || items.length >= r.total) break
+    }
+    return items
+  },
 
   get: (id: string) =>
     api.get<{ data: ApiSession }>(`/sessions/${id}`).then((r) => r.data.data),

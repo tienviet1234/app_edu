@@ -81,15 +81,25 @@ async function findConflictingSession(
 
 export async function createSession(req: Request, res: Response): Promise<void> {
   const authReq = req as AuthRequest
+  const { onBehalfOf, ...body } = req.body as { onBehalfOf?: string; [k: string]: unknown }
+  // Admin khôi phục hộ từ bản chụp máy giáo viên → người tạo là giáo viên đó.
+  const creatorId = authReq.user?.role === 'admin' && onBehalfOf ? onBehalfOf : authReq.userId!
   // placeByDate: đẩy buổi đang KẸT trên máy lên — không từ chối vì trùng số,
   // tự xếp đúng vị trí theo ngày (xem createSessionPlacedByDate).
-  if (req.body.placeByDate === true && req.body.studentId) {
-    const result = await createSessionPlacedByDate(req.body, authReq.userId!)
+  if (body.placeByDate === true && body.studentId) {
+    // Máy giữ bản CŨ có thể còn học sinh đã bị gộp/chuyển khỏi lớp — không
+    // tạo lại buổi cho em đó (đồng bộ nền/khôi phục từ bản chụp đều đi đường này).
+    const cls = await Class.findById(String(body.classId), 'studentIds').lean()
+    if (!cls || !cls.studentIds.some((id) => String(id) === String(body.studentId))) {
+      res.status(409).json({ success: false, code: 'NOT_IN_CLASS', message: 'Học sinh này không còn trong lớp — không tạo buổi.' })
+      return
+    }
+    const result = await createSessionPlacedByDate(body as Parameters<typeof createSessionPlacedByDate>[0], creatorId)
     if (result.sameDate) {
       res.status(409).json({ success: false, code: 'SAME_DATE', message: 'Học sinh đã có 1 buổi cùng ngày này rồi.', data: { existingId: String(result.sameDate._id), lessonNo: result.sameDate.lessonNo } })
       return
     }
-    await writeAudit(req, { action: 'session.create', resource: 'ClassSession', resourceId: String(result.session!._id), metadata: { placeByDate: true } })
+    await writeAudit(req, { action: 'session.create', resource: 'ClassSession', resourceId: String(result.session!._id), metadata: { placeByDate: true, ...(creatorId !== authReq.userId ? { onBehalfOf: creatorId } : {}) } })
     created(res, result.session)
     return
   }
@@ -99,9 +109,9 @@ export async function createSession(req: Request, res: Response): Promise<void> 
     return
   }
   const session = await ClassSession.create({
-    ...req.body,
+    ...body,
     scheduledAt: req.body.scheduledAt ? new Date(req.body.scheduledAt) : new Date(),
-    createdBy: new Types.ObjectId(authReq.userId),
+    createdBy: new Types.ObjectId(creatorId),
   })
   await session.populate('createdBy', 'name')
   await writeAudit(req, { action: 'session.create', resource: 'ClassSession', resourceId: String(session._id) })

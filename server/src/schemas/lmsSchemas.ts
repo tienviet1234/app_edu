@@ -99,6 +99,9 @@ export const sessionBodySchema = z.object({
   // Đẩy buổi KẸT trên máy lên — xem createSessionPlacedByDate. Thiếu dòng
   // này Zod sẽ âm thầm xóa field (gotcha CLAUDE.md).
   placeByDate: z.boolean().optional(),
+  // Admin đẩy hộ buổi kẹt từ bản chụp máy giáo viên — ghi đúng giáo viên đó
+  // là người tạo (Thống kê buổi/lương tính theo createdBy). Chỉ admin dùng được.
+  onBehalfOf: objectIdSchema.optional(),
 })
 
 export const sessionUpdateSchema = sessionBodySchema.partial().omit({ centerId: true, classId: true, studentId: true })
@@ -168,6 +171,10 @@ export const scoreBodySchema = z.object({
   ev: z.record(z.unknown()).default({}),
   note: z.string().max(2000).optional(),
   total: z.number().min(0).default(0),
+  // Chỉ ghi khi CHƯA có điểm của em này ở buổi này (và buổi chưa bị xóa) —
+  // dùng cho đồng bộ nền/khôi phục từ bản chụp, không bao giờ ghi đè điểm
+  // đã có (máy giữ bản cũ từng đè mất điểm mới hơn của máy khác).
+  ifAbsent: z.boolean().optional(),
 })
 
 export const scoreUpdateSchema = scoreBodySchema.partial().omit({ centerId: true, classId: true, sessionId: true, studentId: true })

@@ -36,7 +36,13 @@ export interface UpsertScoreBody {
   ev?: Record<string, unknown>
   note?: string
   total: number
+  /** Chỉ ghi khi server CHƯA có điểm em này ở buổi này (và buổi chưa bị
+   *  xóa) — trả về `skipped: true` (kèm điểm đang có) thay vì ghi đè. Dùng
+   *  cho đồng bộ nền/khôi phục, không dùng khi giáo viên đang tự sửa điểm. */
+  ifAbsent?: boolean
 }
+
+export type UpsertScoreResult = ApiScore & { skipped?: boolean; deleted?: boolean }
 
 export const scoreService = {
   list: (params?: Record<string, string>) =>
@@ -59,7 +65,7 @@ export const scoreService = {
   },
 
   upsert: (body: UpsertScoreBody) =>
-    api.post<{ data: ApiScore }>('/scores/upsert', body).then((r) => r.data.data),
+    api.post<{ data: UpsertScoreResult }>('/scores/upsert', body).then((r) => r.data.data),
 
   sessionSummary: (sessionId: string) =>
     api

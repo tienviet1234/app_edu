@@ -88,6 +88,12 @@ export async function getDownloadPresignedUrl(key: string, filename: string): Pr
   return getSignedUrl(r2, command, { expiresIn: 3600 })
 }
 
+export async function getR2ObjectText(key: string): Promise<string> {
+  const res = await r2.send(new GetObjectCommand({ Bucket: env.R2_BUCKET_NAME, Key: key }))
+  if (!res.Body) throw new Error('Không đọc được file trên R2.')
+  return res.Body.transformToString('utf-8')
+}
+
 export async function uploadBufferToR2(buffer: Buffer, key: string, contentType: string): Promise<void> {
   await r2.send(
     new PutObjectCommand({ Bucket: env.R2_BUCKET_NAME, Key: key, Body: buffer, ContentType: contentType }),

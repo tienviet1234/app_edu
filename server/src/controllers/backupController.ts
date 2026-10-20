@@ -1,8 +1,8 @@
 import type { Request, Response } from 'express'
 import type { AuthRequest } from '../middleware/auth.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
-import { ok, badRequest } from '../utils/response.js'
-import { saveClientSnapshot, listBackups, presignBackupKey } from '../services/clientSnapshotService.js'
+import { ok, badRequest, notFound } from '../utils/response.js'
+import { saveClientSnapshot, listBackups, presignBackupKey, readSnapshotContent } from '../services/clientSnapshotService.js'
 import { runDatabaseBackup } from '../services/backupService.js'
 import { writeAudit } from '../services/auditService.js'
 
@@ -36,6 +36,17 @@ export const downloadBackup = asyncHandler(async (req: Request, res: Response) =
   } catch {
     badRequest(res, 'Key không hợp lệ.')
   }
+})
+
+/** GET /api/admin/backups/snapshots/:id — nội dung 1 bản chụp máy giáo viên. */
+export const getSnapshotContent = asyncHandler(async (req: Request, res: Response) => {
+  const result = await readSnapshotContent(String(req.params.id))
+  if (!result) {
+    notFound(res, 'Không tìm thấy bản chụp.')
+    return
+  }
+  await writeAudit(req, { action: 'backup.readSnapshot', resource: 'ClientSnapshot', resourceId: String(req.params.id) })
+  ok(res, result)
 })
 
 /** POST /api/admin/backups/run — admin bấm sao lưu DB ngay (không đợi lịch 2h sáng). */

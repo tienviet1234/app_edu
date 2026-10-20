@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { Types } from 'mongoose'
 import { ClientSnapshot } from '../models/ClientSnapshot.js'
-import { uploadBufferToR2, deleteVideoFromR2, getDownloadPresignedUrl, listR2Keys } from './storageService.js'
+import { uploadBufferToR2, deleteVideoFromR2, getDownloadPresignedUrl, listR2Keys, getR2ObjectText } from './storageService.js'
 
 const PREFIX = 'client-snapshots/'
 // Giữ 60 bản gần nhất / 1 máy — client gửi tối đa 5 phút/lần khi có thay đổi,
@@ -51,6 +51,16 @@ export async function listBackups() {
     dbBackups: dbBackups.sort((a, b) => b.key.localeCompare(a.key)).map((b) => ({ key: b.key, lastModified: b.lastModified })),
     snapshots,
   }
+}
+
+/** Nội dung 1 bản chụp (AppData của máy đó) — cho công cụ "Dữ liệu kẹt"
+ *  của admin quét & đẩy hộ lên server, không cần chờ giáo viên mở lại máy. */
+export async function readSnapshotContent(id: string): Promise<{ meta: { userId: string; deviceId: string; createdAt: Date }; data: unknown } | null> {
+  if (!Types.ObjectId.isValid(id)) return null
+  const doc = await ClientSnapshot.findById(id).lean()
+  if (!doc) return null
+  const raw = await getR2ObjectText(doc.r2Key)
+  return { meta: { userId: String(doc.userId), deviceId: doc.deviceId, createdAt: doc.createdAt }, data: JSON.parse(raw) }
 }
 
 export async function presignBackupKey(key: string): Promise<string> {

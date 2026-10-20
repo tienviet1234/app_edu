@@ -107,10 +107,11 @@ export async function upsertScore(req: Request, res: Response): Promise<void> {
   const authReq = req as AuthRequest
   const { role } = authReq.user!
   const userId = authReq.userId!
-  const { sessionId, studentId, classId, ...rest } = req.body as {
+  const { sessionId, studentId, classId, ifAbsent, ...rest } = req.body as {
     sessionId: string
     studentId: string
     classId: string
+    ifAbsent?: boolean
     [key: string]: unknown
   }
 
@@ -122,10 +123,25 @@ export async function upsertScore(req: Request, res: Response): Promise<void> {
   // Bảo vệ tính nhất quán: nếu session đã được gắn cho 1 học sinh cụ thể
   // (per-student session), không cho ghi điểm cho học sinh khác vào đó.
   // Bỏ qua kiểm tra nếu session chưa có studentId (bản ghi cũ, dùng chung).
-  const session = await ClassSession.findById(sessionId, 'studentId').lean()
+  const session = await ClassSession.findById(sessionId, 'studentId deletedAt').lean()
   if (session?.studentId && String(session.studentId) !== studentId) {
     badRequest(res, 'Buổi học này không thuộc về học sinh đang chấm.')
     return
+  }
+
+  // ifAbsent: đồng bộ nền / khôi phục từ bản chụp — KHÔNG BAO GIỜ ghi đè.
+  // Trước đây mỗi lần mở app, máy nào cũng gửi lại toàn bộ điểm trên máy
+  // (last write wins) → máy giữ bản CŨ đè mất điểm mới hơn của máy khác.
+  if (ifAbsent) {
+    if (!session || session.deletedAt) {
+      ok(res, { skipped: true, deleted: true })
+      return
+    }
+    const existing = await Score.findOne({ sessionId: new Types.ObjectId(sessionId), studentId: new Types.ObjectId(studentId) }).lean()
+    if (existing) {
+      ok(res, { ...existing, skipped: true })
+      return
+    }
   }
 
   const score = await Score.findOneAndUpdate(

@@ -5,6 +5,7 @@ import { toast } from '@/store/toastStore'
 import { C } from '@/constants/colors'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
+import { StrandedRecoveryCard } from './StrandedRecoveryCard'
 
 function viTime(iso?: string): string {
   if (!iso) return '—'
@@ -119,6 +120,8 @@ export function BackupsPage() {
           </div>
         )}
       </Card>
+
+      <StrandedRecoveryCard snapshots={data?.snapshots ?? []} />
 
       {/* Devices */}
       <Card className="p-4 space-y-3">

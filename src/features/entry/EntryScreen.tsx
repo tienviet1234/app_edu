@@ -136,6 +136,8 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   })
   const [draftDate, setDraftDate] = useState(todayISO())
   const pendingAutosaveRef = useRef<(() => void) | null>(null)
+  const autosaveBaseRef = useRef<{ key: string; entry: unknown; homework?: string } | null>(null)
+  const lastSentRef = useRef(new Map<string, { entry: unknown; homework?: string }>())
   const [cur, setCur] = useState(() => {
     if (initialTarget) {
       const idx = cls.students.findIndex((s) => s.id === initialTarget.studentId)
@@ -357,6 +359,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
         await sessionService.update(sessionId, { notes: target.homework ?? '' })
       }
       await scoreService.upsert({ classId: cls.id, sessionId, studentId, ...target.entry, total })
+      lastSentRef.current.set(`${studentId}|${sessionId}`, { entry: target.entry, homework: target.homework })
       setSyncStatus('saved')
       setTimeout(() => setSyncStatus('idle'), 2000)
       // CHỈ báo "Đã lưu" SAU KHI server xác nhận thành công thật sự — trước
@@ -396,11 +399,37 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   // 1 lần/phiên đăng nhập). Sự cố thật đã gặp: nhập điểm xong nhiều em cuối
   // buổi dạy rồi đóng app luôn, điểm "biến mất" vì chưa từng rời khỏi máy —
   // không phải lỗi mất dữ liệu ở server, mà do CHƯA TỪNG CÓ CƠ HỘI gửi lên.
-  // Gọi lại nhiều lần vô hại (scoreService.upsert ghi đè, không tạo trùng).
+  //
+  // CHỈ lưu khi THẬT SỰ có sửa trên máy này — trước đây cứ mở 1 buổi là 1.5s
+  // sau gửi nguyên bản trên máy đè lên server dù không sửa gì (máy giữ bản
+  // cũ đè mất điểm mới hơn do máy khác sửa). Mốc so sánh = bản ĐÃ GỬI lần
+  // cuối (lastSentRef), chưa gửi lần nào thì là bản lúc mới mở buổi — nên
+  // phần gõ thêm đúng lúc buổi mới đang được tạo (id đổi tạm → thật giữa
+  // chừng) vẫn được lưu. Buổi chưa có id server thì luôn lưu.
   useEffect(() => {
     pendingAutosaveRef.current = null
     if (!st || !session) return
-    const run = () => { pendingAutosaveRef.current = null; void syncScore(st.id, { silent: true }) }
+    const viewKey = `${st.id}|${session.id}`
+    if (isMongoid(session.id)) {
+      const sent = lastSentRef.current.get(viewKey)
+      if (sent) {
+        if (sent.entry === session.entry && sent.homework === session.homework) return
+      } else if (autosaveBaseRef.current?.key !== viewKey) {
+        autosaveBaseRef.current = { key: viewKey, entry: session.entry, homework: session.homework }
+        return
+      } else if (autosaveBaseRef.current.entry === session.entry && autosaveBaseRef.current.homework === session.homework) {
+        return
+      }
+    }
+    // Chạy đúng 1 lần dù được gọi từ hẹn giờ lẫn lúc rời tab/rời màn — gọi 2
+    // lần cho buổi MỚI sẽ tạo buổi 2 lần song song (lần 2 bị 409 SAME_DATE).
+    let done = false
+    const run = () => {
+      if (done) return
+      done = true
+      pendingAutosaveRef.current = null
+      void syncScore(st.id, { silent: true })
+    }
     pendingAutosaveRef.current = run
     const timer = setTimeout(run, 1500)
     return () => clearTimeout(timer)
@@ -418,7 +447,8 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   // của việc đóng app ngay sau khi nhập xong, sớm hơn khung 1.5s phía trên.
   useEffect(() => {
     function flush() {
-      if (document.visibilityState === 'hidden' && st) void syncScore(st.id, { silent: true })
+      // Chỉ khi đang có sửa chưa kịp lưu — không gửi lại bản không đổi.
+      if (document.visibilityState === 'hidden') pendingAutosaveRef.current?.()
     }
     document.addEventListener('visibilitychange', flush)
     return () => document.removeEventListener('visibilitychange', flush)
@@ -449,24 +479,29 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
     setBackfilling(true)
     setBackfillProgress({ done: 0, total: jobs.length })
     let okCount = 0
+    let keptCount = 0
     let failCount = 0
     for (const job of jobs) {
       try {
-        await scoreService.upsert({
+        // ifAbsent: chỉ đẩy điểm server CHƯA có — trước đây ghi đè toàn bộ,
+        // máy giữ bản cũ đè mất điểm mới hơn do máy khác/admin đã sửa.
+        const res = await scoreService.upsert({
           classId: cls.id, sessionId: job.sessionId, studentId: job.studentId,
-          ...job.entry, total: job.total,
+          ...job.entry, total: job.total, ifAbsent: true,
         })
-        okCount++
+        if (res.skipped) keptCount++
+        else okCount++
       } catch {
         failCount++
       }
       setBackfillProgress((p) => ({ ...p, done: p.done + 1 }))
     }
     setBackfilling(false)
+    const kept = keptCount ? `, ${keptCount} điểm server đã có sẵn (giữ nguyên bản trên server)` : ''
     if (failCount) {
-      toast.error(`Đồng bộ xong: ${okCount} điểm thành công, ${failCount} lỗi (thử lại sau)`, { persist: true })
+      toast.error(`Đồng bộ xong: ${okCount} điểm mới lên server${kept}, ${failCount} lỗi (thử lại sau)`, { persist: true })
     } else {
-      toast.success(`Đồng bộ xong: ${okCount} điểm thành công`)
+      toast.success(`Đồng bộ xong: ${okCount} điểm mới lên server${kept}`)
     }
   }
 

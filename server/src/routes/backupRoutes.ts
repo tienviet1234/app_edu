@@ -1,5 +1,5 @@
 import express, { Router } from 'express'
-import { postClientSnapshot, getBackups, downloadBackup, runBackupNow } from '../controllers/backupController.js'
+import { postClientSnapshot, getBackups, downloadBackup, runBackupNow, getSnapshotContent } from '../controllers/backupController.js'
 import { authenticate, authorize } from '../middleware/auth.js'
 
 // Bản chụp có thể lớn hơn giới hạn 2MB chung — route này tự parse JSON với
@@ -15,4 +15,5 @@ adminBackupRouter.use(authenticate)
 adminBackupRouter.use(authorize('admin'))
 adminBackupRouter.get('/', getBackups)
 adminBackupRouter.get('/download', downloadBackup)
+adminBackupRouter.get('/snapshots/:id', getSnapshotContent)
 adminBackupRouter.post('/run', runBackupNow)
