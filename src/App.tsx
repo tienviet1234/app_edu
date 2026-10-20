@@ -315,7 +315,7 @@ function splitMobileTabs(tabs: typeof ALL_TABS, role: string | undefined) {
 export default function App() {
   const {
     data, currentClassIndex, activeTab, saving,
-    init, setData, setCurrentClass, setTab, updateClass,
+    init, setData, setCurrentClass, setTab, updateClassById,
     exportData, importData, resetData,
   } = useAppStore()
   const { user, logout } = useAuthStore()
@@ -338,6 +338,13 @@ export default function App() {
   useEffect(() => { init(user?.id) }, [init, user?.id])
 
   const cls = data?.classes[currentClassIndex]
+  // Class-scoped screens get an updater bound to THEIR class id, not "the
+  // class currently selected" — a save still in flight when the user switches
+  // class used to be written into the NEW class (updateClass follows
+  // currentClassIndex), silently dropping e.g. the server id of a just-created
+  // session. Paired with key={cls.id} below so each screen remounts per class.
+  const clsId = cls?.id
+  const updateClass = (fn: (c: ClassData) => void) => { if (clsId) updateClassById(clsId, fn) }
 
   // Sync classes into local store — backend scopes /api/classes to teacherId
   // for role=teacher; admin gets every active class in the center (no
@@ -799,7 +806,12 @@ export default function App() {
         )}
         {/* "Chấm bằng AI" tạm ẩn — xem ghi chú ở ALL_TABS phía trên. */}
         {cls && activeTab === 'entry' && (
+          // key={cls.id} on every class-scoped screen: without it, switching
+          // class kept the previous class's "current student" index — Lớp 10
+          // (10 HS) opened at index 12 from Lớp 7 showed no student, "Buổi 1
+          // — chưa có" and no entry form (real report 20/10).
           <EntryScreen
+            key={cls.id}
             cls={cls}
             update={updateClass}
             teacherName={user?.name}
@@ -807,23 +819,24 @@ export default function App() {
             onConsumeInitialTarget={() => setEntryJumpTarget(null)}
           />
         )}
-        {cls && activeTab === 'homework' && <HomeworkScreen cls={cls} />}
-        {cls && activeTab === 'debts' && <DebtScreen cls={cls} />}
+        {cls && activeTab === 'homework' && <HomeworkScreen key={cls.id} cls={cls} />}
+        {cls && activeTab === 'debts' && <DebtScreen key={cls.id} cls={cls} />}
         {activeTab === 'my-scores' && <StudentPortalScreen />}
         {activeTab === 'my-homework' && <StudentHomeworkScreen />}
         {activeTab === 'my-debts' && <StudentDebtScreen />}
-        {cls && activeTab === 'board' && <LeaderboardScreen cls={cls} update={updateClass} userId={user?.role === 'student' ? user.id : undefined} />}
-        {cls && activeTab === 'report' && <ReportScreen cls={cls} update={updateClass} />}
-        {cls && activeTab === 'tuition-report' && <TuitionReportScreen cls={cls} update={updateClass} />}
+        {cls && activeTab === 'board' && <LeaderboardScreen key={cls.id} cls={cls} update={updateClass} userId={user?.role === 'student' ? user.id : undefined} />}
+        {cls && activeTab === 'report' && <ReportScreen key={cls.id} cls={cls} update={updateClass} />}
+        {cls && activeTab === 'tuition-report' && <TuitionReportScreen key={cls.id} cls={cls} update={updateClass} />}
         {cls && activeTab === 'billing' && (
           <SessionCountScreen
+            key={cls.id}
             cls={cls}
             update={updateClass}
             onEditInEntry={(studentId, no) => { setEntryJumpTarget({ studentId, no }); setTab('entry') }}
           />
         )}
-        {cls && activeTab === 'parent' && <ParentScreen cls={cls} />}
-        {cls && activeTab === 'student' && <StudentScreen cls={cls} />}
+        {cls && activeTab === 'parent' && <ParentScreen key={cls.id} cls={cls} />}
+        {cls && activeTab === 'student' && <StudentScreen key={cls.id} cls={cls} />}
         {activeTab === 'classes' && (
           <ClassesScreen
             data={data}

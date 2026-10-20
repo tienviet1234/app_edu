@@ -17,6 +17,9 @@ interface AppStore {
   setCurrentClass: (i: number) => void
   setTab: (tab: string) => void
   updateClass: (fn: (c: ClassData) => void) => void
+  /** Like updateClass but targets a FIXED class id — safe for async work that
+   *  finishes after the user has switched to another class. */
+  updateClassById: (classId: string, fn: (c: ClassData) => void) => void
   exportData: () => void
   importData: (file: File) => void
   resetData: () => void
@@ -105,6 +108,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
     setData(
       produce((d) => {
         fn(d.classes[currentClassIndex])
+      }),
+    )
+  },
+
+  updateClassById(classId, fn) {
+    get().setData(
+      produce((d: AppData) => {
+        const c = d.classes.find((x) => x.id === classId)
+        if (c) fn(c)
       }),
     )
   },

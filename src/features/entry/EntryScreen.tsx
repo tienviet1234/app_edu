@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ClassData, Session, SessionEntry } from '@/types'
 import { C, scoreColor } from '@/constants/colors'
 import { ATTEND } from '@/constants/tags'
@@ -135,6 +135,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
     return persisted
   })
   const [draftDate, setDraftDate] = useState(todayISO())
+  const pendingAutosaveRef = useRef<(() => void) | null>(null)
   const [cur, setCur] = useState(() => {
     if (initialTarget) {
       const idx = cls.students.findIndex((s) => s.id === initialTarget.studentId)
@@ -397,11 +398,20 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   // không phải lỗi mất dữ liệu ở server, mà do CHƯA TỪNG CÓ CƠ HỘI gửi lên.
   // Gọi lại nhiều lần vô hại (scoreService.upsert ghi đè, không tạo trùng).
   useEffect(() => {
+    pendingAutosaveRef.current = null
     if (!st || !session) return
-    const timer = setTimeout(() => { void syncScore(st.id, { silent: true }) }, 1500)
+    const run = () => { pendingAutosaveRef.current = null; void syncScore(st.id, { silent: true }) }
+    pendingAutosaveRef.current = run
+    const timer = setTimeout(run, 1500)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [st?.id, session?.id, session?.entry, session?.homework])
+
+  // Rời màn (đổi lớp / đổi tab) trong 1.5s sau khi gõ: trước đây lượt tự lưu
+  // đang chờ bị HỦY luôn (clearTimeout), điểm nằm kẹt trên máy. Giờ lưu ngay.
+  // Không flush khi chỉ đổi học sinh/buổi — các nút đó đã tự gọi syncScore,
+  // gọi thêm sẽ tạo buổi mới 2 lần song song (lần 2 bị 409 SAME_DATE).
+  useEffect(() => () => { pendingAutosaveRef.current?.() }, [])
 
   // Lưu NGAY (không đợi 1.5s) khi rời khỏi tab (chuyển app/ứng dụng khác,
   // tắt màn hình điện thoại...) — bắt được đúng trường hợp thường gặp nhất
