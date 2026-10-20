@@ -9,6 +9,7 @@ import { RubricEditor } from './RubricEditor'
 import { AdminActivityPage } from './AdminActivityPage'
 import { AdminClassesPage } from './AdminClassesPage'
 import { AdminBillingPage } from './AdminBillingPage'
+import { BackupsPage } from './BackupsPage'
 
 export function AdminPage() {
   const [page, setPage] = useState('dashboard')
@@ -24,6 +25,7 @@ export function AdminPage() {
       {page === 'rubric'     && <RubricEditor />}
       {page === 'analytics'  && <AnalyticsPage />}
       {page === 'audit'      && <AuditLogPage />}
+      {page === 'backups'    && <BackupsPage />}
     </AdminLayout>
   )
 }

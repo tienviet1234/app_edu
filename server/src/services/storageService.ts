@@ -78,6 +78,16 @@ export function makeVideoKey(submissionId: string, originalName: string): string
 }
 
 // ── R2 — sao lưu dữ liệu (dùng chung bucket với video, tiền tố "backups/") ──
+/** Presigned URL tải file sao lưu (hết hạn 1 giờ) — ép trình duyệt LƯU thành
+ *  file thay vì mở ra xem (JSON lớn mở trong tab dễ treo trình duyệt). */
+export async function getDownloadPresignedUrl(key: string, filename: string): Promise<string> {
+  const command = new GetObjectCommand({
+    Bucket: env.R2_BUCKET_NAME, Key: key,
+    ResponseContentDisposition: `attachment; filename="${filename.replace(/[^\w.-]/g, '_')}"`,
+  })
+  return getSignedUrl(r2, command, { expiresIn: 3600 })
+}
+
 export async function uploadBufferToR2(buffer: Buffer, key: string, contentType: string): Promise<void> {
   await r2.send(
     new PutObjectCommand({ Bucket: env.R2_BUCKET_NAME, Key: key, Body: buffer, ContentType: contentType }),

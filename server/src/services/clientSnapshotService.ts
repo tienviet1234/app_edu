@@ -1,0 +1,59 @@
+import crypto from 'node:crypto'
+import { Types } from 'mongoose'
+import { ClientSnapshot } from '../models/ClientSnapshot.js'
+import { uploadBufferToR2, deleteVideoFromR2, getDownloadPresignedUrl, listR2Keys } from './storageService.js'
+
+const PREFIX = 'client-snapshots/'
+// Giữ 60 bản gần nhất / 1 máy — client gửi tối đa 5 phút/lần khi có thay đổi,
+// đủ phủ nhiều ngày làm việc; xa hơn nữa đã có sao lưu DB hằng ngày.
+const KEEP_PER_DEVICE = 60
+const isMongoid = (id: string) => /^[a-f0-9]{24}$/i.test(id)
+
+interface AppDataLike { classes?: Array<{ students?: Array<{ sessions?: Array<{ id?: string }> }> }> }
+
+export async function saveClientSnapshot(input: {
+  userId: string; deviceId: string; userAgent?: string; raw: string
+}): Promise<{ saved: boolean; id?: string }> {
+  const contentHash = crypto.createHash('sha256').update(input.raw).digest('hex')
+  const userId = new Types.ObjectId(input.userId)
+  const last = await ClientSnapshot.findOne({ userId, deviceId: input.deviceId }, 'contentHash').sort({ createdAt: -1 }).lean()
+  if (last?.contentHash === contentHash) return { saved: false } // không đổi gì — khỏi lưu trùng
+
+  let data: AppDataLike = {}
+  try { data = JSON.parse(input.raw) as AppDataLike } catch { /* vẫn lưu nguyên văn để không mất gì */ }
+  const sessions = (data.classes ?? []).flatMap((c) => (c.students ?? []).flatMap((s) => s.sessions ?? []))
+
+  const r2Key = `${PREFIX}${input.userId}/${input.deviceId}/${new Date().toISOString().replace(/[:.]/g, '-')}.json`
+  const buffer = Buffer.from(input.raw, 'utf-8')
+  await uploadBufferToR2(buffer, r2Key, 'application/json')
+  const doc = await ClientSnapshot.create({
+    userId, deviceId: input.deviceId, userAgent: input.userAgent?.slice(0, 300), r2Key,
+    sizeBytes: buffer.byteLength, contentHash,
+    classCount: data.classes?.length ?? 0,
+    sessionCount: sessions.length,
+    unsyncedSessionCount: sessions.filter((s) => !s.id || !isMongoid(s.id)).length,
+  })
+
+  const old = await ClientSnapshot.find({ userId, deviceId: input.deviceId }, 'r2Key').sort({ createdAt: -1 }).skip(KEEP_PER_DEVICE).lean()
+  for (const o of old) {
+    await deleteVideoFromR2(o.r2Key).catch(() => null)
+    await ClientSnapshot.deleteOne({ _id: o._id })
+  }
+  return { saved: true, id: String(doc._id) }
+}
+
+export async function listBackups() {
+  const [dbBackups, snapshots] = await Promise.all([
+    listR2Keys('backups/').catch(() => [] as Array<{ key: string; lastModified?: Date }>),
+    ClientSnapshot.find({}, '-contentHash').sort({ createdAt: -1 }).limit(300).populate('userId', 'name email role').lean(),
+  ])
+  return {
+    dbBackups: dbBackups.sort((a, b) => b.key.localeCompare(a.key)).map((b) => ({ key: b.key, lastModified: b.lastModified })),
+    snapshots,
+  }
+}
+
+export async function presignBackupKey(key: string): Promise<string> {
+  if (!/^(backups|client-snapshots)\/[\w./-]+\.json$/.test(key) || key.includes('..')) throw new Error('Key không hợp lệ.')
+  return getDownloadPresignedUrl(key, key.split('/').slice(key.startsWith(PREFIX) ? 1 : 0).join('_'))
+}

@@ -30,6 +30,7 @@ import { teacherPayRouter } from './routes/teacherPayRoutes.js'
 import { sessionMigrationRouter } from './routes/sessionMigrationRoutes.js'
 import { studentMergeRouter } from './routes/studentMergeRoutes.js'
 import { sessionDateReconcileRouter } from './routes/sessionDateReconcileRoutes.js'
+import { clientSnapshotRouter, adminBackupRouter } from './routes/backupRoutes.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { notFound } from './utils/response.js'
 
@@ -46,6 +47,9 @@ app.use(cors({
   },
   credentials: true,
 }))
+// Bản chụp dữ liệu máy giáo viên có thể > 2MB — router này tự parse JSON với
+// giới hạn riêng nên phải mount TRƯỚC express.json() toàn cục bên dưới.
+app.use('/api/client-snapshots', clientSnapshotRouter)
 app.use(express.json({ limit: '2mb' }))
 app.use(cookieParser())
 
@@ -110,6 +114,7 @@ app.use('/api/teacher-pay', teacherPayRouter)
 app.use('/api/admin/session-migration', sessionMigrationRouter)
 app.use('/api/admin/session-date-reconcile', sessionDateReconcileRouter)
 app.use('/api/admin/student-merges', studentMergeRouter)
+app.use('/api/admin/backups', adminBackupRouter)
 
 app.use((_req, res) => {
   notFound(res, 'Route not found.')

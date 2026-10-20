@@ -12,6 +12,7 @@ import { Sidebar } from '@/components/molecules/Sidebar'
 import { BottomNav } from '@/components/molecules/BottomNav'
 import { useAppStore } from '@/store/appStore'
 import { useAuthStore } from '@/store/authStore'
+import { startClientSnapshotLoop } from '@/utils/clientSnapshot'
 import { useQueryClient } from '@tanstack/react-query'
 import { useClasses, useClassStudents, useSessions, useClassScores, usePwaInstall, useTuitionUnpaidCount, STUDENT_KEYS } from '@/hooks'
 import { isMongoid } from '@/utils/mongoid'
@@ -621,6 +622,14 @@ export default function App() {
     })()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!data, user?.id])
+
+  // Bản chụp toàn bộ dữ liệu máy này gửi lên server (5 phút/lần khi có đổi +
+  // khi rời tab) — lưới an toàn kể cả với dữ liệu chưa lên server được. Xem
+  // utils/clientSnapshot.ts.
+  useEffect(() => {
+    if (!user || (user.role !== 'teacher' && user.role !== 'admin')) return
+    return startClientSnapshotLoop(user.id)
+  }, [user?.id, user?.role])
 
   if (!data) {
     return (

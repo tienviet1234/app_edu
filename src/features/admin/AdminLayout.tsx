@@ -13,6 +13,7 @@ const NAV = [
   { key: 'rubric',     label: 'Tiêu chí chấm',      icon: '✏️' },
   { key: 'analytics',  label: 'Phân tích',           icon: '📈' },
   { key: 'audit',      label: 'Nhật ký hệ thống',   icon: '📋' },
+  { key: 'backups',    label: 'Sao lưu',            icon: '💾' },
 ]
 
 interface AdminLayoutProps {
