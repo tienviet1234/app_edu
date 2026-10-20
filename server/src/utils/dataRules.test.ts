@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { decideIfAbsent, isStudentInClass, resolveScoreClassId, resolveSessionCreator } from './dataRules.js'
+import { decideIfAbsent, isStaleWrite, isStudentInClass, resolveScoreClassId, resolveSessionCreator } from './dataRules.js'
 
 describe('resolveScoreClassId', () => {
   it('lấy classId theo BUỔI HỌC, bỏ qua classId cũ máy gửi lên (học sinh vừa chuyển lớp)', () => {
@@ -23,6 +23,24 @@ describe('decideIfAbsent (đồng bộ nền / khôi phục — không bao giờ
   })
   it('buổi còn, chưa có điểm → ghi (VD tạo buổi được nhưng gửi điểm lỗi)', () => {
     expect(decideIfAbsent({ deletedAt: null }, null)).toBe('write')
+  })
+})
+
+describe('isStaleWrite (2 máy cùng sửa 1 buổi)', () => {
+  it('máy khác đã lưu bản MỚI HƠN bản máy này dựa vào → từ chối (không để bản lưu sau đè mất)', () => {
+    expect(isStaleWrite('2026-10-20T10:00:05.000Z', '2026-10-20T10:00:00.000Z')).toBe(true)
+  })
+  it('server vẫn đúng bản máy này đã dựa vào → cho ghi', () => {
+    expect(isStaleWrite('2026-10-20T10:00:00.000Z', '2026-10-20T10:00:00.000Z')).toBe(false)
+  })
+  it('không gửi base (buổi mới / dữ liệu cũ) → không kiểm tra, ghi như trước', () => {
+    expect(isStaleWrite('2026-10-20T10:00:00.000Z', undefined)).toBe(false)
+  })
+  it('server chưa có điểm → cho ghi', () => {
+    expect(isStaleWrite(null, '2026-10-20T10:00:00.000Z')).toBe(false)
+  })
+  it('base rác → không chặn nhầm', () => {
+    expect(isStaleWrite('2026-10-20T10:00:00.000Z', 'abc')).toBe(false)
   })
 })
 

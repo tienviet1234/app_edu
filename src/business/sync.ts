@@ -1,5 +1,5 @@
 import { isMongoid } from '@/utils/mongoid'
-import type { Session, SessionEntry } from '@/types'
+import type { OrphanRecord, Session, SessionConflict, SessionEntry } from '@/types'
 import { emptyEntry } from '@/business/seed'
 import { sameEntry } from '@/business/strandedScores'
 
@@ -72,7 +72,7 @@ export interface ServerSessionForSync {
 }
 
 /** Điểm của 1 buổi trên server (cùng hình dạng SessionEntry). */
-export type ServerScoreForSync = Omit<SessionEntry, 'ev'> & { sessionId: string; ev: unknown }
+export type ServerScoreForSync = Omit<SessionEntry, 'ev'> & { sessionId: string; ev: unknown; updatedAt?: string }
 
 const sameMaxes = (a?: Record<string, number>, b?: Record<string, number>) =>
   JSON.stringify(Object.entries(a ?? {}).sort()) === JSON.stringify(Object.entries(b ?? {}).sort())
@@ -143,6 +143,7 @@ export function syncStudentsFromServer(
         maxes: as.maxes,
         entry: score ? toSessionEntry(score) : emptyEntry(),
         synced: true,
+        baseUpdatedAt: score?.updatedAt,
       })
       changed = true
       continue
@@ -153,13 +154,20 @@ export function syncStudentsFromServer(
     if (local.date !== date) { local.date = date; changed = true }
     if (!!local.billed !== !!as.billed) { local.billed = as.billed; changed = true }
 
-    if (local.dirty) continue // sửa chưa lên server — không ghi đè ngược
+    // Sửa chưa lên server — không ghi đè ngược, và GIỮ NGUYÊN baseUpdatedAt
+    // (mốc bản server mà phần sửa dựa vào) để server phát hiện được nếu máy
+    // khác lưu chen vào giữa.
+    if (local.dirty) continue
     const serverEntry = score ? toSessionEntry(score) : null
     const serverHomework = as.notes ?? ''
+    const setBase = () => {
+      if (score?.updatedAt && local.baseUpdatedAt !== score.updatedAt) { local.baseUpdatedAt = score.updatedAt; changed = true }
+    }
     if (local.synced) {
       if (serverEntry && !sameEntry(local.entry, serverEntry)) { local.entry = serverEntry; changed = true }
       if ((local.homework ?? '') !== serverHomework) { local.homework = serverHomework; changed = true }
       if (as.maxes && !sameMaxes(local.maxes, as.maxes)) { local.maxes = as.maxes; changed = true }
+      setBase()
       continue
     }
     // Dữ liệu cũ, chưa biết đã khớp server chưa.
@@ -172,7 +180,7 @@ export function syncStudentsFromServer(
     const contentMatches = (serverEntry ? sameEntry(local.entry, serverEntry) : isBlankEntry(local.entry))
       && (local.homework ?? '') === serverHomework
       && (!as.maxes || sameMaxes(local.maxes, as.maxes))
-    if (contentMatches) { local.synced = true; changed = true }
+    if (contentMatches) { local.synced = true; changed = true; setBase() }
   }
 
   for (const st of students) {
@@ -202,6 +210,7 @@ export function adoptServerSession(
    *  sửa thêm trong lúc gửi). Không truyền = mới tạo buổi, điểm chưa gửi
    *  xong → giữ nguyên dirty (gửi điểm lỗi thì lần sau còn gửi lại). */
   sent?: SentContent,
+  serverUpdatedAt?: string,
 ): void {
   const temp = student.sessions.find((s) => s.id === tempId)
   if (!temp) return
@@ -211,6 +220,7 @@ export function adoptServerSession(
     if (serverNo) temp.no = serverNo
     if (sent) {
       temp.synced = true
+      if (serverUpdatedAt) temp.baseUpdatedAt = serverUpdatedAt
       if (sameContent(temp, sent)) temp.dirty = false
     }
     return
@@ -233,11 +243,89 @@ const sameContent = (s: Session, sent: SentContent) =>
  *  xóa cờ dirty nếu nội dung trên máy VẪN đúng là bản đã gửi — giáo viên gõ
  *  thêm trong lúc đang gửi thì vẫn còn dirty để lần sau gửi tiếp (không được
  *  coi là "đã lưu" phần chưa gửi). */
-export function markSessionSaved(student: { sessions: Session[] }, sessionId: string, sent: SentContent): void {
+export function markSessionSaved(
+  student: { sessions: Session[] },
+  sessionId: string,
+  sent: SentContent,
+  /** `updatedAt` server trả về cho bản vừa lưu — mốc cho lần sửa tiếp theo. */
+  serverUpdatedAt?: string,
+): void {
   const s = student.sessions.find((x) => x.id === sessionId)
   if (!s) return
   s.synced = true
+  if (serverUpdatedAt) s.baseUpdatedAt = serverUpdatedAt
+  s.conflict = undefined
   if (sameContent(s, sent)) s.dirty = false
+}
+
+/** Server từ chối lưu vì máy khác vừa lưu bản mới hơn (409 CONFLICT) — giữ bản
+ *  máy kia để giáo viên chọn. Bản trên máy giữ nguyên, vẫn dirty, bộ tự lưu
+ *  KHÔNG tự thử lại (phải có người chọn, không tự đè). */
+export function markConflict(student: { sessions: Session[] }, sessionId: string, server: SessionConflict): void {
+  const s = student.sessions.find((x) => x.id === sessionId)
+  if (s) s.conflict = server
+}
+
+/** Giáo viên chọn giữ bản nào khi 2 máy cùng sửa 1 buổi.
+ *  - 'mine': giữ bản trên máy này, lần lưu tới ghi đè bản máy kia (đã xem rồi
+ *    mới quyết định, không còn là "đè âm thầm").
+ *  - 'theirs': lấy bản máy kia, bỏ phần sửa trên máy này. */
+export function resolveConflict(student: { sessions: Session[] }, sessionId: string, choice: 'mine' | 'theirs'): void {
+  const s = student.sessions.find((x) => x.id === sessionId)
+  if (!s?.conflict) return
+  s.baseUpdatedAt = s.conflict.updatedAt
+  if (choice === 'theirs') {
+    s.entry = s.conflict.entry
+    s.dirty = false
+    s.synced = true
+  } else {
+    s.dirty = true
+  }
+  s.conflict = undefined
+}
+
+/** Buổi có dữ liệu CHƯA lên server: đã sửa chưa được xác nhận, hoặc chưa từng
+ *  lên server mà có nhập gì đó. */
+export function hasUnsavedData(s: Session): boolean {
+  if (s.dirty === true) return true
+  if (isMongoid(s.id)) return false
+  const e = s.entry
+  return !!s.homework?.trim() || !!(e && (
+    e.attendance !== 'present' || e.note?.trim()
+    || Object.keys(e.scores ?? {}).length || Object.keys(e.ticks ?? {}).length
+    || Object.keys(e.choice ?? {}).length || Object.keys(e.parts ?? {}).length || Object.keys(e.tags ?? {}).length
+  ))
+}
+
+/** Trước khi gỡ học sinh (không còn trong lớp) / gỡ cả lớp (không còn trên
+ *  server) khỏi máy: gom các buổi CHƯA lên server của họ vào kho giữ lại —
+ *  trước đây bị xóa luôn cùng học sinh/lớp, mất trắng. Học sinh không có gì
+ *  chưa lên thì không tạo bản ghi. */
+export function collectOrphans(
+  cls: { id: string; name: string; students: Array<{ id: string; name: string; sessions: Session[] }> },
+  removedStudentIds: Set<string> | 'all',
+  reason: OrphanRecord['reason'],
+  now = new Date().toISOString(),
+): OrphanRecord[] {
+  const out: OrphanRecord[] = []
+  for (const st of cls.students) {
+    if (removedStudentIds !== 'all' && !removedStudentIds.has(st.id)) continue
+    const sessions = st.sessions.filter(hasUnsavedData)
+    if (sessions.length) out.push({ classId: cls.id, className: cls.name, studentId: st.id, studentName: st.name, reason, removedAt: now, sessions })
+  }
+  return out
+}
+
+/** Thêm bản ghi vào kho giữ lại, KHÔNG trùng (cùng lớp + học sinh thì gộp,
+ *  buổi đã có trong kho thì bỏ qua) — hiệu ứng đồng bộ có thể chạy lại. */
+export function appendOrphans(existing: OrphanRecord[] | undefined, incoming: OrphanRecord[]): OrphanRecord[] {
+  const out = (existing ?? []).map((o) => ({ ...o, sessions: [...o.sessions] }))
+  for (const inc of incoming) {
+    const same = out.find((o) => o.classId === inc.classId && o.studentId === inc.studentId)
+    if (!same) { out.push({ ...inc, sessions: [...inc.sessions] }); continue }
+    for (const s of inc.sessions) if (!same.sessions.some((x) => x.id === s.id)) same.sessions.push(s)
+  }
+  return out
 }
 
 /** Các buổi máy này đã sửa mà server chưa xác nhận (hoặc chưa từng lên
@@ -246,7 +334,8 @@ export function pendingSessionsOf(students: Array<{ id: string; sessions: Sessio
   const out: Array<{ studentId: string; sessionId: string }> = []
   for (const st of students) {
     if (!isMongoid(st.id)) continue
-    for (const s of st.sessions) if (s.dirty === true) out.push({ studentId: st.id, sessionId: s.id })
+    // Buổi đang xung đột (2 máy cùng sửa) chờ người chọn — không tự gửi lại.
+    for (const s of st.sessions) if (s.dirty === true && !s.conflict) out.push({ studentId: st.id, sessionId: s.id })
   }
   return out
 }

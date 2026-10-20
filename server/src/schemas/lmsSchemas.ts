@@ -178,6 +178,9 @@ export const scoreBodySchema = z.object({
   // dùng cho đồng bộ nền/khôi phục từ bản chụp, không bao giờ ghi đè điểm
   // đã có (máy giữ bản cũ từng đè mất điểm mới hơn của máy khác).
   ifAbsent: z.boolean().optional(),
+  // Thời điểm bản điểm trên server mà máy đã dựa vào để sửa — server có bản
+  // mới hơn thì từ chối (409 CONFLICT), xem isStaleWrite.
+  baseUpdatedAt: z.string().max(40).optional(),
 })
 
 export const scoreUpdateSchema = scoreBodySchema.partial().omit({ centerId: true, classId: true, sessionId: true, studentId: true })

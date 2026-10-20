@@ -17,13 +17,16 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useClasses, useClassStudents, useSessions, useClassScores, usePwaInstall, useTuitionUnpaidCount, STUDENT_KEYS } from '@/hooks'
 import { isMongoid } from '@/utils/mongoid'
 import {
-  pruneGoneFromServer, syncStudentsFromServer, adoptServerSession, markSessionSaved, type ServerScoreForSync,
+  pruneGoneFromServer, syncStudentsFromServer, adoptServerSession, markSessionSaved, markConflict, toSessionEntry,
+  collectOrphans, appendOrphans, type ServerScoreForSync,
 } from '@/business/sync'
+import { getClassRubric } from '@/constants/rubrics'
+import { rescaleComp, sessionScore } from '@/business/scoring'
 import { autoLevel } from '@/constants/rubrics'
 import { collectScoreJobs, sameEntry } from '@/business/strandedScores'
 import { tryLockSession, unlockSession } from '@/utils/syncLocks'
 import { sessionService } from '@/services/sessions'
-import { scoreService } from '@/services/scores'
+import { scoreService, conflictFromError } from '@/services/scores'
 import { classService, type ApiClass } from '@/services/classes'
 import { toast } from '@/store/toastStore'
 import type { AppData, ClassData } from '@/types'
@@ -146,6 +149,7 @@ async function autoSyncStrandedScores(
   let fail = 0
   let recovered = 0
   const stuckSameDate: string[] = []
+  const conflicts: string[] = []
   for (const job of jobs) {
     if (!tryLockSession(job.sessionLocalId)) continue // Nhập điểm đang gửi đúng buổi này
     const sent = { entry: job.entry, homework: job.homework, maxes: job.maxes }
@@ -153,10 +157,22 @@ async function autoSyncStrandedScores(
       if (!job.needsCreate) {
         if (job.dirty) {
           // Máy đã SỬA mà server chưa xác nhận (lần lưu trước lỗi/đóng tab) →
-          // đây mới là bản mới nhất, gửi THẬT (ghi đè).
-          await sessionService.update(job.sessionLocalId, { notes: job.homework, ...(job.maxes ? { maxes: job.maxes } : {}) })
-          await scoreService.upsert({ classId: job.classId, sessionId: job.sessionLocalId, studentId: job.studentId, ...job.entry, total: job.total })
-          onStudent(job, (st) => markSessionSaved(st, job.sessionLocalId, sent))
+          // gửi THẬT, kèm mốc bản server đã dựa vào: máy khác đã lưu bản mới
+          // hơn trong lúc đó thì server từ chối, để giáo viên chọn (không đè).
+          try {
+            const saved = await scoreService.upsert({ classId: job.classId, sessionId: job.sessionLocalId, studentId: job.studentId, ...job.entry, total: job.total, baseUpdatedAt: job.baseUpdatedAt })
+            await sessionService.update(job.sessionLocalId, { notes: job.homework, ...(job.maxes ? { maxes: job.maxes } : {}) })
+            onStudent(job, (st) => markSessionSaved(st, job.sessionLocalId, sent, saved.updatedAt))
+          } catch (err) {
+            const conflict = conflictFromError(err)
+            if (!conflict) throw err
+            const sc = conflict.score
+            onStudent(job, (st) => markConflict(st, job.sessionLocalId, {
+              entry: toSessionEntry(sc as unknown as ServerScoreForSync), total: sc.total, updatedAt: sc.updatedAt,
+              byName: typeof sc.recordedBy === 'object' ? sc.recordedBy?.name : undefined,
+            }))
+            conflicts.push(`${job.studentName} (${job.date})`)
+          }
         } else {
           // Không sửa gì trên máy này → chỉ là bản sao, CHỈ điền nếu server
           // CHƯA có (VD tạo buổi được nhưng gửi điểm lỗi). TRƯỚC ĐÂY gửi đè vô
@@ -214,11 +230,46 @@ async function autoSyncStrandedScores(
   if (recovered > 0) {
     toast.success(`Đã khôi phục ${recovered} buổi học còn kẹt trên máy này lên server`, { persist: true })
   }
+  if (conflicts.length) {
+    toast.error(`${conflicts.length} buổi trên máy này đã được máy khác lưu bản khác: ${conflicts.join(', ')} — mở Nhập điểm của lớp đó để chọn giữ bản nào.`, { persist: true })
+  }
   if (stuckSameDate.length) {
     toast.error(`${stuckSameDate.length} buổi trên máy này trùng ngày với buổi đã có điểm trên server, chưa gộp (tránh ghi đè): ${stuckSameDate.join(', ')} — báo admin kiểm tra.`, { persist: true })
   }
   if (fail > 0) {
     toast.error(`${fail} buổi chưa đồng bộ được (lỗi mạng) — thử mở lại app sau`, { persist: true })
+  }
+}
+
+/** Kho giữ lại (học sinh/lớp đã bị gỡ khỏi máy khi còn dữ liệu chưa lên):
+ *  tự đẩy những buổi ĐÃ có trên server mà máy sửa chưa lên (dirty) — lớp vẫn
+ *  còn trên máy để tính đúng điểm theo tiêu chí lớp. Server từ chối (buổi đã
+ *  chuyển sang học sinh khác khi gộp tài khoản, máy khác đã lưu bản mới hơn...)
+ *  thì để nguyên trong kho cho admin xem — không ghi nhầm chỗ, không mất. Buổi
+ *  chưa từng lên server của học sinh đã rời lớp thì không tự tạo (server cũng
+ *  chặn NOT_IN_CLASS) — admin xử lý qua bản chụp. */
+async function autoSyncOrphans(data: AppData, setData: (fn: (d: AppData) => void) => void) {
+  for (const o of data.orphans ?? []) {
+    const cls = data.classes.find((c) => c.id === o.classId)
+    if (!cls) continue
+    const r = getClassRubric(cls)
+    for (const s of o.sessions) {
+      if (!isMongoid(s.id) || !s.dirty || s.conflict || !tryLockSession(s.id)) continue
+      try {
+        const mx = s.maxes ?? {}
+        const total = sessionScore(s.entry, { ...r, comps: r.comps.map((c) => (mx[c.key] != null ? rescaleComp(c, mx[c.key]) : c)) }) ?? 0
+        await scoreService.upsert({ classId: o.classId, sessionId: s.id, studentId: o.studentId, ...s.entry, total, baseUpdatedAt: s.baseUpdatedAt })
+        setData(produce((d: AppData) => {
+          const rec = d.orphans?.find((x) => x.classId === o.classId && x.studentId === o.studentId)
+          if (rec) rec.sessions = rec.sessions.filter((x) => x.id !== s.id)
+          d.orphans = d.orphans?.filter((x) => x.sessions.length)
+        }))
+      } catch (err) {
+        console.warn('autoSyncOrphans: chưa đẩy được, giữ lại trong kho', o.studentName, s.date, err)
+      } finally {
+        unlockSession(s.id)
+      }
+    }
   }
 }
 
@@ -368,11 +419,23 @@ export default function App() {
   const apiAllClassesKey = apiAllClasses?.items.map((c) => c._id).join(',') ?? ''
   useEffect(() => {
     if (!data || !apiAllClasses) return
+    // Danh sách lớp bị CẮT (server trả tối đa 100/trang) → không biết chắc lớp
+    // nào thật sự đã xóa, KHÔNG gỡ gì (trước đây lớp ngoài trang đầu bị coi là
+    // đã xóa, gỡ khỏi máy kèm mọi dữ liệu chưa lên server).
+    if (apiAllClasses.total > apiAllClasses.items.length) return
     const validIds = new Set(apiAllClasses.items.map((c) => c._id))
-    const hasStale = data.classes.some((c) => isMongoid(c.id) && !validIds.has(c.id))
-    if (!hasStale) return
+    const removed = data.classes.filter((c) => isMongoid(c.id) && !validIds.has(c.id))
+    if (!removed.length) return
     const kept = data.classes.filter((c) => !isMongoid(c.id) || validIds.has(c.id))
-    setData(produce((d: AppData) => { d.classes = kept }))
+    // Dữ liệu chưa lên server của lớp bị gỡ → kho giữ lại, không xóa trắng.
+    const orphans = removed.flatMap((c) => collectOrphans(c, 'all', 'classRemoved'))
+    setData(produce((d: AppData) => {
+      d.classes = kept
+      if (orphans.length) d.orphans = appendOrphans(d.orphans, orphans)
+    }))
+    if (orphans.length) {
+      toast.error(`Lớp ${removed.map((c) => c.name).join(', ')} không còn trên server — đã GIỮ LẠI ${orphans.reduce((n, o) => n + o.sessions.length, 0)} buổi chưa lên server trên máy này, báo admin để xử lý.`, { persist: true })
+    }
     if (currentClassIndex >= kept.length) setCurrentClass(Math.max(0, kept.length - 1))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiAllClassesKey, !!data])
@@ -436,9 +499,19 @@ export default function App() {
   const apiStudentsKey = apiStudents?.map((s) => s._id).join(',') ?? ''
   useEffect(() => {
     if (!apiStudents?.length || !cls || !isMongoid(cls.id)) return
+    const apiIds = new Set(apiStudents.map((s) => s._id))
+    // Học sinh sắp bị gỡ (gộp/chuyển lớp) mà còn dữ liệu chưa lên server →
+    // kho giữ lại, không xóa trắng cùng học sinh như trước.
+    const removedIds = new Set(cls.students.filter((s) => isMongoid(s.id) && !apiIds.has(s.id)).map((s) => s.id))
+    const orphans = removedIds.size ? collectOrphans(cls, removedIds, 'studentRemoved') : []
+    if (orphans.length) {
+      toast.error(`${orphans.map((o) => o.studentName).join(', ')} không còn trong ${cls.name} — đã GIỮ LẠI ${orphans.reduce((n, o) => n + o.sessions.length, 0)} buổi chưa lên server trên máy này, báo admin để xử lý.`, { persist: true })
+    }
+    const classId = cls.id
     setData(produce((d: AppData) => {
-      const localCls = d.classes[currentClassIndex]
-      const apiIds = new Set(apiStudents.map((s) => s._id))
+      const localCls = d.classes.find((c) => c.id === classId)
+      if (!localCls) return
+      if (orphans.length) d.orphans = appendOrphans(d.orphans, orphans)
       apiStudents.forEach((apiSt) => {
         const existing = localCls.students.find((s) => s.id === apiSt._id)
         if (existing) {
@@ -521,6 +594,8 @@ export default function App() {
         await autoSyncStrandedStudents(data.classes, setData, queryClient)
         const fresh = useAppStore.getState().data
         if (fresh) await autoSyncStrandedScores(fresh.classes, setData)
+        const afterScores = useAppStore.getState().data
+        if (afterScores?.orphans?.length) await autoSyncOrphans(afterScores, setData)
       } catch (err) {
         // Trước đây lỗi ở đây biến mất hoàn toàn (không try/catch), khiến
         // điểm không lên được server mà không ai biết vì sao — giờ luôn báo

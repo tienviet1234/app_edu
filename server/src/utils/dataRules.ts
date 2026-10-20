@@ -27,6 +27,18 @@ export function decideIfAbsent(
   return 'write'
 }
 
+/** 2 máy cùng sửa 1 buổi: máy gửi kèm `baseUpdatedAt` = thời điểm bản điểm
+ *  trên server mà nó đã dựa vào để sửa. Server đã có bản MỚI HƠN thế (máy khác
+ *  vừa lưu) → ghi lúc này là đè mất phần máy kia vừa sửa ("bản lưu sau thắng")
+ *  → từ chối, để giáo viên chọn giữ bản nào. Không gửi base (buổi mới, dữ liệu
+ *  cũ) → không kiểm tra được, ghi như trước. */
+export function isStaleWrite(existingUpdatedAt: Date | string | undefined | null, baseUpdatedAt: string | undefined | null): boolean {
+  if (!baseUpdatedAt || !existingUpdatedAt) return false
+  const base = new Date(baseUpdatedAt).getTime()
+  if (Number.isNaN(base)) return false
+  return new Date(existingUpdatedAt).getTime() > base
+}
+
 /** Học sinh còn trong lớp không — tạo buổi kiểu placeByDate (đồng bộ nền /
  *  khôi phục) cho học sinh đã gộp/chuyển khỏi lớp sẽ hồi sinh dữ liệu cũ. */
 export function isStudentInClass(cls: { studentIds?: IdLike[] } | null | undefined, studentId: string): boolean {

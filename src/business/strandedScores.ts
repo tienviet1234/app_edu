@@ -20,6 +20,8 @@ export interface ScoreJob {
   /** Máy đã sửa mà server chưa xác nhận — xem Session.dirty. */
   dirty: boolean
   maxes?: Record<string, number>
+  /** Mốc bản server máy dựa vào — xem Session.baseUpdatedAt. */
+  baseUpdatedAt?: string
 }
 
 /** Gom mọi buổi có dữ liệu của các lớp/học sinh ĐÃ có id server. Dùng chung
@@ -35,6 +37,7 @@ export function collectScoreJobs(classes: ClassData[]): ScoreJob[] {
       for (const stu of c.students) {
         if (!isMongoid(stu.id)) continue
         for (const s of stu.sessions) {
+          if (s.conflict) continue // 2 máy cùng sửa — chờ giáo viên chọn bản nào, không tự gửi
           const maxes = s.maxes ?? {}
           const comps = r.comps.map((comp) => (maxes[comp.key] != null ? rescaleComp(comp, maxes[comp.key]) : comp))
           const score = sessionScore(s.entry, { ...r, comps })
@@ -49,7 +52,7 @@ export function collectScoreJobs(classes: ClassData[]): ScoreJob[] {
             classId: c.id, className: c.name, studentId: stu.id, studentName: stu.name,
             sessionLocalId: s.id, no: s.no, date: s.date, entry: s.entry, total: score ?? 0,
             homework: s.homework ?? '', needsCreate: !isMongoid(s.id),
-            dirty: s.dirty === true, maxes: s.maxes,
+            dirty: s.dirty === true, maxes: s.maxes, baseUpdatedAt: s.baseUpdatedAt,
           })
         }
       }

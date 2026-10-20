@@ -54,12 +54,17 @@ function normalizeSession(s: unknown, i: number): Session {
     billed: raw.billed,
     dirty: raw.dirty,
     synced: raw.synced,
+    baseUpdatedAt: raw.baseUpdatedAt,
+    conflict: raw.conflict,
   }
 }
 
 export function normalize(d: unknown): AppData {
-  const raw = d as { classes?: unknown[] }
+  const raw = d as { classes?: unknown[]; orphans?: AppData['orphans'] }
   return {
+    // Kho giữ lại dữ liệu chưa lên server của học sinh/lớp đã bị gỡ — mất
+    // field này là mất đúng phần dữ liệu đang được cứu.
+    orphans: (raw.orphans ?? []).map((o) => ({ ...o, sessions: (o.sessions ?? []).map((x, i) => normalizeSession(x, i)) })),
     classes: (raw.classes ?? []).map((cRaw) => {
       const c = cRaw as Record<string, unknown> & {
         id?: string; name?: string; teacher?: string; level?: string; perMonth?: number

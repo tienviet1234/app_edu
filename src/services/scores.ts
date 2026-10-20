@@ -40,6 +40,16 @@ export interface UpsertScoreBody {
    *  xóa) — trả về `skipped: true` (kèm điểm đang có) thay vì ghi đè. Dùng
    *  cho đồng bộ nền/khôi phục, không dùng khi giáo viên đang tự sửa điểm. */
   ifAbsent?: boolean
+  /** Mốc bản server máy đã dựa vào để sửa — server có bản mới hơn (máy khác
+   *  vừa lưu) thì trả 409 CONFLICT thay vì đè mất. Xem Session.baseUpdatedAt. */
+  baseUpdatedAt?: string
+}
+
+/** Đọc bản điểm máy kia từ lỗi 409 CONFLICT (null nếu không phải lỗi này). */
+export function conflictFromError(err: unknown): { score: ApiScore & { recordedBy?: { name?: string } | string } } | null {
+  const resp = (err as { response?: { status?: number; data?: { code?: string; data?: { score?: ApiScore } } } }).response
+  if (resp?.status !== 409 || resp.data?.code !== 'CONFLICT' || !resp.data.data?.score) return null
+  return { score: resp.data.data.score as ApiScore & { recordedBy?: { name?: string } | string } }
 }
 
 export type UpsertScoreResult = ApiScore & { skipped?: boolean; deleted?: boolean }

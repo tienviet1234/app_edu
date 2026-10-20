@@ -9,7 +9,10 @@ import { sessionScore, rescaleComp, detectMissingComps } from '@/business/scorin
 import { sessionStatusFragments } from '@/business/report'
 import { periodPositionOf, sessionLabelOf } from '@/business/tuition'
 import { emptyEntry } from '@/business/seed'
-import { resolvePlausibleNo, pendingSessionsOf, adoptServerSession, markSessionSaved } from '@/business/sync'
+import {
+  resolvePlausibleNo, pendingSessionsOf, adoptServerSession, markSessionSaved, markConflict, resolveConflict,
+  toSessionEntry, type ServerScoreForSync,
+} from '@/business/sync'
 import { sameEntry } from '@/business/strandedScores'
 import { tryLockSession, unlockSession } from '@/utils/syncLocks'
 import { Card } from '@/components/atoms/Card'
@@ -19,7 +22,7 @@ import { Chip } from '@/components/atoms/Chip'
 import { ProgressBar } from '@/components/atoms/ProgressBar'
 import { CompEditor } from '@/components/molecules/CompEditor'
 import { sessionService } from '@/services/sessions'
-import { scoreService } from '@/services/scores'
+import { scoreService, conflictFromError } from '@/services/scores'
 import { classService } from '@/services/classes'
 import { isMongoid } from '@/utils/mongoid'
 import { logActivity } from '@/services/activity'
@@ -406,17 +409,26 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
           setNoByStudent((prev) => ({ ...prev, [studentId]: finalNo }))
         }
         logActivity('session.create', { className: cls.name, sessionNo: target.no, studentName: student.name }, 'ClassSession')
-      } else {
+      }
+      // Điểm gửi TRƯỚC, kèm mốc bản server máy này dựa vào (baseUpdatedAt) —
+      // máy khác lưu chen vào giữa thì server từ chối (409 CONFLICT) thay vì
+      // để bản lưu sau âm thầm đè mất bản kia. Bị từ chối thì bài tập/số câu
+      // cũng chưa gửi (đợi giáo viên chọn bản nào).
+      let savedUpdatedAt: string | undefined
+      if (!scoreAlreadySaved) {
+        const saved = await scoreService.upsert({ classId: cls.id, sessionId, studentId, ...target.entry, total, ...(wasNew ? {} : { baseUpdatedAt: target.baseUpdatedAt }) })
+        savedUpdatedAt = saved.updatedAt
+      }
+      if (!wasNew) {
         // Buổi đã có sẵn trên server — gửi kèm "Bài tập về nhà" + "Số câu"
         // (trước đây bài tập không bao giờ được gửi, số câu thì chỉ nằm trên
         // máy → máy khác tính % theo số câu mặc định).
         await sessionService.update(sessionId, { notes: target.homework ?? '', ...(target.maxes ? { maxes: target.maxes } : {}) })
       }
-      if (!scoreAlreadySaved) await scoreService.upsert({ classId: cls.id, sessionId, studentId, ...target.entry, total })
       const savedId = sessionId
       update((c) => {
         const stu = c.students.find((s) => s.id === studentId)
-        if (stu) markSessionSaved(stu, savedId, sent)
+        if (stu) markSessionSaved(stu, savedId, sent, savedUpdatedAt)
       })
       failedAtRef.current.delete(sessionLocalId)
       setSyncStatus('saved')
@@ -432,6 +444,20 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
       else toast.success(`✓ Đã lưu điểm ${label} của ${student.name}`)
     } catch (err) {
       setSyncStatus('error')
+      const conflict = conflictFromError(err)
+      if (conflict) {
+        // 2 máy cùng sửa buổi này — giữ cả 2 bản, giáo viên chọn ở thanh
+        // "Buổi bị sửa ở 2 nơi" phía trên (không tự đè, không tự thử lại).
+        const sc = conflict.score
+        const byName = typeof sc.recordedBy === 'object' ? sc.recordedBy?.name : undefined
+        const localId = target.id
+        update((c) => {
+          const stu = c.students.find((s) => s.id === studentId)
+          if (stu) markConflict(stu, localId, { entry: toSessionEntry(sc as unknown as ServerScoreForSync), total: sc.total, updatedAt: sc.updatedAt, byName })
+        })
+        toast.error(`${label} của ${student.name} vừa được ${byName ?? 'người khác'} lưu bản khác ở máy khác — chọn giữ bản nào ở thanh vàng phía trên màn Nhập điểm.`, { persist: true })
+        return
+      }
       // Nêu đúng lý do server từ chối (VD "đã có Buổi N rồi") thay vì câu
       // chung chung — trước đây giáo viên chỉ thấy "Lỗi lưu điểm", tưởng
       // không nhập được buổi mới trong khi thật ra server đang từ chối vì
@@ -727,6 +753,13 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   // bù nhiều buổi dồn dập, chọn nhầm số). Chặn "✓ Xác nhận" ở hộp thoại lưu
   // cho tới khi giáo viên tự tick đã kiểm tra, để không lỡ bấm qua như trước.
   const orderConflict = st?.sessions.find((s) => (s.no < selectedNo && s.date > effectiveDate) || (s.no > selectedNo && s.date < effectiveDate))
+  // Buổi đang xung đột (2 máy cùng sửa) — hiện ở thanh vàng đầu màn để chọn.
+  const conflicts = cls.students.flatMap((stu) => stu.sessions.filter((s) => s.conflict).map((s) => ({ stu, s })))
+  const totalOf = (s: Session) => {
+    const mx = s.maxes ?? {}
+    return sessionScore(s.entry, { ...r, comps: r.comps.map((c) => (mx[c.key] != null ? rescaleComp(c, mx[c.key]) : c)) })
+  }
+
   const done = cls.students.filter((s) => {
     const ss = s.sessions.find((x) => x.no === noOf(s.id))
     return ss ? sessionScore(ss.entry, r2) !== null : false
@@ -746,6 +779,33 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
 
   return (
     <div className="space-y-3">
+      {conflicts.length > 0 && (
+        <Card className="p-3 space-y-2">
+          <div className="text-sm font-bold" style={{ color: C.amber }}>
+            ⚠ {conflicts.length} buổi bị sửa ở 2 nơi cùng lúc — chọn giữ bản nào (chưa bản nào bị ghi đè)
+          </div>
+          {conflicts.map(({ stu, s }) => (
+            <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl p-2 text-sm" style={{ border: `1px solid ${C.gold}55`, background: C.gold + '12' }}>
+              <span style={{ color: C.ink }}>
+                <b>{stu.name}</b> · {sessionLabelOf(s.no, cls.perMonth, stu.sessionOffset)} · {viDate(s.date)}
+                <span style={{ color: C.muted }}>
+                  {' '}— máy này: <b>{totalOf(s) ?? '—'}đ</b> · bản {s.conflict!.byName ? `của ${s.conflict!.byName}` : 'máy kia'}: <b>{s.conflict!.total}đ</b>
+                </span>
+              </span>
+              <span className="flex gap-2">
+                <Btn size="sm" kind="outline-primary" onClick={() => update((c) => {
+                  const st2 = c.students.find((x) => x.id === stu.id)
+                  if (st2) resolveConflict(st2, s.id, 'mine')
+                })}>Giữ bản của tôi</Btn>
+                <Btn size="sm" onClick={() => update((c) => {
+                  const st2 = c.students.find((x) => x.id === stu.id)
+                  if (st2) resolveConflict(st2, s.id, 'theirs')
+                })}>Dùng bản máy kia</Btn>
+              </span>
+            </div>
+          ))}
+        </Card>
+      )}
       <Card className="p-3">
         {/* Toolbar */}
         <div className="flex flex-wrap items-center gap-2">

@@ -118,6 +118,35 @@ export interface Session {
    *  máy khác sửa. Không có (dữ liệu cũ trước bản cập nhật) = không biết bản
    *  nào đúng → không tự ghi đè bằng bản server. */
   synced?: boolean
+  /** CHỈ trên máy. `updatedAt` của bản điểm trên server mà nội dung máy đang
+   *  dựa vào — gửi kèm khi lưu để server phát hiện máy khác đã lưu bản mới
+   *  hơn trong lúc máy này sửa (2 máy cùng sửa 1 buổi → trước đây bản lưu sau
+   *  âm thầm đè mất bản kia). */
+  baseUpdatedAt?: string
+  /** CHỈ trên máy. Server từ chối lưu vì máy khác đã lưu bản mới hơn — giữ bản
+   *  máy kia ở đây để giáo viên tự chọn giữ bản nào (xem resolveConflict). */
+  conflict?: SessionConflict
+}
+
+export interface SessionConflict {
+  entry: SessionEntry
+  total: number
+  updatedAt: string
+  byName?: string
+}
+
+/** Buổi CHƯA lên server (sửa dở / chưa tạo) của học sinh vừa bị gỡ khỏi lớp
+ *  (gộp/chuyển lớp) hoặc của lớp vừa bị gỡ khỏi máy — trước đây bị xóa luôn
+ *  cùng học sinh/lớp, mất trắng. Giờ giữ lại ở đây (cũng có trong bản chụp
+ *  sao lưu gửi server), đẩy được thì tự đẩy, còn lại admin xử lý. */
+export interface OrphanRecord {
+  classId: string
+  className: string
+  studentId: string
+  studentName: string
+  reason: 'studentRemoved' | 'classRemoved'
+  removedAt: string
+  sessions: Session[]
 }
 
 // ─── Extra scoring component (admin-added)────────────────────────────────────
@@ -181,6 +210,8 @@ export interface ClassData {
 // ─── App Data ─────────────────────────────────────────────────────────────────
 export interface AppData {
   classes: ClassData[]
+  /** Dữ liệu chưa lên server của học sinh/lớp đã bị gỡ khỏi máy — xem OrphanRecord. */
+  orphans?: OrphanRecord[]
 }
 
 // ─── Rank ─────────────────────────────────────────────────────────────────────

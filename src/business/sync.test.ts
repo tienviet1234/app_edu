@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   pruneGoneFromServer, resolvePlausibleNo, syncStudentsFromServer, adoptServerSession, pendingSessionsOf, markSessionSaved,
+  markConflict, resolveConflict, collectOrphans, appendOrphans,
   type ServerSessionForSync, type ServerScoreForSync,
 } from './sync'
 import { emptyEntry, normalize } from './seed'
@@ -12,6 +13,17 @@ describe('normalize (mở app)', () => {
       { id: 'x', no: 1, date: '2026-10-01', billed: true, dirty: true, synced: true, maxes: { mini: 30 }, entry: {} },
     ] }] }] })
     expect(d.classes[0].students[0].sessions[0]).toMatchObject({ billed: true, dirty: true, synced: true, maxes: { mini: 30 } })
+  })
+
+  it('GIỮ mốc baseUpdatedAt, xung đột đang chờ chọn, và kho giữ lại (orphans)', () => {
+    const conflict = { entry: emptyEntry(), total: 0, updatedAt: 't1' }
+    const d = normalize({
+      classes: [{ id: 'c', students: [{ id: 's', sessions: [{ id: 'x', no: 1, date: '2026-10-01', baseUpdatedAt: 't0', conflict, entry: {} }] }] }],
+      orphans: [{ classId: 'c', className: 'Lớp 2', studentId: 's', studentName: 'A', reason: 'studentRemoved', removedAt: 'now', sessions: [{ id: 'y', no: 2, date: '2026-10-02', dirty: true, entry: { attendance: 'absent' } }] }],
+    })
+    expect(d.classes[0].students[0].sessions[0]).toMatchObject({ baseUpdatedAt: 't0', conflict })
+    expect(d.orphans?.[0].sessions[0]).toMatchObject({ id: 'y', dirty: true })
+    expect(d.orphans?.[0].sessions[0].entry.attendance).toBe('absent')
   })
 })
 
@@ -271,6 +283,93 @@ describe('markSessionSaved / adopt khi giáo viên gõ thêm trong lúc đang g�
     const student = { sessions: [sess({ id: 'local-1', dirty: true, entry: { ...emptyEntry(), scores: { mini: 7, listen: 2 } } })] }
     adoptServerSession(student, 'local-1', SV2, 5, { entry: sentEntry, homework: '' })
     expect(student.sessions[0]).toMatchObject({ id: SV2, no: 5, dirty: true, synced: true })
+  })
+})
+
+describe('2 máy cùng sửa 1 buổi (baseUpdatedAt / conflict)', () => {
+  const T0 = '2026-10-20T10:00:00.000Z'
+  const T1 = '2026-10-20T10:05:00.000Z'
+
+  it('đồng bộ ghi lại mốc bản server máy đang dựa vào', () => {
+    const { sessions } = run([sess({ synced: true })], [serverSess()], [serverScore({ updatedAt: T0 })])
+    expect(sessions[0].baseUpdatedAt).toBe(T0)
+  })
+
+  it('máy đang sửa dở → GIỮ mốc cũ (để server phát hiện máy khác lưu chen vào)', () => {
+    const { sessions } = run([sess({ synced: true, dirty: true, baseUpdatedAt: T0 })], [serverSess()], [serverScore({ updatedAt: T1 })])
+    expect(sessions[0].baseUpdatedAt).toBe(T0)
+  })
+
+  it('lưu xong → mốc = thời điểm server trả về, hết xung đột', () => {
+    const entry = { ...emptyEntry(), scores: { mini: 7 } }
+    const student = { sessions: [sess({ dirty: true, entry, baseUpdatedAt: T0, conflict: { entry, total: 1, updatedAt: T0 } })] }
+    markSessionSaved(student, SV1, { entry, homework: '' }, T1)
+    expect(student.sessions[0]).toMatchObject({ baseUpdatedAt: T1, dirty: false })
+    expect(student.sessions[0].conflict).toBeUndefined()
+  })
+
+  it('bị từ chối vì máy khác lưu bản mới hơn → giữ cả 2 bản, bộ tự lưu KHÔNG tự gửi lại (không tự đè)', () => {
+    const student = { id: STU, sessions: [sess({ dirty: true, entry: { ...emptyEntry(), scores: { mini: 5 } } })] }
+    markConflict(student, SV1, { entry: { ...emptyEntry(), scores: { mini: 9 } }, total: 80, updatedAt: T1, byName: 'cô Thương' })
+    expect(student.sessions[0].entry.scores).toEqual({ mini: 5 })
+    expect(student.sessions[0].conflict?.byName).toBe('cô Thương')
+    expect(pendingSessionsOf([student])).toEqual([])
+  })
+
+  it('chọn "Dùng bản máy kia" → lấy bản kia, hết dirty, mốc = bản kia', () => {
+    const student = { sessions: [sess({ dirty: true, entry: { ...emptyEntry(), scores: { mini: 5 } }, conflict: { entry: { ...emptyEntry(), scores: { mini: 9 } }, total: 80, updatedAt: T1 } })] }
+    resolveConflict(student, SV1, 'theirs')
+    expect(student.sessions[0]).toMatchObject({ dirty: false, synced: true, baseUpdatedAt: T1 })
+    expect(student.sessions[0].entry.scores).toEqual({ mini: 9 })
+  })
+
+  it('chọn "Giữ bản của tôi" → giữ bản máy này, vẫn dirty, mốc = bản kia (lần lưu tới được ghi đè có chủ đích)', () => {
+    const student = { id: STU, sessions: [sess({ dirty: true, entry: { ...emptyEntry(), scores: { mini: 5 } }, conflict: { entry: emptyEntry(), total: 0, updatedAt: T1 } })] }
+    resolveConflict(student, SV1, 'mine')
+    expect(student.sessions[0]).toMatchObject({ dirty: true, baseUpdatedAt: T1 })
+    expect(student.sessions[0].entry.scores).toEqual({ mini: 5 })
+    expect(pendingSessionsOf([student])).toHaveLength(1)
+  })
+})
+
+describe('collectOrphans (học sinh/lớp bị gỡ khỏi máy khi còn dữ liệu chưa lên server)', () => {
+  const cls = {
+    id: 'c'.repeat(24), name: 'Lớp 2',
+    students: [
+      { id: STU, name: 'Linh Đan', sessions: [
+        sess({ id: SV1, synced: true }),                                   // đã lên server, không sửa → không giữ
+        sess({ id: SV2, dirty: true }),                                     // sửa chưa lên → GIỮ
+        sess({ id: 'local-1', entry: { ...emptyEntry(), scores: { mini: 6 } } }), // chưa từng lên, có điểm → GIỮ
+        sess({ id: 'local-2' }),                                            // chưa lên nhưng trống → không giữ
+        sess({ id: 'local-3', entry: { ...emptyEntry(), attendance: 'excused' } }), // chỉ có vắng phép → GIỮ
+      ] },
+      { id: 'e'.repeat(24), name: 'Việt An', sessions: [sess({ id: SV1, synced: true })] },
+    ],
+  }
+
+  it('học sinh bị gỡ: giữ ĐÚNG các buổi chưa lên server, kèm lớp/tên để admin biết của ai', () => {
+    const [o, ...rest] = collectOrphans(cls, new Set([STU]), 'studentRemoved', 'now')
+    expect(rest).toHaveLength(0)
+    expect(o).toMatchObject({ className: 'Lớp 2', studentName: 'Linh Đan', reason: 'studentRemoved' })
+    expect(o.sessions.map((s) => s.id)).toEqual([SV2, 'local-1', 'local-3'])
+  })
+
+  it('học sinh không có gì chưa lên → không tạo bản ghi', () => {
+    expect(collectOrphans(cls, new Set(['e'.repeat(24)]), 'studentRemoved')).toEqual([])
+  })
+
+  it('cả lớp bị gỡ → gom của mọi học sinh trong lớp', () => {
+    expect(collectOrphans(cls, 'all', 'classRemoved')).toHaveLength(1)
+  })
+
+  it('thêm vào kho 2 lần (hiệu ứng chạy lại) → KHÔNG trùng; buổi mới của cùng học sinh thì gộp vào', () => {
+    const first = collectOrphans(cls, new Set([STU]), 'studentRemoved', 'now')
+    const twice = appendOrphans(appendOrphans([], first), first)
+    expect(twice).toHaveLength(1)
+    expect(twice[0].sessions).toHaveLength(3)
+    const more = appendOrphans(twice, [{ ...first[0], sessions: [sess({ id: 'local-9', dirty: true })] }])
+    expect(more[0].sessions.map((s) => s.id)).toContain('local-9')
+    expect(more[0].sessions).toHaveLength(4)
   })
 })
 

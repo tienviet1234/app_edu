@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { AppData } from '@/types'
+import type { AppData, OrphanRecord } from '@/types'
 import { normalize } from '@/business/seed'
 import {
   classifyScoreJobs, collectScoreJobs, countUnsyncedStudentsWithData, sameEntry,
@@ -19,6 +19,8 @@ interface DeviceScan {
   snapshot: ClientSnapshotMeta
   items: Array<ClassifiedJob & { result?: 'done' | 'already' | 'conflict' | 'deleted' | 'error'; error?: string }>
   unsyncedStudents: Array<{ className: string; studentName: string; sessions: number }>
+  /** Kho giữ lại trên máy đó — dữ liệu chưa lên server của học sinh/lớp đã bị gỡ. */
+  orphans: OrphanRecord[]
 }
 
 const ACTIONABLE: JobKind[] = ['create', 'fill', 'fillExisting']
@@ -67,10 +69,10 @@ export function StrandedRecoveryCard({ snapshots }: { snapshots: ClientSnapshotM
     setScanning(true)
     setScans(null)
     try {
-      const contents: Array<{ snapshot: ClientSnapshotMeta; classes: AppData['classes'] }> = []
+      const contents: Array<{ snapshot: ClientSnapshotMeta; classes: AppData['classes']; orphans: OrphanRecord[] }> = []
       for (const snap of latestPerDevice) {
         const { data } = await backupService.snapshotContent(snap._id)
-        contents.push({ snapshot: snap, classes: toClasses(data) })
+        contents.push({ snapshot: snap, classes: toClasses(data), orphans: normalize(data).orphans ?? [] })
       }
       // Tải dữ liệu server 1 lần cho mỗi lớp xuất hiện trong các bản chụp.
       const classIds = [...new Set(contents.flatMap((c) => collectScoreJobs(c.classes).map((j) => j.classId)))]
@@ -92,10 +94,11 @@ export function StrandedRecoveryCard({ snapshots }: { snapshots: ClientSnapshotM
           scores: x.scores, ticks: x.ticks, choice: x.choice, parts: x.parts,
         })))
       }
-      setScans(contents.map(({ snapshot, classes }) => ({
+      setScans(contents.map(({ snapshot, classes, orphans }) => ({
         snapshot,
         items: classifyScoreJobs(collectScoreJobs(classes), serverSessions, serverScores, roster),
         unsyncedStudents: countUnsyncedStudentsWithData(classes),
+        orphans,
       })))
     } catch (err) {
       const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message
@@ -221,6 +224,17 @@ export function StrandedRecoveryCard({ snapshots }: { snapshots: ClientSnapshotM
                 </div>
               )
             })}
+            {s.orphans.length > 0 && (
+              <div className="text-sm space-y-1" style={{ color: C.amber }}>
+                <div className="font-semibold">⚠ Dữ liệu giữ lại của học sinh/lớp đã bị gỡ khỏi máy (chưa lên server — cần nhập lại tay vào đúng học sinh):</div>
+                {s.orphans.map((o) => (
+                  <div key={`${o.classId}|${o.studentId}`} style={{ color: C.ink }}>
+                    {o.className} · {o.studentName} ({o.reason === 'classRemoved' ? 'lớp không còn' : 'đã rời lớp'}):{' '}
+                    {o.sessions.map((x) => `${viDate(x.date)}${x.entry.attendance === 'excused' ? ' vắng phép' : x.entry.attendance === 'absent' ? ' vắng' : ''}`).join(', ')}
+                  </div>
+                ))}
+              </div>
+            )}
             {s.unsyncedStudents.length > 0 && (
               <div className="text-sm" style={{ color: C.amber }}>
                 ⚠ Học sinh chưa có trên server (cần thêm tay): {s.unsyncedStudents.map((u) => `${u.studentName} (${u.className}, ${u.sessions} buổi)`).join(', ')}

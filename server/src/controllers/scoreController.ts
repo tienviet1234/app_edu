@@ -9,7 +9,7 @@ import { paginate } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit } from '../services/auditService.js'
 import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
-import { decideIfAbsent, resolveScoreClassId } from '../utils/dataRules.js'
+import { decideIfAbsent, isStaleWrite, resolveScoreClassId } from '../utils/dataRules.js'
 
 /** Giáo viên chỉ được đọc/ghi điểm của lớp MÌNH dạy (kể cả giáo viên PHỤ,
  *  `assistantTeacherIds` — 1 lớp có thể do 2 giáo viên cùng quản lý) — admin
@@ -108,11 +108,12 @@ export async function upsertScore(req: Request, res: Response): Promise<void> {
   const authReq = req as AuthRequest
   const { role } = authReq.user!
   const userId = authReq.userId!
-  const { sessionId, studentId, classId, ifAbsent, ...rest } = req.body as {
+  const { sessionId, studentId, classId, ifAbsent, baseUpdatedAt, ...rest } = req.body as {
     sessionId: string
     studentId: string
     classId: string
     ifAbsent?: boolean
+    baseUpdatedAt?: string
     [key: string]: unknown
   }
 
@@ -148,6 +149,14 @@ export async function upsertScore(req: Request, res: Response): Promise<void> {
     }
     if (decision === 'skipExisting') {
       ok(res, { ...existing, skipped: true })
+      return
+    }
+  } else if (baseUpdatedAt) {
+    // 2 máy cùng sửa 1 buổi — máy khác đã lưu bản mới hơn bản máy này dựa vào.
+    const existing = await Score.findOne({ sessionId: new Types.ObjectId(sessionId), studentId: new Types.ObjectId(studentId) })
+      .populate('recordedBy', 'name').lean()
+    if (existing && isStaleWrite(existing.updatedAt as Date, baseUpdatedAt)) {
+      res.status(409).json({ success: false, code: 'CONFLICT', message: 'Buổi này vừa được lưu bản mới hơn ở máy khác.', data: { score: existing } })
       return
     }
   }
