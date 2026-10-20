@@ -43,6 +43,9 @@ export const sessionService = {
     scheduledAt?: string
     durationMinutes?: number
     notes?: string
+    /** Đẩy buổi KẸT trên máy lên — server tự xếp đúng vị trí theo ngày,
+     *  không từ chối vì trùng số (409 SAME_DATE nếu đã có buổi cùng ngày). */
+    placeByDate?: boolean
   }) =>
     api.post<{ data: ApiSession }>('/sessions', body).then((r) => r.data.data),
 

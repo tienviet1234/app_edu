@@ -7,7 +7,7 @@ import { parsePagination } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit } from '../services/auditService.js'
 import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
-import { renumberSessions, RenumberValidationError } from '../services/sessionRenumberService.js'
+import { renumberSessions, RenumberValidationError, createSessionPlacedByDate } from '../services/sessionRenumberService.js'
 
 /** Giáo viên chỉ được xem/sửa/xóa buổi học của các lớp mình dạy — admin qua
  *  hết. Trước đây thiếu kiểm tra này, 1 giáo viên gọi thẳng API có thể
@@ -81,6 +81,18 @@ async function findConflictingSession(
 
 export async function createSession(req: Request, res: Response): Promise<void> {
   const authReq = req as AuthRequest
+  // placeByDate: đẩy buổi đang KẸT trên máy lên — không từ chối vì trùng số,
+  // tự xếp đúng vị trí theo ngày (xem createSessionPlacedByDate).
+  if (req.body.placeByDate === true && req.body.studentId) {
+    const result = await createSessionPlacedByDate(req.body, authReq.userId!)
+    if (result.sameDate) {
+      res.status(409).json({ success: false, code: 'SAME_DATE', message: 'Học sinh đã có 1 buổi cùng ngày này rồi.', data: { existingId: String(result.sameDate._id), lessonNo: result.sameDate.lessonNo } })
+      return
+    }
+    await writeAudit(req, { action: 'session.create', resource: 'ClassSession', resourceId: String(result.session!._id), metadata: { placeByDate: true } })
+    created(res, result.session)
+    return
+  }
   const conflict = await findConflictingSession(req.body.studentId, req.body.lessonNo)
   if (conflict) {
     badRequest(res, `Học sinh này đã có Buổi ${req.body.lessonNo} (ngày ${conflict.scheduledAt.toISOString().slice(0, 10)}) rồi — chọn số buổi khác.`)

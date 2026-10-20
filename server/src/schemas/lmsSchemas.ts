@@ -96,6 +96,9 @@ export const sessionBodySchema = z.object({
   // đã thu trước đó) — loại ra khỏi mọi phép tính "còn thiếu bao nhiêu buổi"
   // ở frontend. Xem ghi chú ở ClassSession model.
   billed: z.boolean().optional(),
+  // Đẩy buổi KẸT trên máy lên — xem createSessionPlacedByDate. Thiếu dòng
+  // này Zod sẽ âm thầm xóa field (gotcha CLAUDE.md).
+  placeByDate: z.boolean().optional(),
 })
 
 export const sessionUpdateSchema = sessionBodySchema.partial().omit({ centerId: true, classId: true, studentId: true })

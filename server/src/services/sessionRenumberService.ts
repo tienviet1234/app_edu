@@ -105,3 +105,56 @@ export async function renumberSessions(
 
   return result
 }
+
+/**
+ * Tạo buổi mới cho 1 học sinh mà KHÔNG BAO GIỜ bị từ chối vì trùng số buổi —
+ * đặt buổi vào đúng vị trí theo NGÀY rồi đánh lại số liên tục 1..N (trong 1
+ * giao dịch). Dùng khi đẩy lên server buổi đang KẸT trên máy giáo viên: máy
+ * đó tính số buổi theo dữ liệu cũ (VD admin đã thêm bù buổi đầu kỳ, số buổi
+ * trên server bị đẩy lên), nên số máy gửi lên thường đã "có chủ" — trước đây
+ * server từ chối và dữ liệu nằm kẹt mãi trên máy (sự cố thật 18/10: nhiều em
+ * Lớp 3/4/5/7 "mất" điểm dù giáo viên đã nhập).
+ *
+ * KHÔNG tạo nếu học sinh đã có 1 buổi khác CÙNG NGÀY (tránh tạo buổi trùng
+ * ngày) — trả về buổi đó trong `sameDate` để phía gọi tự quyết định.
+ */
+export async function createSessionPlacedByDate(
+  body: Record<string, unknown> & { classId: string; studentId: string; scheduledAt?: string | Date },
+  createdBy: string,
+): Promise<{ session?: InstanceType<typeof ClassSession>; sameDate?: { _id: Types.ObjectId; lessonNo?: number } }> {
+  const studentId = new Types.ObjectId(body.studentId)
+  const classId = new Types.ObjectId(body.classId)
+  const scheduledAt = body.scheduledAt ? new Date(body.scheduledAt) : new Date()
+  const dayStart = new Date(Date.UTC(scheduledAt.getUTCFullYear(), scheduledAt.getUTCMonth(), scheduledAt.getUTCDate()))
+  const dayEnd = new Date(dayStart.getTime() + 24 * 3600 * 1000)
+  const active = { deletedAt: { $exists: false }, migratedAt: { $exists: false } }
+
+  const sameDate = await ClassSession.findOne({ studentId, classId, scheduledAt: { $gte: dayStart, $lt: dayEnd }, ...active }, '_id lessonNo').lean()
+  if (sameDate) return { sameDate }
+
+  const maxDoc = await ClassSession.findOne({ studentId, ...active }, 'lessonNo').sort({ lessonNo: -1 }).lean()
+  const tempNo = (maxDoc?.lessonNo ?? 0) + 1
+  // Học sinh có buổi ở LỚP KHÁC (đang chuyển lớp) — không đánh lại số trong
+  // lớp này kẻo trùng số với buổi lớp kia (chốt chặn trùng số tính theo học
+  // sinh, không theo lớp); chỉ đặt số kế tiếp.
+  const inOtherClass = await ClassSession.exists({ studentId, classId: { $ne: classId }, ...active })
+
+  let createdId: Types.ObjectId | undefined
+  const mongoSession = await mongoose.startSession()
+  try {
+    await mongoSession.withTransaction(async () => {
+      const { placeByDate: _p, ...rest } = body
+      const [doc] = await ClassSession.create([{ ...rest, studentId, classId, scheduledAt, lessonNo: tempNo, createdBy: new Types.ObjectId(createdBy) }], { session: mongoSession })
+      createdId = doc._id
+      if (inOtherClass) return
+      const all = await ClassSession.find({ studentId, classId, ...active }, '_id scheduledAt lessonNo', { session: mongoSession }).sort({ scheduledAt: 1, _id: 1 })
+      for (let i = 0; i < all.length; i++) {
+        if (all[i].lessonNo !== i + 1) await ClassSession.updateOne({ _id: all[i]._id }, { $set: { lessonNo: i + 1 } }, { session: mongoSession })
+      }
+    })
+  } finally {
+    await mongoSession.endSession()
+  }
+  const session = await ClassSession.findById(createdId).populate('createdBy', 'name')
+  return { session: session ?? undefined }
+}

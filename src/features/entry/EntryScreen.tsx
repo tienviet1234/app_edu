@@ -332,13 +332,22 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
           lessonNo: target.no,
           scheduledAt: `${target.date}T00:00:00.000Z`,
           notes: target.homework || undefined,
+          // Không để server từ chối vì trùng số buổi (máy này có thể đang
+          // giữ số buổi cũ) — server tự xếp đúng vị trí theo NGÀY. Trước đây
+          // trùng số là bị từ chối, điểm kẹt lại máy (sự cố thật 18/10).
+          placeByDate: true,
         })
         sessionId = apiSession._id
+        const finalNo = apiSession.lessonNo ?? target.no
+        const localId = target.id
         update((c) => {
           const stu = c.students.find((s) => s.id === studentId)
-          const ss = stu?.sessions.find((s) => s.no === targetNo)
-          if (ss) ss.id = sessionId
+          const ss = stu?.sessions.find((s) => s.id === localId)
+          if (ss) { ss.id = sessionId; ss.no = finalNo }
         })
+        if (finalNo !== target.no) {
+          setNoByStudent((prev) => ({ ...prev, [studentId]: finalNo }))
+        }
         logActivity('session.create', { className: cls.name, sessionNo: target.no, studentName: student.name }, 'ClassSession')
       } else {
         // Buổi đã có sẵn trên server — "Bài tập về nhà" trước đây KHÔNG BAO
@@ -364,7 +373,10 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
       // chung chung — trước đây giáo viên chỉ thấy "Lỗi lưu điểm", tưởng
       // không nhập được buổi mới trong khi thật ra server đang từ chối vì
       // 1 lý do cụ thể (thường là trùng số buổi với 1 bản ghi còn sót lại).
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      const resp = (err as { response?: { status?: number; data?: { message?: string; code?: string; data?: { lessonNo?: number } } } })?.response
+      const msg = resp?.data?.code === 'SAME_DATE'
+        ? `ngày ${viDate(target.date)} em này đã có Buổi ${resp.data.data?.lessonNo ?? '?'} rồi — chọn đúng buổi đó để nhập, hoặc đổi ngày cho buổi này`
+        : resp?.data?.message
       toast.error(
         msg
           ? `Không lưu được Buổi ${target.no} của ${student.name} — ${msg}`
