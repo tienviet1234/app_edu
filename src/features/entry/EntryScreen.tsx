@@ -307,22 +307,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   )
   const r2 = { ...r, comps: effectiveComps }
 
-  // Báo ngay lúc bấm (đồng bộ) — không đợi lưu server xong mới báo, vì lúc
-  // đó màn hình đã chuyển sang học sinh khác rồi, dễ tưởng nhầm toast báo
-  // sai tên. syncScore() vẫn lưu thật ở dưới nền, chỉ báo lỗi mới cần đợi.
-  function announceSave(studentId: string) {
-    const student = cls.students.find((s) => s.id === studentId)
-    const target = student?.sessions.find((s) => s.no === noOf(studentId))
-    if (!student || !target) return
-    const label = sessionLabelOf(target.no, cls.perMonth, student.sessionOffset)
-    if (isMongoid(target.id)) {
-      toast.success(`✓ Đã lưu điểm ${label} của ${student.name}`)
-    } else {
-      toast.info(`Đã tạo ${label} cho ${student.name} (${viDate(target.date)})`)
-    }
-  }
-
-  async function syncScore(studentId: string) {
+  async function syncScore(studentId: string, opts: { silent?: boolean } = {}) {
     if (!isMongoid(cls.id) || !isMongoid(studentId)) return
     const student = cls.students.find((s) => s.id === studentId)
     const targetNo = noOf(studentId)
@@ -331,6 +316,11 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
     const maxes = target.maxes ?? {}
     const comps = r.comps.map((c) => (maxes[c.key] != null ? rescaleComp(c, maxes[c.key]) : c))
     const total = sessionScore(target.entry, { ...r, comps }) ?? 0
+    // Nhãn + tên học sinh chụp lại NGAY LÚC GỌI (trước khi màn hình có thể
+    // đã chuyển sang học sinh khác) — để thông báo lưu xong vẫn nói đúng
+    // tên, dù lúc đó người dùng đã đang xem học sinh khác rồi.
+    const label = sessionLabelOf(target.no, cls.perMonth, student.sessionOffset)
+    const wasNew = !isMongoid(target.id)
     setSyncStatus('saving')
     try {
       let sessionId = target.id
@@ -359,6 +349,15 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
       await scoreService.upsert({ classId: cls.id, sessionId, studentId, ...target.entry, total })
       setSyncStatus('saved')
       setTimeout(() => setSyncStatus('idle'), 2000)
+      // CHỈ báo "Đã lưu" SAU KHI server xác nhận thành công thật sự — trước
+      // đây báo NGAY LÚC BẤM (trước khi gửi lên server), nên nếu lưu thất
+      // bại sau đó (lỗi mạng...), giáo viên đã thấy "✓ Đã lưu" và tin tưởng,
+      // không để ý thông báo lỗi xuất hiện sau đó lúc đã đang chấm em khác —
+      // đây chính là nguyên nhân "chấm xong, bấm Tiếp theo, nhưng điểm vẫn
+      // mất" dù đã làm đúng quy trình, phát hiện khi rà soát sau báo cáo
+      // thực tế mất điểm nhiều em ở Lớp 3/4/5/7.
+      if (opts.silent) { /* tự lưu nền — chỉ báo khi lỗi */ } else if (wasNew) toast.info(`Đã tạo ${label} cho ${student.name} (${viDate(target.date)})`)
+      else toast.success(`✓ Đã lưu điểm ${label} của ${student.name}`)
     } catch (err) {
       setSyncStatus('error')
       // Nêu đúng lý do server từ chối (VD "đã có Buổi N rồi") thay vì câu
@@ -387,7 +386,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   // Gọi lại nhiều lần vô hại (scoreService.upsert ghi đè, không tạo trùng).
   useEffect(() => {
     if (!st || !session) return
-    const timer = setTimeout(() => { void syncScore(st.id) }, 1500)
+    const timer = setTimeout(() => { void syncScore(st.id, { silent: true }) }, 1500)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [st?.id, session?.id, session?.entry, session?.homework])
@@ -397,7 +396,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   // của việc đóng app ngay sau khi nhập xong, sớm hơn khung 1.5s phía trên.
   useEffect(() => {
     function flush() {
-      if (document.visibilityState === 'hidden' && st) void syncScore(st.id)
+      if (document.visibilityState === 'hidden' && st) void syncScore(st.id, { silent: true })
     }
     document.addEventListener('visibilitychange', flush)
     return () => document.removeEventListener('visibilitychange', flush)
@@ -664,7 +663,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                 // chuyển HỌC SINH (Trước/Tiếp theo/chọn tên) mới lưu, nên
                 // điểm buổi cũ bị kẹt lại máy này, không lên được server.
                 const switchTo = (newNo: number) => {
-                  if (st) { announceSave(st.id); void syncScore(st.id) }
+                  if (st) void syncScore(st.id)
                   setSelectedNo(newNo)
                   setDraftDate(todayISO())
                 }
@@ -872,7 +871,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                       // dải pill bên dưới — trước đây bấm dòng này đổi thẳng
                       // học sinh đang xem, bỏ qua lưu điểm của người đang xem.
                       requestNav(() => {
-                        if (st) { announceSave(st.id); void syncScore(st.id) }
+                        if (st) void syncScore(st.id)
                         setCur(i)
                       })
                     }}
@@ -978,7 +977,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                     // đang xem sẵn rồi — không cần xác nhận gì
                   } else {
                     requestNav(() => {
-                      if (st) { announceSave(st.id); void syncScore(st.id) }
+                      if (st) void syncScore(st.id)
                       setCur(i)
                     })
                   }
@@ -1331,7 +1330,6 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
             <div className="flex gap-2">
               <Btn
                 onClick={() => requestNav(() => {
-                  announceSave(st.id)
                   void syncScore(st.id)
                   logActivity('score.entry', { className: cls.name, sessionNo: session?.no ?? 0, studentName: st.name }, 'Score')
                   setCur(Math.max(0, cur - 1))
@@ -1353,7 +1351,6 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                   size="lg"
                   className="flex-1"
                   onClick={() => requestNav(() => {
-                    announceSave(st.id)
                     void syncScore(st.id)
                     logActivity('score.entry', { className: cls.name, sessionNo: session?.no ?? 0, studentName: st.name }, 'Score')
                     setCur(Math.min(cls.students.length - 1, cur + 1))
