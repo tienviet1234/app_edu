@@ -11,7 +11,7 @@ import { periodPositionOf, sessionLabelOf } from '@/business/tuition'
 import { emptyEntry } from '@/business/seed'
 import {
   resolvePlausibleNo, pendingSessionsOf, adoptServerSession, markSessionSaved, markConflict, resolveConflict,
-  toSessionEntry, type ServerScoreForSync,
+  toSessionEntry, sameDateClash, type ServerScoreForSync,
 } from '@/business/sync'
 import { sameEntry } from '@/business/strandedScores'
 import { tryLockSession, unlockSession } from '@/utils/syncLocks'
@@ -244,6 +244,9 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   const session = st?.sessions.find((s) => s.no === selectedNo)
   const effectiveDate = session?.date ?? draftDate
   const e = session?.entry ?? emptyEntry()
+  // Buổi mới định tạo trùng ngày với 1 buổi khác của em này → chặn nhập.
+  const clash = st ? sameDateClash(st, selectedNo, effectiveDate) : null
+  const lastClashToastRef = useRef(0)
 
   function handleDateChange(newDate: string) {
     if (session) {
@@ -593,7 +596,20 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
       </Card>
     )
 
-  const mut = (fn: (en: SessionEntry) => void) =>
+  /** true = đang định TẠO buổi mới trùng ngày với 1 buổi khác của em này →
+   *  không cho nhập (báo rõ cách sửa). Xem sameDateClash. */
+  const blockedBySameDate = (): boolean => {
+    if (!clash || !st) return false
+    const now = Date.now()
+    if (now - lastClashToastRef.current > 4000) {
+      lastClashToastRef.current = now
+      toast.error(`${st.name} đã có ${sessionLabelOf(clash.no, cls.perMonth, st.sessionOffset)} ngày ${viDate(clash.date)} rồi — buổi mới không được trùng ngày. Đổi ngày ở ô ngày (cạnh số buổi) trước, rồi mới nhập.`, { persist: true })
+    }
+    return true
+  }
+
+  const mut = (fn: (en: SessionEntry) => void) => {
+    if (blockedBySameDate()) return
     update((c) => {
       if (!st) return
       const ss = findOrCreateSession(c, st.id, selectedNo, effectiveDate, teacherName)
@@ -602,8 +618,10 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
       })
       fn(ss.entry)
     })
+  }
 
   function setHomework(v: string) {
+    if (blockedBySameDate()) return
     update((c) => {
       if (!st) return
       findOrCreateSession(c, st.id, selectedNo, effectiveDate, teacherName).homework = v
@@ -643,6 +661,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
 
   function setSessionMax(key: string, val: number) {
     if (!val || val < 1) return
+    if (blockedBySameDate()) return
     // Chỉ sửa buổi của HỌC SINH ĐANG XEM — mỗi em có buổi riêng (số buổi và
     // ngày khác nhau), nên "Số câu" của Buổi 3 em này không liên quan gì tới
     // "Buổi 3" của em khác như trước đây khi cả lớp dùng chung 1 số buổi.
@@ -678,8 +697,14 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
 
   function presetClass() {
     if (!confirm('Đặt điểm mặc định (đạt tối đa) cho CẢ LỚP, ở buổi đang xem của từng em? Điểm đã nhập trước đó của buổi đó sẽ bị ghi đè.')) return
+    // Em nào sắp bị tạo buổi mới TRÙNG NGÀY với buổi khác của chính em đó →
+    // bỏ qua em đó (không gắn nhầm ngày), báo tên để giáo viên tự xem.
+    const skipped = cls.students.filter((s) => sameDateClash(s, noOf(s.id), effectiveDate))
+    const skipIds = new Set(skipped.map((s) => s.id))
+    if (skipped.length) toast.error(`Bỏ qua ${skipped.map((s) => s.name).join(', ')} — các em này đã có buổi khác ngày ${viDate(effectiveDate)}, kiểm tra lại số buổi/ngày của từng em.`, { persist: true })
     update((c) => {
       c.students.forEach((s) => {
+        if (skipIds.has(s.id)) return
         const ss = findOrCreateSession(c, s.id, noOf(s.id), effectiveDate, teacherName)
         FIELDS.forEach((k) => {
           if (!ss.entry[k]) (ss.entry as unknown as Record<string, unknown>)[k] = {}
@@ -730,15 +755,19 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   function applyGroupScores() {
     if (!st || groupSelected.size === 0) return
     const srcEntry = e
-    const count = groupSelected.size
+    const skipped = cls.students.filter((s) => groupSelected.has(s.id) && sameDateClash(s, noOf(s.id), effectiveDate))
+    const skipIds = new Set(skipped.map((s) => s.id))
+    const count = groupSelected.size - skipped.length
     update((c) => {
       groupSelected.forEach((sid) => {
+        if (skipIds.has(sid)) return
         findOrCreateSession(c, sid, noOf(sid), effectiveDate, teacherName).entry = cloneEntry(srcEntry)
       })
     })
     setGroupSelected(new Set())
     setGroupMode(false)
     toast.success(`Đã áp dụng điểm của "${st.name}" cho ${count} học sinh`)
+    if (skipped.length) toast.error(`Bỏ qua ${skipped.map((s) => s.name).join(', ')} — đã có buổi khác ngày ${viDate(effectiveDate)}.`, { persist: true })
   }
   // ──────────────────────────────────────────────────────────────────────────
 
@@ -804,6 +833,13 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
               </span>
             </div>
           ))}
+        </Card>
+      )}
+      {clash && st && (
+        <Card className="p-3 text-sm font-semibold" >
+          <span style={{ color: C.red }}>
+            ⚠ {st.name} đã có {sessionLabelOf(clash.no, cls.perMonth, st.sessionOffset)} ngày {viDate(clash.date)} rồi — {sessionLabelOf(selectedNo, cls.perMonth, st.sessionOffset)} (buổi mới) không được trùng ngày. Đổi ngày ở ô ngày bên dưới cho đúng ngày học của buổi mới, hoặc chọn đúng buổi ngày {viDate(clash.date)} để sửa.
+          </span>
         </Card>
       )}
       <Card className="p-3">

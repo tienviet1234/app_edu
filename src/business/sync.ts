@@ -316,6 +316,17 @@ export function collectOrphans(
   return out
 }
 
+/** Sắp TẠO buổi mới (số `no` chưa có) cho 1 học sinh vào ngày `date` mà em đó
+ *  ĐÃ có 1 buổi khác đúng ngày đó → trả về buổi đó (phải chặn, không tạo).
+ *  Sự cố thật 18/10 Lớp 5: nhập lượt "18/10" mà ô ngày còn để 17/10 từ lượt
+ *  trước → điểm 18/10 của Mina bị lưu thành buổi 17/10 ("nhảy kết quả 17 với
+ *  18"); trước đây chỉ hiện cảnh báo rồi vẫn tạo. 1 em không thể học 2 buổi
+ *  cùng ngày (server cũng từ chối trùng ngày). */
+export function sameDateClash(student: { sessions: Session[] }, no: number, date: string): Session | null {
+  if (student.sessions.some((s) => s.no === no)) return null // buổi đã có → đang sửa, không phải tạo mới
+  return student.sessions.find((s) => s.date === date) ?? null
+}
+
 /** Thêm bản ghi vào kho giữ lại, KHÔNG trùng (cùng lớp + học sinh thì gộp,
  *  buổi đã có trong kho thì bỏ qua) — hiệu ứng đồng bộ có thể chạy lại. */
 export function appendOrphans(existing: OrphanRecord[] | undefined, incoming: OrphanRecord[]): OrphanRecord[] {

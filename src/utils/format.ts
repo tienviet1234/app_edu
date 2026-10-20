@@ -1,6 +1,12 @@
 export const round1 = (n: number): number => Math.round(n * 10) / 10
 
-export const todayISO = (): string => new Date().toISOString().slice(0, 10)
+/** "YYYY-MM-DD" theo NGÀY TRÊN MÁY (giờ Việt Nam), không phải UTC. Trước đây
+ *  dùng toISOString() (UTC) → từ 0:00 tới 6:59 sáng ở VN (UTC+7), "hôm nay"
+ *  vẫn là HÔM QUA → buổi mới tạo lúc nửa đêm/sáng sớm bị gắn lùi 1 ngày. */
+export const localISODate = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+export const todayISO = (): string => localISODate(new Date())
 
 /** Ngày cách hôm nay N ngày (lùi về quá khứ), dạng ISO "YYYY-MM-DD" — dùng làm
  *  mốc cắt cho xếp hạng "kỳ trước" / cửa sổ "gần đây" khi mỗi học sinh có
@@ -8,7 +14,7 @@ export const todayISO = (): string => new Date().toISOString().slice(0, 10)
 export const daysAgoISO = (n: number): string => {
   const d = new Date()
   d.setDate(d.getDate() - n)
-  return d.toISOString().slice(0, 10)
+  return localISODate(d)
 }
 
 export const viDate = (iso: string | null | undefined): string =>

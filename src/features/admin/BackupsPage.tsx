@@ -6,6 +6,7 @@ import { C } from '@/constants/colors'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { StrandedRecoveryCard } from './StrandedRecoveryCard'
+import { MissingSessionsCard } from './MissingSessionsCard'
 
 function viTime(iso?: string): string {
   if (!iso) return '—'
@@ -122,6 +123,8 @@ export function BackupsPage() {
       </Card>
 
       <StrandedRecoveryCard snapshots={data?.snapshots ?? []} />
+
+      <MissingSessionsCard />
 
       {/* Devices */}
       <Card className="p-4 space-y-3">

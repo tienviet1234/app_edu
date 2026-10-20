@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   pruneGoneFromServer, resolvePlausibleNo, syncStudentsFromServer, adoptServerSession, pendingSessionsOf, markSessionSaved,
-  markConflict, resolveConflict, collectOrphans, appendOrphans,
+  markConflict, resolveConflict, collectOrphans, appendOrphans, sameDateClash,
   type ServerSessionForSync, type ServerScoreForSync,
 } from './sync'
 import { emptyEntry, normalize } from './seed'
@@ -370,6 +370,19 @@ describe('collectOrphans (học sinh/lớp bị gỡ khỏi máy khi còn dữ l
     const more = appendOrphans(twice, [{ ...first[0], sessions: [sess({ id: 'local-9', dirty: true })] }])
     expect(more[0].sessions.map((s) => s.id)).toContain('local-9')
     expect(more[0].sessions).toHaveLength(4)
+  })
+})
+
+describe('sameDateClash (chặn tạo buổi mới trùng ngày — sự cố Mina 17/18/10)', () => {
+  const student = { sessions: [sess({ id: SV1, no: 9, date: '2026-10-17' })] }
+  it('tạo Buổi 10 mà ô ngày còn để 17/10 (đã có Buổi 9 ngày 17/10) → CHẶN, chỉ ra buổi trùng', () => {
+    expect(sameDateClash(student, 10, '2026-10-17')?.no).toBe(9)
+  })
+  it('tạo Buổi 10 ngày 18/10 → cho tạo', () => {
+    expect(sameDateClash(student, 10, '2026-10-18')).toBeNull()
+  })
+  it('đang SỬA buổi đã có (Buổi 9) → không chặn', () => {
+    expect(sameDateClash(student, 9, '2026-10-17')).toBeNull()
   })
 })
 
