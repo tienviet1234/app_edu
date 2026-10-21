@@ -7,9 +7,9 @@ import { User } from '../models/User.js'
 import { badRequest, created, forbidden, notFound, ok } from '../utils/response.js'
 import { paginate } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
-import { writeAudit } from '../services/auditService.js'
+import { writeAudit, writeRejectedAudit } from '../services/auditService.js'
 import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
-import { decideIfAbsent, isStaleWrite, isWriteToDeletedSession, resolveScoreClassId } from '../utils/dataRules.js'
+import { decideIfAbsent, isStaleWrite, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId } from '../utils/dataRules.js'
 
 /** Giáo viên chỉ được đọc/ghi điểm của lớp MÌNH dạy (kể cả giáo viên PHỤ,
  *  `assistantTeacherIds` — 1 lớp có thể do 2 giáo viên cùng quản lý) — admin
@@ -126,11 +126,16 @@ export async function upsertScore(req: Request, res: Response): Promise<void> {
   // classId lớp CŨ sẽ kéo điểm về lại lớp cũ → điểm "biến mất" khỏi lớp mới.
   const effectiveClassId = resolveScoreClassId(session, classId)
 
+  // Mọi lần từ chối lưu điểm THẬT đều ghi nhật ký KÈM nội dung điểm — bị từ
+  // chối thì điểm vẫn còn 1 bản trên server, không chỉ nằm trên máy giáo viên.
+  const reject = (code: string) => writeRejectedAudit(req, 'score.upsert.rejected', 'Score', rejectedWriteMetadata(code, req.body))
   if (role !== 'admin' && !(await assertTeacherOwnsClass(userId, effectiveClassId))) {
+    reject('FORBIDDEN')
     forbidden(res, 'Bạn chỉ có thể chấm điểm cho lớp mình dạy.')
     return
   }
   if (session?.studentId && String(session.studentId) !== studentId) {
+    reject('WRONG_STUDENT')
     badRequest(res, 'Buổi học này không thuộc về học sinh đang chấm.')
     return
   }
@@ -155,6 +160,7 @@ export async function upsertScore(req: Request, res: Response): Promise<void> {
     // Buổi đã bị xóa (admin/máy khác) mà máy này còn giữ và vừa sửa — trước đây
     // vẫn ghi + báo thành công, điểm nằm trong buổi đã xóa không ai thấy nữa.
     // Máy nhận mã này sẽ tạo lại buổi theo ngày (giữ nguyên điểm vừa nhập).
+    reject('SESSION_DELETED')
     res.status(409).json({ success: false, code: 'SESSION_DELETED', message: 'Buổi học này đã bị xóa trên server.' })
     return
   } else if (baseUpdatedAt) {
@@ -162,6 +168,7 @@ export async function upsertScore(req: Request, res: Response): Promise<void> {
     const existing = await Score.findOne({ sessionId: new Types.ObjectId(sessionId), studentId: new Types.ObjectId(studentId) })
       .populate('recordedBy', 'name').lean()
     if (existing && isStaleWrite(existing.updatedAt as Date, baseUpdatedAt)) {
+      reject('CONFLICT')
       res.status(409).json({ success: false, code: 'CONFLICT', message: 'Buổi này vừa được lưu bản mới hơn ở máy khác.', data: { score: existing } })
       return
     }

@@ -4,6 +4,7 @@ import type { AppData, ClassData } from '@/types'
 import { makeStorage, storageKeyFor } from '@/utils/storage'
 import { seed, normalize } from '@/business/seed'
 import { toast } from '@/store/toastStore'
+import { rescueOtherTabSessions } from '@/business/sync'
 
 interface AppStore {
   data: AppData | null
@@ -30,8 +31,41 @@ interface AppStore {
 
 let warnedStorageFull = false
 
-const persist = (next: AppData, userId: string | undefined, setState: (partial: Partial<AppStore>) => void) => {
-  const ok = makeStorage(userId).set(JSON.stringify(next))
+// Bản dữ liệu tab NÀY đọc/ghi xuống máy lần cuối — để biết lúc ghi có tab
+// khác đã ghi chen vào không (xem rescueOtherTabSessions).
+let lastKnownRaw: string | null = null
+
+const parseRaw = (raw: string | null): AppData | null => {
+  if (!raw) return null
+  try { return normalize(JSON.parse(raw)) } catch { return null }
+}
+
+/** `replace` = nhập file sao lưu / xóa hết dữ liệu: cố ý thay toàn bộ, không gộp. */
+const persist = (next: AppData, userId: string | undefined, setState: (partial: Partial<AppStore>) => void, replace = false) => {
+  if (!replace) {
+    // Tab khác đã ghi xuống máy kể từ lần cuối tab này đọc/ghi → giữ lại các
+    // buổi CHƯA lên server tab kia vừa tạo, rồi mới ghi. Trước đây tab cũ ghi
+    // đè thẳng — nghi là đường mất điểm 17–18/10 Lớp 3/4/5 cô Trà.
+    const storedRaw = makeStorage(userId).get()
+    if (storedRaw && storedRaw !== lastKnownRaw) {
+      const stored = parseRaw(storedRaw)
+      if (stored) {
+        let result = { kept: 0, conflicts: 0 }
+        const merged = produce(next, (d) => { result = rescueOtherTabSessions(d, stored, parseRaw(lastKnownRaw)) })
+        if (result.kept) {
+          next = merged
+          setState({ data: merged })
+          toast.info(`App đang mở ở 2 tab trên máy này — đã giữ lại ${result.kept} buổi do tab kia vừa nhập/sửa. Nên đóng bớt 1 tab.`, { persist: true })
+        }
+        if (result.conflicts) {
+          toast.error(`App đang mở ở 2 tab và CẢ 2 cùng sửa ${result.conflicts} buổi — đang giữ bản của tab này. Đóng bớt 1 tab rồi kiểm tra lại các buổi vừa sửa.`, { persist: true })
+        }
+      }
+    }
+  }
+  const raw = JSON.stringify(next)
+  const ok = makeStorage(userId).set(raw)
+  if (ok) lastKnownRaw = raw
   if (!ok) {
     // Không ghi được vào máy — dữ liệu chỉ còn trong tab đang mở (đóng tab /
     // F5 là mất phần chưa lên server). Báo rõ thay vì "Đã lưu" như trước.
@@ -83,6 +117,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   init(userId) {
     const raw = makeStorage(userId).get()
+    lastKnownRaw = raw
     try {
       const parsed = raw ? JSON.parse(raw) : null
       const data = parsed ? normalize(parsed) : seed()
@@ -171,7 +206,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         if (!confirm(`Nhập ${j.classes.length} lớp từ file sao lưu? Dữ liệu hiện tại sẽ được thay thế.`)) return
         const { userId } = get()
         set({ data: j, currentClassIndex: 0, saving: 'Đã nhập dữ liệu' })
-        persist(j, userId, set)
+        persist(j, userId, set, true)
       } catch {
         alert('File sao lưu không hợp lệ.')
       }
@@ -184,7 +219,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const empty = { classes: [] }
     set({ data: empty, currentClassIndex: 0, activeTab: 'classes' })
     setLastTab(userId, 'classes')
-    persist(empty, userId, set)
+    persist(empty, userId, set, true)
   },
 }))
 
@@ -199,18 +234,17 @@ if (typeof window !== 'undefined') {
 
   // App mở ở 2 tab cùng máy: mỗi tab giữ 1 bản trong bộ nhớ và ghi CẢ bản
   // xuống máy → tab cũ ghi đè mất phần tab kia vừa sửa. Giờ tab nào cũng nhận
-  // bản tab kia vừa ghi (khi chính nó không có gì đang chờ ghi).
+  // bản tab kia vừa ghi (khi chính nó không có gì đang chờ ghi); đang có phần
+  // chờ ghi thì lúc ghi `persist` tự gộp lại buổi chưa lên server của tab kia.
   window.addEventListener('storage', (e) => {
     const { userId, _saveTimer, data, currentClassIndex } = useAppStore.getState()
     if (e.key !== storageKeyFor(userId) || !e.newValue) return
-    if (_saveTimer) {
-      toast.error('App đang mở ở 2 tab trên máy này và cả 2 cùng đang sửa — đóng bớt 1 tab để tránh ghi đè dữ liệu của nhau.', { persist: true })
-      return
-    }
+    if (_saveTimer) return
     try {
       const next = normalize(JSON.parse(e.newValue))
       const currentId = data?.classes[currentClassIndex]?.id
       const idx = currentId ? next.classes.findIndex((c) => c.id === currentId) : -1
+      lastKnownRaw = e.newValue
       useAppStore.setState({ data: next, currentClassIndex: idx >= 0 ? idx : 0 })
     } catch {
       // bản tab kia ghi bị hỏng — giữ nguyên bản đang có

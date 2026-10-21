@@ -2,10 +2,11 @@ import { describe, it, expect } from 'vitest'
 import {
   pruneGoneFromServer, resolvePlausibleNo, syncStudentsFromServer, adoptServerSession, pendingSessionsOf, markSessionSaved,
   markConflict, resolveConflict, collectOrphans, appendOrphans, sameDateClash, detachDeletedSession,
+  orphanForLocalDelete, rescueOtherTabSessions,
   type ServerSessionForSync, type ServerScoreForSync,
 } from './sync'
 import { emptyEntry, normalize } from './seed'
-import type { Session } from '@/types'
+import type { OrphanRecord, Session } from '@/types'
 
 describe('normalize (mở app)', () => {
   it('GIỮ cờ billed/dirty/synced/maxes — trước đây bỏ mất billed mỗi lần mở app (buổi đã thu tiền bị đếm lại)', () => {
@@ -426,5 +427,92 @@ describe('detachDeletedSession (server báo buổi đã bị xóa — 409 SESSIO
     const st = { sessions: [sess({ dirty: true, conflict: { entry: emptyEntry(), total: 0, updatedAt: '2026-10-18T00:00:00.000Z' } })] }
     detachDeletedSession(st, SV1, 'tmp-new')
     expect(st.sessions[0].conflict).toBeUndefined()
+  })
+})
+
+describe('orphanForLocalDelete (xóa buổi ở Thống kê buổi / Lớp học / Sửa số buổi)', () => {
+  const cls = { id: 'c'.repeat(24), name: 'Lớp 4' }
+  const stu = { id: STU, name: 'Trần Bùi Linh Đan' }
+  it('buổi tạm bị server từ chối (trùng số) trông như buổi "trùng" → xóa phải vào kho giữ lại, không mất (sự cố 17–18/10)', () => {
+    const stuck = sess({ id: 'tmp17', no: 9, date: '2026-10-17', entry: { ...emptyEntry(), parts: { vocab: { pron: 8 } } } })
+    const o = orphanForLocalDelete(cls, stu, stuck, 'now')
+    expect(o).toMatchObject({ reason: 'deletedLocal', studentName: 'Trần Bùi Linh Đan', removedAt: 'now' })
+    expect(o?.sessions[0].entry.parts).toEqual({ vocab: { pron: 8 } })
+  })
+  it('buổi đã lên server, không sửa dở → không cần giữ (server xóa mềm, khôi phục được)', () => {
+    expect(orphanForLocalDelete(cls, stu, sess({ entry: { ...emptyEntry(), scores: { mini: 7 } } }))).toBeNull()
+  })
+  it('buổi đã lên server nhưng đang SỬA DỞ chưa gửi → vẫn giữ phần sửa dở', () => {
+    expect(orphanForLocalDelete(cls, stu, sess({ dirty: true, entry: { ...emptyEntry(), scores: { mini: 7 } } }))).not.toBeNull()
+  })
+  it('buổi tạm trống (chưa nhập gì) → không cần giữ', () => {
+    expect(orphanForLocalDelete(cls, stu, sess({ id: 'tmp', entry: emptyEntry() }))).toBeNull()
+  })
+})
+
+describe('rescueOtherTabSessions (app mở 2 tab — tab cũ ghi đè mất buổi tab kia vừa tạo)', () => {
+  const C1 = 'c'.repeat(24)
+  const old10 = sess({ id: SV1, no: 9, date: '2026-10-10', entry: { ...emptyEntry(), scores: { mini: 7 } } })
+  const tmp17 = sess({ id: 'tmp17', no: 9, date: '2026-10-17', entry: { ...emptyEntry(), parts: { vocab: { pron: 8 } } } })
+  const data = (sessions: Session[], orphans?: OrphanRecord[]) => ({ classes: [{ id: C1, name: 'Lớp 4', students: [{ id: STU, name: 'Ken', sessions }] }], orphans })
+  it('tab cũ (mở từ trước, không biết buổi 17/10 tab kia vừa nhập) sắp ghi → GIỮ LẠI buổi 17/10', () => {
+    const baseline = data([old10]) // tab cũ đọc lúc mở
+    const stored = data([old10, tmp17]) // tab kia đã ghi thêm buổi tạm 17/10
+    const mine = data([JSON.parse(JSON.stringify(old10))]) // bộ nhớ tab cũ
+    expect(rescueOtherTabSessions(mine, stored, baseline)).toEqual({ kept: 1, conflicts: 0 })
+    expect(mine.classes[0].students[0].sessions.map((s) => s.id)).toEqual([SV1, 'tmp17'])
+  })
+  it('buổi tab NÀY đã chủ động xóa/gộp (có trong bản gốc của nó) → KHÔNG hồi sinh', () => {
+    const baseline = data([old10, tmp17])
+    const stored = data([old10, tmp17]) // chưa ai ghi gì khác
+    const mine = data([old10]) // tab này vừa bỏ tmp17 (VD đã gộp vào buổi server)
+    expect(rescueOtherTabSessions(mine, stored, baseline).kept).toBe(0)
+    expect(mine.classes[0].students[0].sessions).toHaveLength(1)
+  })
+  it('buổi đã lên server (không sửa dở) tab kia vừa thêm → không cần giữ (đồng bộ server sẽ tự tải về)', () => {
+    const fromServer = sess({ id: SV2, no: 10, date: '2026-10-18', synced: true, entry: { ...emptyEntry(), scores: { mini: 5 } } })
+    const mine = data([old10])
+    expect(rescueOtherTabSessions(mine, data([old10, fromServer]), data([old10])).kept).toBe(0)
+  })
+  it('học sinh không còn trên tab này → buổi vào kho giữ lại, không mất', () => {
+    const mine = { classes: [{ id: C1, name: 'Lớp 4', students: [] as Array<{ id: string; name: string; sessions: Session[] }> }], orphans: undefined as OrphanRecord[] | undefined }
+    expect(rescueOtherTabSessions(mine, data([tmp17]), data([])).kept).toBe(1)
+    expect(mine.orphans?.[0]).toMatchObject({ reason: 'otherTab', studentName: 'Ken' })
+  })
+  it('kho giữ lại tab kia vừa thêm cũng được giữ', () => {
+    const orphan: OrphanRecord = { classId: C1, className: 'Lớp 4', studentId: STU, studentName: 'Ken', reason: 'deletedLocal', removedAt: 'now', sessions: [tmp17] }
+    const mine = data([old10])
+    expect(rescueOtherTabSessions(mine, data([old10], [orphan]), data([old10])).kept).toBe(1)
+    expect(mine.orphans?.[0].sessions[0].id).toBe('tmp17')
+  })
+  it('chạy lại lần 2 → không nhân đôi', () => {
+    const mine = data([old10])
+    rescueOtherTabSessions(mine, data([old10, tmp17]), data([old10]))
+    expect(rescueOtherTabSessions(mine, data([old10, tmp17]), data([old10])).kept).toBe(0)
+    expect(mine.classes[0].students[0].sessions).toHaveLength(2)
+  })
+  // Gộp 3 chiều cho buổi CẢ 2 tab đều có.
+  const edited = (s: Session, mini: number): Session => ({ ...JSON.parse(JSON.stringify(s)), dirty: true, entry: { ...s.entry, scores: { mini } } })
+  it('tab kia vừa SỬA 1 buổi (chưa lên server), tab này không đụng tới → lấy bản tab kia, không ghi đè mất', () => {
+    const mine = data([JSON.parse(JSON.stringify(old10))])
+    const r = rescueOtherTabSessions(mine, data([edited(old10, 9)]), data([old10]))
+    expect(r).toEqual({ kept: 1, conflicts: 0 })
+    expect(mine.classes[0].students[0].sessions[0].entry.scores).toEqual({ mini: 9 })
+  })
+  it('CẢ 2 tab cùng sửa 1 buổi → giữ bản tab này, báo xung đột để giáo viên kiểm tra', () => {
+    const mine = data([edited(old10, 5)])
+    const r = rescueOtherTabSessions(mine, data([edited(old10, 9)]), data([old10]))
+    expect(r).toEqual({ kept: 0, conflicts: 1 })
+    expect(mine.classes[0].students[0].sessions[0].entry.scores).toEqual({ mini: 5 })
+  })
+  it('chỉ tab NÀY sửa (tab kia không đổi) → giữ bản tab này, không báo gì', () => {
+    const mine = data([edited(old10, 5)])
+    expect(rescueOtherTabSessions(mine, data([old10]), data([old10]))).toEqual({ kept: 0, conflicts: 0 })
+    expect(mine.classes[0].students[0].sessions[0].entry.scores).toEqual({ mini: 5 })
+  })
+  it('thứ tự khóa khác nhau (bản đọc từ máy vs bản trong bộ nhớ) không bị coi là "đã sửa"', () => {
+    const reordered = { entry: old10.entry, date: old10.date, no: old10.no, id: old10.id, homework: old10.homework } as Session
+    const mine = data([reordered])
+    expect(rescueOtherTabSessions(mine, data([edited(old10, 9)]), data([old10]))).toEqual({ kept: 1, conflicts: 0 })
   })
 })

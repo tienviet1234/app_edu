@@ -5,9 +5,9 @@ import { Class } from '../models/Class.js'
 import { badRequest, created, forbidden, notFound, ok } from '../utils/response.js'
 import { parsePagination } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
-import { writeAudit } from '../services/auditService.js'
+import { writeAudit, writeRejectedAudit } from '../services/auditService.js'
 import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
-import { isStudentInClass, resolveSessionCreator } from '../utils/dataRules.js'
+import { isStudentInClass, rejectedWriteMetadata, resolveSessionCreator } from '../utils/dataRules.js'
 import { renumberSessions, RenumberValidationError, createSessionPlacedByDate } from '../services/sessionRenumberService.js'
 
 /** Giáo viên chỉ được xem/sửa/xóa buổi học của các lớp mình dạy — admin qua
@@ -84,7 +84,11 @@ export async function createSession(req: Request, res: Response): Promise<void> 
   const authReq = req as AuthRequest
   // Trước đây không kiểm tra — giáo viên nào cũng tạo được buổi vào lớp người
   // khác (update/delete thì có kiểm tra). Giáo viên phụ vẫn qua (isClassTeacher).
+  // Mọi lần từ chối đều ghi nhật ký KÈM nội dung (sự cố 18/10: bị từ chối
+  // không để lại dấu vết gì, dữ liệu chỉ còn trên máy rồi mất hẳn).
+  const reject = (code: string) => writeRejectedAudit(req, 'session.create.rejected', 'ClassSession', rejectedWriteMetadata(code, req.body))
   if (!(await canManageSessionOfClass(authReq, String(req.body.classId)))) {
+    reject('FORBIDDEN')
     forbidden(res, 'Bạn chỉ có thể tạo buổi học cho lớp mình dạy.')
     return
   }
@@ -98,11 +102,13 @@ export async function createSession(req: Request, res: Response): Promise<void> 
     // tạo lại buổi cho em đó (đồng bộ nền/khôi phục từ bản chụp đều đi đường này).
     const cls = await Class.findById(String(body.classId), 'studentIds').lean()
     if (!isStudentInClass(cls, String(body.studentId))) {
+      reject('NOT_IN_CLASS')
       res.status(409).json({ success: false, code: 'NOT_IN_CLASS', message: 'Học sinh này không còn trong lớp — không tạo buổi.' })
       return
     }
     const result = await createSessionPlacedByDate(body as Parameters<typeof createSessionPlacedByDate>[0], creatorId)
     if (result.sameDate) {
+      reject('SAME_DATE')
       res.status(409).json({ success: false, code: 'SAME_DATE', message: 'Học sinh đã có 1 buổi cùng ngày này rồi.', data: { existingId: String(result.sameDate._id), lessonNo: result.sameDate.lessonNo } })
       return
     }
@@ -112,6 +118,7 @@ export async function createSession(req: Request, res: Response): Promise<void> 
   }
   const conflict = await findConflictingSession(req.body.studentId, req.body.lessonNo)
   if (conflict) {
+    reject('DUPLICATE_NO')
     badRequest(res, `Học sinh này đã có Buổi ${req.body.lessonNo} (ngày ${conflict.scheduledAt.toISOString().slice(0, 10)}) rồi — chọn số buổi khác.`)
     return
   }

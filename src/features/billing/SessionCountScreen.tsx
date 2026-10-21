@@ -9,6 +9,9 @@ import { emptyEntry } from '@/business/seed'
 import { isMongoid } from '@/utils/mongoid'
 import { sessionService } from '@/services/sessions'
 import { toast } from '@/store/toastStore'
+import { useAppStore } from '@/store/appStore'
+import { appendOrphans, orphanForLocalDelete } from '@/business/sync'
+import { logActivity } from '@/services/activity'
 
 interface SessionCountScreenProps {
   cls: ClassData
@@ -253,7 +256,14 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
   }
 
   async function handleDeleteRow(row: DetailRow) {
-    if (!confirm(`Xóa Buổi ${row.no} (${viDate(row.date)}) của ${row.studentName}? Điểm buổi này sẽ mất.`)) return
+    const stu = cls.students.find((y) => y.id === row.studentId)
+    const full = stu?.sessions.find((y) => y.id === row.sessionId)
+    // Buổi còn dữ liệu CHƯA lên server → vào kho giữ lại, không mất trắng.
+    const orphan = stu && full ? orphanForLocalDelete(cls, stu, full) : null
+    const msg = orphan
+      ? `Buổi ${row.no} (${viDate(row.date)}) của ${row.studentName} CHƯA lên server và CÓ điểm/điểm danh. Xóa sẽ chuyển buổi này vào "kho giữ lại" (admin xem được ở Sao lưu → Dữ liệu kẹt). Vẫn xóa?`
+      : `Xóa Buổi ${row.no} (${viDate(row.date)}) của ${row.studentName}? Điểm buổi này sẽ mất.`
+    if (!confirm(msg)) return
     if (isMongoid(row.sessionId)) {
       try {
         await sessionService.remove(row.sessionId)
@@ -261,6 +271,10 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
         toast.error(`Lỗi khi xóa Buổi ${row.no} trên server. Thử lại.`, { persist: true })
         return
       }
+    }
+    if (orphan) {
+      useAppStore.getState().setData((d) => { d.orphans = appendOrphans(d.orphans, [orphan]) })
+      logActivity('session.deleteLocal', { className: cls.name, studentName: row.studentName, sessionNo: row.no, date: row.date }, 'ClassSession')
     }
     toast.success(`Đã xóa Buổi ${row.no} của ${row.studentName}`)
     update((c) => {

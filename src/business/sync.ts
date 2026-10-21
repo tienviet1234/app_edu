@@ -351,6 +351,105 @@ export function sameDateClash(student: { sessions: Session[] }, no: number, date
   return student.sessions.find((s) => s.date === date) ?? null
 }
 
+/** Xóa 1 buổi khỏi máy (màn Sửa số buổi / Thống kê buổi / Lớp học): buổi còn
+ *  dữ liệu CHƯA lên server thì trả về bản ghi kho giữ lại (`deletedLocal`) để
+ *  lưu trước khi xóa — trước đây chỉ màn Sửa số buổi làm vậy, 2 màn kia xóa
+ *  thẳng, mất trắng không nhật ký (đường mất các buổi 17/10 kẹt trên máy Lớp
+ *  3/4/5: buổi tạm bị server từ chối vì trùng số, trông như buổi "trùng" nên
+ *  bị xóa). Buổi đã lên server và không sửa dở → null (server xóa mềm, khôi
+ *  phục được ở "Buổi đã xóa"). */
+export function orphanForLocalDelete(
+  cls: { id: string; name: string },
+  student: { id: string; name: string },
+  session: Session,
+  now = new Date().toISOString(),
+): OrphanRecord | null {
+  if (!hasUnsavedData(session)) return null
+  return {
+    classId: cls.id, className: cls.name, studentId: student.id, studentName: student.name,
+    reason: 'deletedLocal', removedAt: now, sessions: [JSON.parse(JSON.stringify(session)) as Session],
+  }
+}
+
+type LocalData = { classes: Array<{ id: string; name: string; students: Array<{ id: string; name: string; sessions: Session[] }> }>; orphans?: OrphanRecord[] }
+
+/** So 2 bản bất kể thứ tự khóa (bản đọc từ máy đi qua normalize, bản trong bộ
+ *  nhớ đi qua immer — thứ tự khóa có thể khác dù nội dung như nhau). */
+const canon = (v: unknown): string => JSON.stringify(v, (_k, x: unknown) =>
+  x && typeof x === 'object' && !Array.isArray(x)
+    ? Object.fromEntries(Object.entries(x as Record<string, unknown>).filter(([, y]) => y !== undefined).sort(([a], [b]) => (a < b ? -1 : 1)))
+    : x)
+
+const sessionsById = (d: LocalData | null | undefined): Map<string, Session> => {
+  const m = new Map<string, Session>()
+  for (const c of d?.classes ?? []) for (const st of c.students) for (const s of st.sessions) m.set(s.id, s)
+  return m
+}
+
+const allSessionIds = (d: LocalData | null | undefined): Set<string> => {
+  const ids = new Set<string>()
+  for (const c of d?.classes ?? []) for (const st of c.students) for (const s of st.sessions) ids.add(s.id)
+  for (const o of d?.orphans ?? []) for (const s of o.sessions) ids.add(s.id)
+  return ids
+}
+
+/** App mở ở 2 tab cùng máy: mỗi tab ghi CẢ bộ dữ liệu trong bộ nhớ của nó
+ *  xuống máy → tab cũ ghi đè mất buổi tab kia vừa tạo. Trước khi tab này ghi,
+ *  gộp lại các buổi CHƯA lên server mà tab kia đã ghi xuống (`stored`) nhưng
+ *  tab này chưa từng thấy (không có trong `baseline` = bản tab này đọc/ghi lần
+ *  cuối) và hiện không có trong bộ nhớ (`mine`). Buổi tab này đã chủ động
+ *  bỏ (có trong baseline) thì KHÔNG hồi sinh. Học sinh không còn trên máy này
+ *  → vào kho giữ lại (`otherTab`). Buổi CẢ 2 tab đều có: tab kia đã đổi mà
+ *  tab này không đụng tới → lấy bản tab kia (gộp 3 chiều); cả 2 cùng đổi và
+ *  bản tab kia còn phần chưa lên server → giữ bản tab này, đếm `conflicts` để
+ *  cảnh báo. Sửa trực tiếp `mine` (gọi trong produce). (Nghi là đường mất
+ *  điểm 17–18/10 Lớp 3/4/5: app cũ không biết có tab khác, tab cũ ghi đè.) */
+export function rescueOtherTabSessions(mine: LocalData, stored: LocalData, baseline: LocalData | null): { kept: number; conflicts: number } {
+  const seen = allSessionIds(baseline)
+  const have = allSessionIds(mine)
+  const now = new Date().toISOString()
+  let rescued = 0
+  let conflicts = 0
+  // Buổi cả 2 tab đều có — gộp 3 chiều với bản gốc tab này đọc/ghi lần cuối.
+  const base = sessionsById(baseline)
+  const other = sessionsById(stored)
+  for (const c of mine.classes) {
+    for (const st of c.students) {
+      st.sessions.forEach((m, i) => {
+        const s = other.get(m.id)
+        const b = base.get(m.id)
+        if (!s || !b) return
+        const sj = canon(s)
+        const bj = canon(b)
+        if (sj === bj || sj === canon(m)) return // tab kia không đổi gì / 2 bên như nhau
+        if (canon(m) === bj) { st.sessions[i] = JSON.parse(JSON.stringify(s)) as Session; rescued++ } // chỉ tab kia đổi
+        else if (hasUnsavedData(s)) conflicts++ // cả 2 cùng đổi — giữ bản tab này, báo
+      })
+    }
+  }
+  const keep = (classId: string, className: string, studentId: string, studentName: string, s: Session) => {
+    const st = mine.classes.find((c) => c.id === classId)?.students.find((x) => x.id === studentId)
+    if (st) st.sessions.push(JSON.parse(JSON.stringify(s)) as Session)
+    else mine.orphans = appendOrphans(mine.orphans, [{ classId, className, studentId, studentName, reason: 'otherTab', removedAt: now, sessions: [s] }])
+    have.add(s.id)
+    rescued++
+  }
+  for (const c of stored.classes ?? []) {
+    for (const st of c.students ?? []) {
+      for (const s of st.sessions ?? []) {
+        if (seen.has(s.id) || have.has(s.id) || !hasUnsavedData(s)) continue
+        keep(c.id, c.name, st.id, st.name, s)
+      }
+    }
+  }
+  for (const o of stored.orphans ?? []) {
+    const fresh = o.sessions.filter((s) => !seen.has(s.id) && !have.has(s.id))
+    if (fresh.length) { mine.orphans = appendOrphans(mine.orphans, [{ ...o, sessions: fresh }]); fresh.forEach((s) => have.add(s.id)); rescued += fresh.length }
+  }
+  if (rescued) for (const c of mine.classes) for (const st of c.students) st.sessions.sort((a, b) => a.no - b.no)
+  return { kept: rescued, conflicts }
+}
+
 /** Thêm bản ghi vào kho giữ lại, KHÔNG trùng (cùng lớp + học sinh thì gộp,
  *  buổi đã có trong kho thì bỏ qua) — hiệu ứng đồng bộ có thể chạy lại. */
 export function appendOrphans(existing: OrphanRecord[] | undefined, incoming: OrphanRecord[]): OrphanRecord[] {

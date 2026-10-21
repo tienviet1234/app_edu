@@ -54,6 +54,71 @@ export function isStudentInClass(cls: { studentIds?: IdLike[] } | null | undefin
   return !!cls?.studentIds?.some((id) => String(id) === String(studentId))
 }
 
+/** Các ô nội dung của 1 điểm (không tính `total` — tính lại theo phiếu chấm). */
+const SCORE_CONTENT_FIELDS = ['attendance', 'scores', 'tags', 'ticks', 'choice', 'parts', 'skip', 'ev', 'note'] as const
+
+/** Trải phẳng nội dung điểm thành "đường dẫn → giá trị" để so từng ô — bỏ ô
+ *  trống, "8" = 8, thứ tự tick không quan trọng, "có mặt" là mặc định. */
+export function flattenScoreContent(score: Record<string, unknown> | null | undefined): Record<string, string> {
+  const out: Record<string, string> = {}
+  const walk = (v: unknown, path: string) => {
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      for (const [k, x] of Object.entries(v as Record<string, unknown>)) walk(x, path ? `${path}.${k}` : k)
+    } else if (Array.isArray(v)) {
+      if (v.length) out[path] = JSON.stringify([...v].map(String).sort())
+    } else if (v !== undefined && v !== null && v !== '' && v !== false) {
+      const s = typeof v === 'string' ? v.trim() : v
+      if (s === '') return
+      out[path] = typeof s === 'string' && !Number.isNaN(Number(s)) ? String(Number(s)) : JSON.stringify(s)
+    }
+  }
+  for (const f of SCORE_CONTENT_FIELDS) walk(score?.[f], f)
+  if (out.attendance === '"present"') delete out.attendance
+  return out
+}
+
+/** Khôi phục 1 điểm từ bản sao lưu/bản chụp máy chỉ an toàn khi bản khôi phục
+ *  CHỨA TRỌN bản hiện tại: mọi ô đang có giữ nguyên giá trị (ghi chú được phép
+ *  dài thêm ở cuối — bản bị đè thường là ghi chú cắt ngắn). Ai đó đã sửa buổi
+ *  sau khi bị đè → bản hiện tại có ô khác/mới → không khôi phục, để người xem.
+ *  (Sự cố thật 19–20/10: máy giữ bản cũ đẩy đè mất Mini/Nghe/tích của Lớp 7,
+ *  Lớp 10 — khôi phục không được làm mất thêm bất kỳ ô nào đang có.) */
+export function checkScoreRestore(
+  current: Record<string, unknown> | null | undefined,
+  target: Record<string, unknown>,
+): { ok: true; added: string[] } | { ok: false; reason: string } {
+  const cur = flattenScoreContent(current)
+  const tgt = flattenScoreContent(target)
+  for (const [k, v] of Object.entries(cur)) {
+    if (tgt[k] === v) continue
+    const curNote = k === 'note' ? (JSON.parse(v) as string) : null
+    const tgtNote = k === 'note' && tgt[k] ? (JSON.parse(tgt[k]) as string) : null
+    if (curNote !== null && tgtNote !== null && tgtNote.startsWith(curNote)) continue
+    return { ok: false, reason: `ô "${k}" hiện có ${v}, bản khôi phục ${tgt[k] ?? 'không có'} — sẽ làm mất dữ liệu đang có` }
+  }
+  const added = Object.keys(tgt).filter((k) => cur[k] !== tgt[k])
+  if (!added.length) return { ok: false, reason: 'bản hiện tại đã đủ — không cần khôi phục' }
+  return { ok: true, added }
+}
+
+const REJECT_KEEP = ['classId', 'studentId', 'sessionId', 'lessonNo', 'scheduledAt', 'placeByDate', 'baseUpdatedAt', 'total', ...SCORE_CONTENT_FIELDS] as const
+
+/** Nhật ký 1 lần server TỪ CHỐI lưu buổi/điểm — giữ cả NỘI DUNG bị từ chối.
+ *  Sự cố thật 18/10: tạo buổi 17–18/10 bị từ chối (trùng số), server không ghi
+ *  gì, điểm chỉ còn trên máy giáo viên rồi mất hẳn — không ai biết, không còn
+ *  nơi nào để lấy lại. Giờ bị từ chối là có bản trên server (nhật ký). Chỉ giữ
+ *  các trường dữ liệu học tập đã biết, ghi chú/bài tập cắt bớt cho gọn. */
+export function rejectedWriteMetadata(code: string, body: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  const out: Record<string, unknown> = { code }
+  for (const k of REJECT_KEEP) {
+    const v = body?.[k]
+    if (v === undefined || v === null || v === '') continue
+    out[k] = typeof v === 'string' ? v.slice(0, 1000) : v
+  }
+  if (typeof body?.notes === 'string' && body.notes) out.notes = body.notes.slice(0, 1000)
+  return out
+}
+
 /** Người được ghi là "đã tạo buổi" — admin đẩy hộ từ bản chụp máy giáo viên
  *  thì ghi đúng giáo viên đó (Thống kê buổi/lương tính theo người tạo). Chỉ
  *  admin mới được chỉ định người khác. */

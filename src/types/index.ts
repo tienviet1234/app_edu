@@ -144,7 +144,7 @@ export interface OrphanRecord {
   className: string
   studentId: string
   studentName: string
-  reason: 'studentRemoved' | 'classRemoved' | 'deletedLocal'
+  reason: 'studentRemoved' | 'classRemoved' | 'deletedLocal' | 'otherTab'
   removedAt: string
   sessions: Session[]
 }

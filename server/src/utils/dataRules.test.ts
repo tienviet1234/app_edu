@@ -1,5 +1,59 @@
 import { describe, it, expect } from 'vitest'
-import { decideIfAbsent, isStaleWrite, isStudentInClass, isWriteToDeletedSession, resolveScoreClassId, resolveSessionCreator } from './dataRules.js'
+import { checkScoreRestore, decideIfAbsent, flattenScoreContent, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator } from './dataRules.js'
+
+describe('rejectedWriteMetadata (server từ chối lưu → vẫn giữ nội dung trong nhật ký)', () => {
+  it('tạo buổi bị từ chối vì trùng số (sự cố 17–18/10 Trần Đan, Ken) → nhật ký có đủ học sinh/ngày/số/bài tập', () => {
+    const m = rejectedWriteMetadata('DUPLICATE_NO', { classId: 'c', studentId: 's', lessonNo: 9, scheduledAt: '2026-10-17T00:00:00.000Z', notes: 'Hoàn thành trang 32', title: 'Buổi 9' })
+    expect(m).toEqual({ code: 'DUPLICATE_NO', classId: 'c', studentId: 's', lessonNo: 9, scheduledAt: '2026-10-17T00:00:00.000Z', notes: 'Hoàn thành trang 32' })
+  })
+  it('lưu điểm bị từ chối → giữ nguyên nội dung điểm để lấy lại được', () => {
+    const m = rejectedWriteMetadata('CONFLICT', { sessionId: 'x', studentId: 's', attendance: 'late', scores: { mini: 8 }, parts: { vocab: { pron: 6 } }, note: 'Dò từ vựng 9/10', total: 83, baseUpdatedAt: 't0' })
+    expect(m).toMatchObject({ code: 'CONFLICT', attendance: 'late', scores: { mini: 8 }, parts: { vocab: { pron: 6 } }, note: 'Dò từ vựng 9/10', total: 83, baseUpdatedAt: 't0' })
+  })
+  it('bỏ trường lạ / trống, cắt chuỗi quá dài', () => {
+    const m = rejectedWriteMetadata('X', { password: 'nope', note: '', notes: 'a'.repeat(5000) })
+    expect(m.password).toBeUndefined()
+    expect(m.note).toBeUndefined()
+    expect((m.notes as string).length).toBe(1000)
+  })
+})
+
+describe('checkScoreRestore (khôi phục điểm bị bản cũ đè — không được làm mất thêm ô nào)', () => {
+  // Bản bị đè thật (Lớp 10 Hữu Hoàn 17/09): mất Mini/Nghe/Thái độ, còn lại ô khác.
+  const wiped = { attendance: 'present', scores: {}, ticks: { hw: ['h_ontime'] }, note: '' }
+  const full = { attendance: 'present', scores: { mini: 8, listen: 1 }, ticks: { hw: ['h_ontime'], attitude: ['a_speak', 'a_focus'] }, note: '' }
+  it('bản khôi phục chứa trọn bản hiện tại → cho khôi phục, liệt kê ô được lấy lại', () => {
+    const r = checkScoreRestore(wiped, full)
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.added.sort()).toEqual(['scores.listen', 'scores.mini', 'ticks.attitude'])
+  })
+  it('ai đó đã sửa sau khi bị đè (ô khác giá trị) → KHÔNG khôi phục', () => {
+    const editedLater = { ...wiped, scores: { mini: 9 } }
+    expect(checkScoreRestore(editedLater, full).ok).toBe(false)
+  })
+  it('bản hiện tại có ô mà bản khôi phục không có → KHÔNG khôi phục (sẽ mất ô đó)', () => {
+    const extra = { ...wiped, choice: { hw: 'full' } }
+    expect(checkScoreRestore(extra, full).ok).toBe(false)
+  })
+  it('đổi điểm danh sau khi bị đè (vắng ≠ có mặt) → KHÔNG khôi phục', () => {
+    expect(checkScoreRestore({ ...wiped, attendance: 'absent' }, full).ok).toBe(false)
+  })
+  it('ghi chú bị cắt ngắn → bản khôi phục dài hơn ở cuối thì được (Quang Huy 15/09)', () => {
+    const cur = { note: 'Còn nói chuyện nhiều với Thịnh' }
+    const tgt = { note: 'Còn nói chuyện nhiều với Thịnh. KHÔNG LÀM BÀI NGHE', ticks: { hw: ['h_neat'] } }
+    expect(checkScoreRestore(cur, tgt).ok).toBe(true)
+  })
+  it('ghi chú khác hẳn → KHÔNG khôi phục', () => {
+    expect(checkScoreRestore({ note: 'Đã sửa lại' }, { note: 'Bản cũ khác' }).ok).toBe(false)
+  })
+  it('đã giống hệt (đã khôi phục rồi / chạy lại lần 2) → không làm gì', () => {
+    expect(checkScoreRestore(full, full).ok).toBe(false)
+  })
+  it('"8" và 8 coi là như nhau, thứ tự tick không quan trọng', () => {
+    expect(flattenScoreContent({ scores: { mini: '8' }, ticks: { a: ['y', 'x'] } }))
+      .toEqual(flattenScoreContent({ scores: { mini: 8 }, ticks: { a: ['x', 'y'] } }))
+  })
+})
 
 describe('isWriteToDeletedSession (lưu điểm thật vào buổi đã xóa)', () => {
   it('buổi đã xóa → từ chối (trước đây ghi + báo thành công, điểm 10/10–11/10 của Phú biến mất)', () => {

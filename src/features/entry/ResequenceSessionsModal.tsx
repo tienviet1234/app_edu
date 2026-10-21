@@ -4,7 +4,7 @@ import { C } from '@/constants/colors'
 import { viDate } from '@/utils/format'
 import { isMongoid } from '@/utils/mongoid'
 import { sortSessionsByDate, sequentialNumbering } from '@/business/resequence'
-import { appendOrphans, hasUnsavedData } from '@/business/sync'
+import { appendOrphans, orphanForLocalDelete } from '@/business/sync'
 import { useAppStore } from '@/store/appStore'
 import { sessionService } from '@/services/sessions'
 import { logActivity } from '@/services/activity'
@@ -159,21 +159,16 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
     // nhật ký) dù hộp xác nhận ghi "vẫn khôi phục được" — nghi là đường mất
     // các buổi 17/10 kẹt trên máy Lớp 3/4/5 (trông như buổi thừa/trùng nên bị
     // xóa). Giờ có dữ liệu thì chuyển vào kho giữ lại, admin vẫn xem được.
-    const localWithData = !isMongoid(ss.id) && !!full && hasUnsavedData(full)
-    const msg = localWithData
+    const orphan = full ? orphanForLocalDelete(cls, student!, full) : null
+    const msg = orphan
       ? `Buổi ${ss.no} (${viDate(ss.date)}) của ${student!.name} CHƯA lên server và CÓ điểm/điểm danh. Xóa sẽ chuyển buổi này vào "kho giữ lại" (admin xem được ở Sao lưu → Dữ liệu kẹt), KHÔNG khôi phục bằng "🗑️ Buổi đã xóa" được. Vẫn xóa?`
       : `Xóa hẳn Buổi ${ss.no} (${viDate(ss.date)}) của ${student!.name}? Vẫn khôi phục lại được sau qua "🗑️ Buổi đã xóa".`
     if (!confirm(msg)) return
     setDeletingId(ss.id)
     try {
       if (isMongoid(ss.id)) await sessionService.remove(ss.id)
-      if (localWithData && full) {
-        useAppStore.getState().setData((d) => {
-          d.orphans = appendOrphans(d.orphans, [{
-            classId: cls.id, className: cls.name, studentId: student!.id, studentName: student!.name,
-            reason: 'deletedLocal', removedAt: new Date().toISOString(), sessions: [JSON.parse(JSON.stringify(full))],
-          }])
-        })
+      if (orphan) {
+        useAppStore.getState().setData((d) => { d.orphans = appendOrphans(d.orphans, [orphan]) })
         logActivity('session.deleteLocal', { className: cls.name, studentName: student!.name, sessionNo: ss.no, date: ss.date }, 'ClassSession')
       }
       update((cData) => {

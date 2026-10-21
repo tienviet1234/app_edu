@@ -10,6 +10,13 @@ interface AuditInput {
   metadata?: Record<string, unknown>
 }
 
+/** Ghi nhật ký 1 lần server TỪ CHỐI lưu (kèm nội dung bị từ chối — xem
+ *  rejectedWriteMetadata). Việc phụ: lỗi ghi nhật ký không được làm hỏng
+ *  phản hồi trả về máy giáo viên, nên nuốt lỗi ở đây. */
+export function writeRejectedAudit(req: Request, action: string, resource: string, metadata: Record<string, unknown>): void {
+  writeAudit(req, { action, resource, metadata }).catch((err) => console.error('writeRejectedAudit:', err))
+}
+
 export async function writeAudit(req: Request, input: AuditInput): Promise<void> {
   const authReq = req as AuthRequest
 

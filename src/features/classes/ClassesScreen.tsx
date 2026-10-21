@@ -17,6 +17,8 @@ import { useClassStudents } from '@/hooks'
 import { useAuthStore } from '@/store/authStore'
 import { isMongoid } from '@/utils/mongoid'
 import { toast } from '@/store/toastStore'
+import { appendOrphans, orphanForLocalDelete } from '@/business/sync'
+import { logActivity } from '@/services/activity'
 import { DeletedSessionsPanel } from './DeletedSessionsPanel'
 import { StudentMergeModal } from './StudentMergeModal'
 import { AssistantTeachersPanel } from './AssistantTeachersPanel'
@@ -763,7 +765,12 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                                         className="text-xs font-bold"
                                         style={{ color: C.red }}
                                         onClick={async () => {
-                                          if (!confirm(`Xóa buổi ${ss.no} (${viDate(ss.date)}) của ${stu.name}? (có thể khôi phục lại sau ở nút "🗑️ Buổi đã xóa")`)) return
+                                          // Buổi còn dữ liệu CHƯA lên server → vào kho giữ lại, không mất trắng.
+                                          const orphan = orphanForLocalDelete(cls, stu, ss)
+                                          const msg = orphan
+                                            ? `Buổi ${ss.no} (${viDate(ss.date)}) của ${stu.name} CHƯA lên server và CÓ điểm/điểm danh. Xóa sẽ chuyển buổi này vào "kho giữ lại" (admin xem được ở Sao lưu → Dữ liệu kẹt). Vẫn xóa?`
+                                            : `Xóa buổi ${ss.no} (${viDate(ss.date)}) của ${stu.name}? (có thể khôi phục lại sau ở nút "🗑️ Buổi đã xóa")`
+                                          if (!confirm(msg)) return
                                           if (isMongoid(ss.id)) {
                                             try {
                                               await sessionService.remove(ss.id)
@@ -771,6 +778,10 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                                               toast.error(`Lỗi khi xóa Buổi ${ss.no} trên server. Thử lại.`, { persist: true })
                                               return
                                             }
+                                          }
+                                          if (orphan) {
+                                            setData(produce((d: AppData) => { d.orphans = appendOrphans(d.orphans, [orphan]) }))
+                                            logActivity('session.deleteLocal', { className: cls.name, studentName: stu.name, sessionNo: ss.no, date: ss.date }, 'ClassSession')
                                           }
                                           toast.success(`Đã xóa Buổi ${ss.no} của ${stu.name} — vào "🗑️ Buổi đã xóa" nếu cần khôi phục lại`)
                                           edit((c) => {
