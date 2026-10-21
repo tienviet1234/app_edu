@@ -1,5 +1,18 @@
 import { describe, it, expect } from 'vitest'
-import { decideIfAbsent, isStaleWrite, isStudentInClass, resolveScoreClassId, resolveSessionCreator } from './dataRules.js'
+import { decideIfAbsent, isStaleWrite, isStudentInClass, isWriteToDeletedSession, resolveScoreClassId, resolveSessionCreator } from './dataRules.js'
+
+describe('isWriteToDeletedSession (lưu điểm thật vào buổi đã xóa)', () => {
+  it('buổi đã xóa → từ chối (trước đây ghi + báo thành công, điểm 10/10–11/10 của Phú biến mất)', () => {
+    expect(isWriteToDeletedSession({ deletedAt: new Date('2026-10-16T02:40:00Z') })).toBe(true)
+  })
+  it('buổi không tồn tại → từ chối (không tạo điểm mồ côi)', () => {
+    expect(isWriteToDeletedSession(null)).toBe(true)
+  })
+  it('buổi còn → cho ghi', () => {
+    expect(isWriteToDeletedSession({ deletedAt: null })).toBe(false)
+    expect(isWriteToDeletedSession({})).toBe(false)
+  })
+})
 
 describe('resolveScoreClassId', () => {
   it('lấy classId theo BUỔI HỌC, bỏ qua classId cũ máy gửi lên (học sinh vừa chuyển lớp)', () => {

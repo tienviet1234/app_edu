@@ -266,6 +266,30 @@ export function markConflict(student: { sessions: Session[] }, sessionId: string
   if (s) s.conflict = server
 }
 
+/** Server từ chối lưu vì buổi đã bị XÓA trên server (409 SESSION_DELETED) mà
+ *  máy này vẫn giữ và vừa sửa → tách buổi khỏi id server cũ thành buổi CHƯA
+ *  lên server (id tạm mới), giữ nguyên điểm + còn dirty → lần lưu sau tạo lại
+ *  buổi theo NGÀY (placeByDate: ngày đó đã có buổi khác thì đi đường trùng
+ *  ngày sẵn có, không tạo trùng). Trước đây server nhận ghi vào buổi đã xóa và
+ *  báo thành công → điểm biến mất khỏi mọi màn (Phú, Lớp 3, 10/10–11/10). */
+export function detachDeletedSession(
+  student: { sessions: Session[] },
+  sessionId: string,
+  newLocalId: string,
+  /** Bản điểm vừa định lưu mà bị từ chối (Chấm AI / Duyệt bài nộp tự dựng
+   *  entry riêng, chưa ghi vào máy) — giữ lại để lần lưu sau đẩy lên. */
+  pendingEntry?: SessionEntry,
+): void {
+  const s = student.sessions.find((x) => x.id === sessionId)
+  if (!s) return
+  s.id = newLocalId
+  if (pendingEntry) s.entry = pendingEntry
+  s.dirty = true
+  s.synced = undefined
+  s.baseUpdatedAt = undefined
+  s.conflict = undefined
+}
+
 /** Giáo viên chọn giữ bản nào khi 2 máy cùng sửa 1 buổi.
  *  - 'mine': giữ bản trên máy này, lần lưu tới ghi đè bản máy kia (đã xem rồi
  *    mới quyết định, không còn là "đè âm thầm").

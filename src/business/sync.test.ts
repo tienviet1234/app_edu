@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   pruneGoneFromServer, resolvePlausibleNo, syncStudentsFromServer, adoptServerSession, pendingSessionsOf, markSessionSaved,
-  markConflict, resolveConflict, collectOrphans, appendOrphans, sameDateClash,
+  markConflict, resolveConflict, collectOrphans, appendOrphans, sameDateClash, detachDeletedSession,
   type ServerSessionForSync, type ServerScoreForSync,
 } from './sync'
 import { emptyEntry, normalize } from './seed'
@@ -393,5 +393,38 @@ describe('pendingSessionsOf', () => {
       { id: 'local-st', sessions: [sess({ id: 'x', dirty: true })] },
     ])
     expect(out).toEqual([{ studentId: STU, sessionId: SV1 }])
+  })
+})
+
+describe('detachDeletedSession (server báo buổi đã bị xóa — 409 SESSION_DELETED)', () => {
+  it('giữ nguyên điểm + ngày + số buổi, tách khỏi id server cũ → lần lưu sau tạo lại buổi theo ngày (sự cố Phú 10/10–11/10)', () => {
+    const entry = { ...emptyEntry(), note: 'Dò từ vựng và cấu trúc: 9/10' }
+    const st = { sessions: [sess({ entry, date: '2026-10-11', no: 10, dirty: true, synced: true, baseUpdatedAt: '2026-10-12T06:07:00.000Z' })] }
+    detachDeletedSession(st, SV1, 'tmp-new')
+    const s = st.sessions[0]
+    expect(s.id).toBe('tmp-new')
+    expect(s.entry.note).toBe('Dò từ vựng và cấu trúc: 9/10')
+    expect(s.date).toBe('2026-10-11')
+    expect(s.no).toBe(10)
+    expect(s.dirty).toBe(true)
+    expect(s.synced).toBeUndefined()
+    expect(s.baseUpdatedAt).toBeUndefined() // buổi mới — không gửi mốc của buổi đã xóa
+  })
+  it('bộ tự lưu nền nhận ra buổi đã tách để tạo lại (không bị bỏ sót, không còn giữ id buổi đã xóa)', () => {
+    const st = { id: STU, sessions: [sess({ dirty: true, synced: true })] }
+    detachDeletedSession(st, SV1, 'tmp-new')
+    expect(pendingSessionsOf([st])).toEqual([{ studentId: STU, sessionId: 'tmp-new' }])
+  })
+  it('Chấm AI / Duyệt bài nộp: giữ bản điểm vừa bị từ chối (chưa ghi vào máy) để lần lưu sau đẩy lên', () => {
+    const pending = { ...emptyEntry(), scores: { mini: 8 } }
+    const st = { id: STU, sessions: [sess({ synced: true })] }
+    detachDeletedSession(st, SV1, 'tmp-new', pending)
+    expect(st.sessions[0].entry.scores).toEqual({ mini: 8 })
+    expect(pendingSessionsOf([st])).toEqual([{ studentId: STU, sessionId: 'tmp-new' }])
+  })
+  it('đang xung đột 2 máy với buổi đã xóa → bỏ xung đột (không còn bản server nào để chọn)', () => {
+    const st = { sessions: [sess({ dirty: true, conflict: { entry: emptyEntry(), total: 0, updatedAt: '2026-10-18T00:00:00.000Z' } })] }
+    detachDeletedSession(st, SV1, 'tmp-new')
+    expect(st.sessions[0].conflict).toBeUndefined()
   })
 })

@@ -17,7 +17,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useClasses, useClassStudents, useSessions, useClassScores, usePwaInstall, useTuitionUnpaidCount, STUDENT_KEYS } from '@/hooks'
 import { isMongoid } from '@/utils/mongoid'
 import {
-  pruneGoneFromServer, syncStudentsFromServer, adoptServerSession, markSessionSaved, markConflict, toSessionEntry,
+  pruneGoneFromServer, syncStudentsFromServer, adoptServerSession, markSessionSaved, markConflict, detachDeletedSession, toSessionEntry,
   collectOrphans, appendOrphans, type ServerScoreForSync,
 } from '@/business/sync'
 import { getClassRubric } from '@/constants/rubrics'
@@ -26,7 +26,8 @@ import { autoLevel } from '@/constants/rubrics'
 import { collectScoreJobs, sameEntry } from '@/business/strandedScores'
 import { tryLockSession, unlockSession } from '@/utils/syncLocks'
 import { sessionService } from '@/services/sessions'
-import { scoreService, conflictFromError } from '@/services/scores'
+import { scoreService, conflictFromError, isSessionDeletedError } from '@/services/scores'
+import { uid } from '@/utils/uid'
 import { classService, type ApiClass } from '@/services/classes'
 import { toast } from '@/store/toastStore'
 import type { AppData, ClassData } from '@/types'
@@ -150,6 +151,7 @@ async function autoSyncStrandedScores(
   let recovered = 0
   const stuckSameDate: string[] = []
   const conflicts: string[] = []
+  const deletedOnServer: string[] = []
   for (const job of jobs) {
     if (!tryLockSession(job.sessionLocalId)) continue // Nhập điểm đang gửi đúng buổi này
     const sent = { entry: job.entry, homework: job.homework, maxes: job.maxes }
@@ -164,6 +166,13 @@ async function autoSyncStrandedScores(
             await sessionService.update(job.sessionLocalId, { notes: job.homework, ...(job.maxes ? { maxes: job.maxes } : {}) })
             onStudent(job, (st) => markSessionSaved(st, job.sessionLocalId, sent, saved.updatedAt))
           } catch (err) {
+            if (isSessionDeletedError(err)) {
+              // Buổi đã bị xóa trên server — giữ điểm, tách thành buổi chưa lên
+              // server; lần đồng bộ sau / Nhập điểm tạo lại buổi theo ngày.
+              onStudent(job, (st) => detachDeletedSession(st, job.sessionLocalId, uid()))
+              deletedOnServer.push(`${job.studentName} (${job.date})`)
+              continue
+            }
             const conflict = conflictFromError(err)
             if (!conflict) throw err
             const sc = conflict.score
@@ -232,6 +241,9 @@ async function autoSyncStrandedScores(
   }
   if (conflicts.length) {
     toast.error(`${conflicts.length} buổi trên máy này đã được máy khác lưu bản khác: ${conflicts.join(', ')} — mở Nhập điểm của lớp đó để chọn giữ bản nào.`, { persist: true })
+  }
+  if (deletedOnServer.length) {
+    toast.info(`${deletedOnServer.length} buổi máy này vừa sửa đã bị xóa trên server: ${deletedOnServer.join(', ')} — đã giữ lại điểm, sẽ tạo lại buổi theo ngày khi mở Nhập điểm lớp đó.`, { persist: true })
   }
   if (stuckSameDate.length) {
     toast.error(`${stuckSameDate.length} buổi trên máy này trùng ngày với buổi đã có điểm trên server, chưa gộp (tránh ghi đè): ${stuckSameDate.join(', ')} — báo admin kiểm tra.`, { persist: true })

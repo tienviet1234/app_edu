@@ -7,15 +7,16 @@ import { assignmentService, type Assignment, type AssignmentStats } from '@/serv
 import { submissionService, type Submission } from '@/services/submissions'
 import { aiGradingService } from '@/services/aiGrading'
 import { sessionService } from '@/services/sessions'
-import { scoreService } from '@/services/scores'
+import { scoreService, isSessionDeletedError } from '@/services/scores'
 import { useAppStore } from '@/store/appStore'
 import { getClassRubric } from '@/constants/rubrics'
 import { applyPercentToComp, rescaleComp, sessionScore } from '@/business/scoring'
 import { emptyEntry } from '@/business/seed'
-import { adoptServerSession, markSessionSaved } from '@/business/sync'
+import { adoptServerSession, markSessionSaved, detachDeletedSession } from '@/business/sync'
 import { isMongoid } from '@/utils/mongoid'
-import { todayISO } from '@/utils/format'
-import type { AppData } from '@/types'
+import { uid } from '@/utils/uid'
+import { todayISO, viDate } from '@/utils/format'
+import type { AppData, SessionEntry } from '@/types'
 import { toast } from '@/store/toastStore'
 import { AssignHomeworkModal } from './AssignHomeworkModal'
 import { BulkSubmitPanel } from './BulkSubmitPanel'
@@ -155,11 +156,12 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
     const comp = getClassRubric(cls).comps.find((c) => c.key === compKey)
     if (!comp) return
 
+    // Chỉ dùng buổi ĐÃ có trên server — buổi id tạm (chưa lên) mà gửi id đó
+    // thì server từ chối (trước đây báo "cộng điểm bị lỗi" mà không rõ vì sao).
+    const session = student.sessions.find((s) => s.date === syncDate && isMongoid(s.id))
+    const localTemp = student.sessions.find((s) => s.date === syncDate && !isMongoid(s.id))
+    let entry: SessionEntry | null = null
     try {
-      // Chỉ dùng buổi ĐÃ có trên server — buổi id tạm (chưa lên) mà gửi id đó
-      // thì server từ chối (trước đây báo "cộng điểm bị lỗi" mà không rõ vì sao).
-      const session = student.sessions.find((s) => s.date === syncDate && isMongoid(s.id))
-      const localTemp = student.sessions.find((s) => s.date === syncDate && !isMongoid(s.id))
       let sessionId = session?.id ?? ''
       let lessonNo: number | undefined
       if (!session) {
@@ -183,13 +185,14 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
         }
       }
       const baseEntry = session ? { ...session.entry } : localTemp ? { ...localTemp.entry } : emptyEntry()
-      const entry = applyPercentToComp(comp, pct, baseEntry)
-      if (!entry) return
+      const saved = applyPercentToComp(comp, pct, baseEntry)
+      if (!saved) return
+      entry = saved
 
       const r = getClassRubric(cls)
       const maxes = (session ?? localTemp)?.maxes ?? {}
-      const total = sessionScore(entry, { ...r, comps: r.comps.map((c) => (maxes[c.key] != null ? rescaleComp(c, maxes[c.key]) : c)) }) ?? 0
-      await scoreService.upsert({ classId: cls.id, sessionId, studentId: student.id, ...entry, total })
+      const total = sessionScore(saved, { ...r, comps: r.comps.map((c) => (maxes[c.key] != null ? rescaleComp(c, maxes[c.key]) : c)) }) ?? 0
+      await scoreService.upsert({ classId: cls.id, sessionId, studentId: student.id, ...saved, total })
 
       setData(produce((d: AppData) => {
         const c2 = d.classes.find((x) => x.id === cls.id)
@@ -199,16 +202,27 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
         if (localTemp) adoptServerSession(st2, localTemp.id, sessionId, lessonNo)
         let ss2 = st2.sessions.find((x) => x.id === sessionId)
         if (!ss2) {
-          ss2 = { id: sessionId, no: lessonNo ?? st2.sessions.length + 1, date: syncDate, homework: '', entry }
+          ss2 = { id: sessionId, no: lessonNo ?? st2.sessions.length + 1, date: syncDate, homework: '', entry: saved }
           st2.sessions.push(ss2)
           st2.sessions.sort((a, b) => a.no - b.no)
         } else {
-          ss2.entry = entry
+          ss2.entry = saved
         }
         // Server vừa xác nhận đúng bản này.
-        markSessionSaved(st2, sessionId, { entry, homework: ss2.homework, maxes: ss2.maxes })
+        markSessionSaved(st2, sessionId, { entry: saved, homework: ss2.homework, maxes: ss2.maxes })
       }))
-    } catch {
+    } catch (err) {
+      if (session && entry && isSessionDeletedError(err)) {
+        // Buổi đã bị xóa trên server — giữ điểm vừa cộng trên máy (buổi chưa
+        // lên server), Nhập điểm tự tạo lại buổi theo ngày khi mở lớp này.
+        const kept = entry
+        setData(produce((d: AppData) => {
+          const st2 = d.classes.find((x) => x.id === cls.id)?.students.find((x) => x.id === student.id)
+          if (st2) detachDeletedSession(st2, session.id, uid(), kept)
+        }))
+        toast.info(`Buổi ${viDate(syncDate)} của ${student.name} đã bị xóa trên server — đã giữ điểm vừa cộng, mở Nhập điểm lớp này để tạo lại buổi.`, { persist: true })
+        return
+      }
       toast.error('Đã duyệt bài, nhưng cộng điểm vào Báo cáo bị lỗi — thử lại ở Nhập điểm.')
     }
   }

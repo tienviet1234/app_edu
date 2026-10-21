@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { produce } from 'immer'
-import type { AppData, ClassData } from '@/types'
+import type { AppData, ClassData, SessionEntry } from '@/types'
 import { C } from '@/constants/colors'
 import { getClassRubric } from '@/constants/rubrics'
 import { todayISO, viDate } from '@/utils/format'
@@ -10,11 +10,12 @@ import { emptyEntry } from '@/business/seed'
 import { sessionScore } from '@/business/scoring'
 import { matchStudentsByName, normalizeViName, type StudentMatch } from '@/business/aiMatch'
 import { matchAiErrorTags } from '@/business/aiErrorTags'
+import { adoptServerSession, markSessionSaved, detachDeletedSession } from '@/business/sync'
 import { checkImageQuality, type ImageQuality } from '@/utils/imageQuality'
 import { aiGradingService, type AiGradeResult } from '@/services/aiGrading'
 import { AiSolveBox } from './AiSolveBox'
 import { sessionService } from '@/services/sessions'
-import { scoreService } from '@/services/scores'
+import { scoreService, isSessionDeletedError } from '@/services/scores'
 import { studentService } from '@/services/students'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
@@ -442,22 +443,38 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
     const scoreValue = Math.round(pct * comp.max)
 
     patch(row.id, (r) => { r.status = 'saving' })
+    // Tìm buổi đã có sẵn đúng ngày này của em, không thì tạo mới — giữ
+    // nguyên các tiêu chí khác đã chấm nếu buổi đó đã tồn tại. Chỉ gửi id
+    // buổi ĐÃ có trên server; bản tạm cùng ngày (chưa lên) thì tạo buổi theo
+    // ngày rồi gắn bản tạm vào (id tạm gửi thẳng thì server từ chối).
+    const session = student.sessions.find((s) => s.date === row.date && isMongoid(s.id))
+    const localTemp = student.sessions.find((s) => s.date === row.date && !isMongoid(s.id))
+    let pending: SessionEntry | null = null
     try {
-      // Tìm buổi đã có sẵn đúng ngày này của em, không thì tạo mới — giữ
-      // nguyên các tiêu chí khác đã chấm nếu buổi đó đã tồn tại.
-      let session = student.sessions.find((s) => s.date === row.date)
       let sessionId = session?.id ?? ''
-      const isNew = !session
+      let lessonNo: number | undefined
+      const isNew = !session && !localTemp
       if (!session) {
-        const apiSession = await sessionService.create({
-          classId: cls.id, studentId: student.id,
-          title: `Buổi ${student.sessions.length + 1}`,
-          lessonNo: student.sessions.length + 1,
-          scheduledAt: `${row.date}T00:00:00.000Z`,
-        })
-        sessionId = apiSession._id
+        try {
+          const apiSession = await sessionService.create({
+            classId: cls.id, studentId: student.id,
+            title: `Buổi ${student.sessions.length + 1}`,
+            lessonNo: student.sessions.length + 1,
+            scheduledAt: `${row.date}T00:00:00.000Z`,
+            placeByDate: true,
+          })
+          sessionId = apiSession._id
+          lessonNo = apiSession.lessonNo
+        } catch (err) {
+          const resp = (err as { response?: { status?: number; data?: { code?: string; data?: { existingId?: string; lessonNo?: number } } } }).response
+          if (resp?.status !== 409 || resp.data?.code !== 'SAME_DATE' || !resp.data.data?.existingId) throw err
+          sessionId = resp.data.data.existingId
+          lessonNo = resp.data.data.lessonNo
+        }
       }
-      const entry = session ? { ...session.entry } : emptyEntry()
+      const base = session ?? localTemp
+      const entry = base ? { ...base.entry } : emptyEntry()
+      pending = entry
       entry.scores = { ...entry.scores, [row.compKey]: scoreValue }
       // Ghi chú của bạn (nếu có gõ) LUÔN được lưu, kể cả buổi đã có sẵn — vì
       // bạn chủ động gõ ngay lúc này, không phải suy luận tự động như lỗi AI
@@ -485,20 +502,24 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
       const allComps = r.comps.map((c) => (c.key === row.compKey ? comp : c))
       const total = sessionScore(entry, { ...r, comps: allComps }) ?? 0
 
-      await scoreService.upsert({ classId: cls.id, sessionId, studentId: student.id, ...entry, total })
+      const saved = await scoreService.upsert({ classId: cls.id, sessionId, studentId: student.id, ...entry, total })
 
       setData(produce((d: AppData) => {
         const c2 = d.classes[row.classIndex]
         const st2 = c2.students.find((s) => s.id === row.studentId)
         if (!st2) return
+        // Bản tạm cùng ngày trên máy (nếu có) → gắn vào buổi server, không để 2 bản.
+        if (localTemp) adoptServerSession(st2, localTemp.id, sessionId, lessonNo)
         let ss2 = st2.sessions.find((s) => s.id === sessionId)
         if (!ss2) {
-          ss2 = { id: sessionId, no: st2.sessions.length + 1, date: row.date, homework: '', entry }
+          ss2 = { id: sessionId, no: lessonNo ?? st2.sessions.length + 1, date: row.date, homework: '', entry }
           st2.sessions.push(ss2)
           st2.sessions.sort((a, b) => a.no - b.no)
         } else {
           ss2.entry = entry
         }
+        // Server vừa xác nhận đúng bản này.
+        markSessionSaved(st2, sessionId, { entry, homework: ss2.homework, maxes: ss2.maxes }, saved.updatedAt)
       }))
 
       patch(row.id, (r2) => { r2.status = 'saved' })
@@ -518,7 +539,18 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
           patch(row.id, (r2) => { r2.savingOriginal = false })
         }
       }
-    } catch {
+    } catch (err) {
+      if (session && pending && isSessionDeletedError(err)) {
+        // Buổi đã bị xóa trên server — giữ điểm vừa chấm trên máy (buổi chưa
+        // lên server); bấm lưu lại sẽ tạo lại buổi theo ngày.
+        const kept = pending
+        setData(produce((d: AppData) => {
+          const st2 = d.classes[row.classIndex]?.students.find((s) => s.id === row.studentId)
+          if (st2) detachDeletedSession(st2, session.id, uid(), kept)
+        }))
+        patch(row.id, (r2) => { r2.status = 'error'; r2.error = `Buổi ${viDate(row.date)} đã bị xóa trên server — đã giữ điểm trên máy, bấm lưu lại để tạo lại buổi.` })
+        return
+      }
       patch(row.id, (r2) => { r2.status = 'error'; r2.error = 'Lỗi khi lưu điểm — thử lại.' })
     }
   }

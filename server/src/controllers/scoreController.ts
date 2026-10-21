@@ -9,7 +9,7 @@ import { paginate } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit } from '../services/auditService.js'
 import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
-import { decideIfAbsent, isStaleWrite, resolveScoreClassId } from '../utils/dataRules.js'
+import { decideIfAbsent, isStaleWrite, isWriteToDeletedSession, resolveScoreClassId } from '../utils/dataRules.js'
 
 /** Giáo viên chỉ được đọc/ghi điểm của lớp MÌNH dạy (kể cả giáo viên PHỤ,
  *  `assistantTeacherIds` — 1 lớp có thể do 2 giáo viên cùng quản lý) — admin
@@ -151,6 +151,12 @@ export async function upsertScore(req: Request, res: Response): Promise<void> {
       ok(res, { ...existing, skipped: true })
       return
     }
+  } else if (isWriteToDeletedSession(session)) {
+    // Buổi đã bị xóa (admin/máy khác) mà máy này còn giữ và vừa sửa — trước đây
+    // vẫn ghi + báo thành công, điểm nằm trong buổi đã xóa không ai thấy nữa.
+    // Máy nhận mã này sẽ tạo lại buổi theo ngày (giữ nguyên điểm vừa nhập).
+    res.status(409).json({ success: false, code: 'SESSION_DELETED', message: 'Buổi học này đã bị xóa trên server.' })
+    return
   } else if (baseUpdatedAt) {
     // 2 máy cùng sửa 1 buổi — máy khác đã lưu bản mới hơn bản máy này dựa vào.
     const existing = await Score.findOne({ sessionId: new Types.ObjectId(sessionId), studentId: new Types.ObjectId(studentId) })

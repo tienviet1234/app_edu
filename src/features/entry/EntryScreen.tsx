@@ -10,7 +10,7 @@ import { sessionStatusFragments } from '@/business/report'
 import { periodPositionOf, sessionLabelOf } from '@/business/tuition'
 import { emptyEntry } from '@/business/seed'
 import {
-  resolvePlausibleNo, pendingSessionsOf, adoptServerSession, markSessionSaved, markConflict, resolveConflict,
+  resolvePlausibleNo, pendingSessionsOf, adoptServerSession, markSessionSaved, markConflict, resolveConflict, detachDeletedSession,
   toSessionEntry, sameDateClash, type ServerScoreForSync,
 } from '@/business/sync'
 import { sameEntry } from '@/business/strandedScores'
@@ -22,7 +22,7 @@ import { Chip } from '@/components/atoms/Chip'
 import { ProgressBar } from '@/components/atoms/ProgressBar'
 import { CompEditor } from '@/components/molecules/CompEditor'
 import { sessionService } from '@/services/sessions'
-import { scoreService, conflictFromError } from '@/services/scores'
+import { scoreService, conflictFromError, isSessionDeletedError } from '@/services/scores'
 import { classService } from '@/services/classes'
 import { isMongoid } from '@/utils/mongoid'
 import { logActivity } from '@/services/activity'
@@ -447,6 +447,17 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
       else toast.success(`✓ Đã lưu điểm ${label} của ${student.name}`)
     } catch (err) {
       setSyncStatus('error')
+      if (isSessionDeletedError(err)) {
+        // Buổi đã bị xóa trên server (admin/máy khác) — tách thành buổi chưa
+        // lên server, GIỮ điểm vừa nhập; bộ tự lưu tạo lại buổi theo ngày ngay.
+        const localId = target.id
+        update((c) => {
+          const stu = c.students.find((s) => s.id === studentId)
+          if (stu) detachDeletedSession(stu, localId, uid())
+        })
+        toast.info(`${label} (${viDate(target.date)}) của ${student.name} đã bị xóa trên server — đang tạo lại buổi này để giữ điểm vừa nhập. Nếu buổi này không có thật, xóa ở "Sửa số buổi".`, { persist: true })
+        return
+      }
       const conflict = conflictFromError(err)
       if (conflict) {
         // 2 máy cùng sửa buổi này — giữ cả 2 bản, giáo viên chọn ở thanh

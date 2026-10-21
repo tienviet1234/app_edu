@@ -27,6 +27,15 @@ export function decideIfAbsent(
   return 'write'
 }
 
+/** Lưu điểm THẬT (giáo viên đang sửa, không phải `ifAbsent`) vào buổi đã bị
+ *  xóa / không tồn tại → phải từ chối. Trước đây server vẫn ghi và trả "thành
+ *  công" → điểm nằm trong buổi đã xóa, không màn nào hiện ra nữa (sự cố thật
+ *  18/10 Lớp 3: máy cô Trà lưu điểm 10/10 + 11/10 của Phú vào 2 buổi admin đã
+ *  xóa từ 16/10 — máy báo "Đã lưu", điểm biến mất khỏi mọi nơi). */
+export function isWriteToDeletedSession(session: { deletedAt?: Date | null } | null | undefined): boolean {
+  return !session || !!session.deletedAt
+}
+
 /** 2 máy cùng sửa 1 buổi: máy gửi kèm `baseUpdatedAt` = thời điểm bản điểm
  *  trên server mà nó đã dựa vào để sửa. Server đã có bản MỚI HƠN thế (máy khác
  *  vừa lưu) → ghi lúc này là đè mất phần máy kia vừa sửa ("bản lưu sau thắng")

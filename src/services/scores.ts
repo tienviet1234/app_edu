@@ -52,6 +52,12 @@ export function conflictFromError(err: unknown): { score: ApiScore & { recordedB
   return { score: resp.data.data.score as ApiScore & { recordedBy?: { name?: string } | string } }
 }
 
+/** Server từ chối lưu vì buổi đã bị xóa trên server (409 SESSION_DELETED). */
+export function isSessionDeletedError(err: unknown): boolean {
+  const resp = (err as { response?: { status?: number; data?: { code?: string } } }).response
+  return resp?.status === 409 && resp.data?.code === 'SESSION_DELETED'
+}
+
 export type UpsertScoreResult = ApiScore & { skipped?: boolean; deleted?: boolean }
 
 export const scoreService = {
