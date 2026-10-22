@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   pruneGoneFromServer, resolvePlausibleNo, syncStudentsFromServer, adoptServerSession, pendingSessionsOf, markSessionSaved,
   markConflict, resolveConflict, collectOrphans, appendOrphans, sameDateClash, detachDeletedSession,
-  orphanForLocalDelete, rescueOtherTabSessions, maxesToBackfill,
+  orphanForLocalDelete, rescueOtherTabSessions, maxesToBackfill, takeServerCopy,
   type ServerSessionForSync, type ServerScoreForSync,
 } from './sync'
 import { emptyEntry, normalize } from './seed'
@@ -518,6 +518,101 @@ describe('orphanForLocalDelete (xóa buổi ở Thống kê buổi / Lớp học
   })
 })
 
+describe('serverCopy / takeServerCopy (máy giữ dữ liệu cũ KHÁC server — admin chủ động lấy bản server)', () => {
+  // Phú Lớp 3: máy admin giữ nội dung 10–11/10 ở buổi 17–18/10, server đúng.
+  const local = { ...emptyEntry(), scores: { mini: 5 }, note: 'Bài tập sắp xếp 14/15' }
+  const server = { ...emptyEntry(), scores: { mini: 9 } }
+  it('đồng bộ: dữ liệu cũ khác server → GIỮ bản máy, ghi lại bản server (không tự đè)', () => {
+    const { sessions } = run([sess({ entry: local })], [serverSess()], [serverScore({ scores: { mini: 9 }, updatedAt: 't1' })])
+    expect(sessions[0].entry).toEqual(local)
+    expect(sessions[0].serverCopy).toEqual({ entry: server, updatedAt: 't1' })
+    expect(sessions[0].synced).toBeUndefined()
+  })
+  it('đồng bộ lần sau giống hệt → không báo "có thay đổi" (không ghi máy liên tục)', () => {
+    const s = sess({ entry: local })
+    run([s], [serverSess()], [serverScore({ scores: { mini: 9 }, updatedAt: 't1' })])
+    expect(run([s], [serverSess()], [serverScore({ scores: { mini: 9 }, updatedAt: 't1' })]).changed).toBe(false)
+  })
+  it('server đổi tiếp → cập nhật bản server đã ghi', () => {
+    const s = sess({ entry: local, serverCopy: { entry: server, updatedAt: 't1' } })
+    run([s], [serverSess()], [serverScore({ scores: { mini: 7 }, updatedAt: 't2' })])
+    expect(s.serverCopy).toEqual({ entry: { ...emptyEntry(), scores: { mini: 7 } }, updatedAt: 't2' })
+  })
+  it('máy và server đã khớp lại → bỏ bản server đã ghi', () => {
+    const s = sess({ entry: { ...emptyEntry(), scores: { mini: 9 } }, serverCopy: { entry: server, updatedAt: 't1' } })
+    run([s], [serverSess()], [serverScore({ scores: { mini: 9 }, updatedAt: 't1' })])
+    expect(s.serverCopy).toBeUndefined()
+    expect(s.synced).toBe(true)
+  })
+  it('server CHỨA TRỌN bản máy → vẫn tự lấy bản server như cũ, không cần nút', () => {
+    const s = sess({ entry: { ...emptyEntry(), scores: { mini: 9 } } })
+    run([s], [serverSess()], [serverScore({ scores: { mini: 9, listen: 2 } })])
+    expect(s.serverCopy).toBeUndefined()
+    expect(s.entry.scores).toEqual({ mini: 9, listen: 2 })
+  })
+  it('buổi đang sửa dở (dirty) / đã synced → không ghi bản server', () => {
+    const dirty = sess({ dirty: true, entry: local })
+    run([dirty], [serverSess()], [serverScore({ scores: { mini: 9 } })])
+    expect(dirty.serverCopy).toBeUndefined()
+    const synced = sess({ synced: true, entry: local, serverCopy: { entry: server } })
+    run([synced], [serverSess()], [serverScore({ scores: { mini: 9 } })])
+    expect(synced.serverCopy).toBeUndefined()
+  })
+  it('server chưa có điểm buổi này → không ghi bản server (đó là việc của đồng bộ điểm kẹt)', () => {
+    const s = sess({ entry: local })
+    run([s], [serverSess()], [])
+    expect(s.serverCopy).toBeUndefined()
+  })
+
+  const cls = (sessions: Session[]) => ({ id: 'c'.repeat(24), name: 'Lớp 3', students: [{ id: STU, name: 'Phú', sessions }] })
+  it('Lấy bản server → máy dùng bản server, đánh dấu synced + mốc, KHÔNG dirty (không gửi gì lên server)', () => {
+    const c = cls([sess({ entry: local, serverCopy: { entry: server, updatedAt: 't1' } })])
+    const orphan = takeServerCopy(c, STU, SV1, '2026-10-22T15:00:00.000Z')
+    const s = c.students[0].sessions[0]
+    expect(s.entry).toEqual(server)
+    expect(s).toMatchObject({ synced: true, baseUpdatedAt: 't1', id: SV1 })
+    expect(s.dirty).toBeFalsy()
+    expect(s.serverCopy).toBeUndefined()
+    expect(pendingSessionsOf(c.students)).toEqual([])
+    // Bản cũ cất vào kho, id riêng (không phải id server → không bao giờ bị đẩy lên).
+    expect(orphan).toMatchObject({ reason: 'replacedByServer', studentName: 'Phú', className: 'Lớp 3' })
+    expect(orphan!.sessions[0].entry).toEqual(local)
+    expect(orphan!.sessions[0].id).not.toBe(SV1)
+    expect(orphan!.sessions[0].id.length).not.toBe(24)
+    expect(orphan!.sessions[0].serverCopy).toBeUndefined()
+  })
+  it('bản cất không dùng chung object với buổi (sửa buổi sau đó không làm đổi bản cất)', () => {
+    const c = cls([sess({ entry: local, serverCopy: { entry: server } })])
+    const orphan = takeServerCopy(c, STU, SV1)!
+    c.students[0].sessions[0].entry.scores.mini = 1
+    expect(orphan.sessions[0].entry.scores).toEqual({ mini: 5 })
+  })
+  it('buổi đang sửa dở / đang xung đột / chưa có bản server / buổi tạm → không làm gì', () => {
+    for (const over of [
+      { dirty: true, serverCopy: { entry: server } },
+      { conflict: { entry: server, total: 9, updatedAt: 't1' }, serverCopy: { entry: server } },
+      {},
+      { id: 'tmp-1', serverCopy: { entry: server } },
+    ] as Array<Partial<Session>>) {
+      const c = cls([sess({ entry: local, ...over })])
+      expect(takeServerCopy(c, STU, c.students[0].sessions[0].id)).toBeNull()
+      expect(c.students[0].sessions[0].entry).toEqual(local)
+    }
+  })
+  it('normalize (mở app) giữ bản server đã ghi', () => {
+    const d = normalize({ classes: [{ id: 'c', students: [{ id: 's', sessions: [{ id: 'x', no: 1, date: '2026-10-01', serverCopy: { entry: server, updatedAt: 't1' }, entry: {} }] }] }] })
+    expect(d.classes[0].students[0].sessions[0].serverCopy).toEqual({ entry: server, updatedAt: 't1' })
+  })
+  it('lưu thành công / tách buổi đã xóa → bỏ bản server đã ghi', () => {
+    const st = { sessions: [sess({ dirty: true, entry: local, serverCopy: { entry: server } })] }
+    markSessionSaved(st, SV1, { entry: local, homework: '' })
+    expect(st.sessions[0].serverCopy).toBeUndefined()
+    const st2 = { sessions: [sess({ serverCopy: { entry: server } })] }
+    detachDeletedSession(st2, SV1, 'tmp-x')
+    expect(st2.sessions[0].serverCopy).toBeUndefined()
+  })
+})
+
 describe('rescueOtherTabSessions (app mở 2 tab — tab cũ ghi đè mất buổi tab kia vừa tạo)', () => {
   const C1 = 'c'.repeat(24)
   const old10 = sess({ id: SV1, no: 9, date: '2026-10-10', entry: { ...emptyEntry(), scores: { mini: 7 } } })
@@ -577,6 +672,16 @@ describe('rescueOtherTabSessions (app mở 2 tab — tab cũ ghi đè mất bu�
     const mine = data([edited(old10, 5)])
     expect(rescueOtherTabSessions(mine, data([old10]), data([old10]))).toEqual({ kept: 0, conflicts: 0 })
     expect(mine.classes[0].students[0].sessions[0].entry.scores).toEqual({ mini: 5 })
+  })
+  it('tab kia vừa "Lấy bản server" → tab này giữ cả buổi đã đổi LẪN bản cũ đã cất (không mất bản cất khi tab này ghi)', () => {
+    const legacy = sess({ id: SV1, entry: { ...emptyEntry(), scores: { mini: 5 } }, serverCopy: { entry: { ...emptyEntry(), scores: { mini: 9 } }, updatedAt: 't1' } })
+    const other = data([JSON.parse(JSON.stringify(legacy))])
+    const orphan = takeServerCopy(other.classes[0], STU, SV1, '2026-10-22T15:00:00.000Z')!
+    other.orphans = [orphan]
+    const mine = data([JSON.parse(JSON.stringify(legacy))])
+    rescueOtherTabSessions(mine, other, data([legacy]))
+    expect(mine.classes[0].students[0].sessions[0].entry.scores).toEqual({ mini: 9 })
+    expect(mine.orphans?.[0].sessions[0].entry.scores).toEqual({ mini: 5 })
   })
   it('thứ tự khóa khác nhau (bản đọc từ máy vs bản trong bộ nhớ) không bị coi là "đã sửa"', () => {
     const reordered = { entry: old10.entry, date: old10.date, no: old10.no, id: old10.id, homework: old10.homework } as Session

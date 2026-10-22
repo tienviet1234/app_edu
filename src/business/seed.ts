@@ -56,6 +56,7 @@ function normalizeSession(s: unknown, i: number): Session {
     synced: raw.synced,
     baseUpdatedAt: raw.baseUpdatedAt,
     conflict: raw.conflict,
+    serverCopy: raw.serverCopy,
   }
 }
 

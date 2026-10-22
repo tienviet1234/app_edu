@@ -195,6 +195,7 @@ export function syncStudentsFromServer(
       if (score?.updatedAt && local.baseUpdatedAt !== score.updatedAt) { local.baseUpdatedAt = score.updatedAt; changed = true }
     }
     if (local.synced) {
+      if (local.serverCopy) { local.serverCopy = undefined; changed = true }
       if (serverEntry && !sameEntry(local.entry, serverEntry)) { local.entry = serverEntry; changed = true }
       if ((local.homework ?? '') !== serverHomework) { local.homework = serverHomework; changed = true }
       if (as.maxes && !sameMaxes(local.maxes, as.maxes)) { local.maxes = as.maxes; changed = true }
@@ -217,6 +218,16 @@ export function syncStudentsFromServer(
       && (local.homework ?? '') === serverHomework
       && (!as.maxes || sameMaxes(local.maxes, as.maxes))
     if (contentMatches) { local.synced = true; changed = true; setBase() }
+    // Vẫn khác bản server → giữ bản máy như trên, nhưng ghi lại bản server để
+    // admin tự quyết "Lấy bản server" (trước đây máy giữ bản cũ mãi, không có
+    // cách nào sửa — VD máy admin hiện nội dung 10–11/10 ở buổi 17–18/10 của Phú).
+    if (!contentMatches && serverEntry && !sameEntry(local.entry, serverEntry)) {
+      const prev = local.serverCopy
+      if (!prev || prev.updatedAt !== score?.updatedAt || !sameEntry(prev.entry, serverEntry)) {
+        local.serverCopy = { entry: serverEntry, updatedAt: score?.updatedAt }
+        changed = true
+      }
+    } else if (local.serverCopy) { local.serverCopy = undefined; changed = true }
   }
 
   for (const st of students) {
@@ -291,7 +302,34 @@ export function markSessionSaved(
   s.synced = true
   if (serverUpdatedAt) s.baseUpdatedAt = serverUpdatedAt
   s.conflict = undefined
+  s.serverCopy = undefined
   if (sameContent(s, sent)) s.dirty = false
+}
+
+/** Admin chủ động "Lấy bản server" cho 1 buổi dữ liệu cũ đang KHÁC server
+ *  (`serverCopy`, xem syncStudentsFromServer). CHỈ đổi trên máy này, không gửi
+ *  gì lên server. Bản cũ trên máy được cất vào kho giữ lại (trả về để gọi
+ *  appendOrphans) — không mất, vẫn có trong bản chụp sao lưu. Bản cất mang id
+ *  riêng: không bao giờ bị đẩy lên (autoSyncOrphans chỉ đẩy id server) và
+ *  không bị nhầm với buổi thật khi gộp giữa 2 tab. Buổi đang sửa dở / đang xung
+ *  đột / chưa lên server thì không làm gì (trả null). */
+export function takeServerCopy(
+  cls: { id: string; name: string; students: Array<{ id: string; name: string; sessions: Session[] }> },
+  studentId: string,
+  sessionId: string,
+  now = new Date().toISOString(),
+): OrphanRecord | null {
+  const st = cls.students.find((x) => x.id === studentId)
+  const s = st?.sessions.find((x) => x.id === sessionId)
+  if (!st || !s?.serverCopy || s.dirty || s.conflict || !isMongoid(s.id)) return null
+  const kept = JSON.parse(JSON.stringify(s)) as Session
+  kept.id = `kept-${s.id}-${Date.parse(now)}`
+  delete kept.serverCopy
+  s.entry = JSON.parse(JSON.stringify(s.serverCopy.entry)) as SessionEntry
+  s.baseUpdatedAt = s.serverCopy.updatedAt
+  s.synced = true
+  s.serverCopy = undefined
+  return { classId: cls.id, className: cls.name, studentId: st.id, studentName: st.name, reason: 'replacedByServer', removedAt: now, sessions: [kept] }
 }
 
 /** Server từ chối lưu vì máy khác vừa lưu bản mới hơn (409 CONFLICT) — giữ bản
@@ -324,6 +362,7 @@ export function detachDeletedSession(
   s.synced = undefined
   s.baseUpdatedAt = undefined
   s.conflict = undefined
+  s.serverCopy = undefined
 }
 
 /** Giáo viên chọn giữ bản nào khi 2 máy cùng sửa 1 buổi.

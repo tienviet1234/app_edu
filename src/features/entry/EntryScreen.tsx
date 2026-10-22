@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ClassData, Session, SessionEntry } from '@/types'
+import type { ClassData, OrphanRecord, Session, SessionEntry } from '@/types'
 import { C, scoreColor } from '@/constants/colors'
 import { ATTEND } from '@/constants/tags'
 import { getClassRubric } from '@/constants/rubrics'
@@ -11,8 +11,10 @@ import { periodPositionOf, sessionLabelOf } from '@/business/tuition'
 import { emptyEntry } from '@/business/seed'
 import {
   resolvePlausibleNo, pendingSessionsOf, adoptServerSession, markSessionSaved, markConflict, resolveConflict, detachDeletedSession,
-  toSessionEntry, sameDateClash, type ServerScoreForSync,
+  toSessionEntry, sameDateClash, takeServerCopy, appendOrphans, type ServerScoreForSync,
 } from '@/business/sync'
+import { useAppStore } from '@/store/appStore'
+import { useAuthStore } from '@/store/authStore'
 import { sameEntry } from '@/business/strandedScores'
 import { tryLockSession, unlockSession } from '@/utils/syncLocks'
 import { Card } from '@/components/atoms/Card'
@@ -140,6 +142,7 @@ function findOrCreateSession(c: ClassData, studentId: string, no: number, dateFo
 
 export function EntryScreen({ cls, update, teacherName, initialTarget, onConsumeInitialTarget }: EntryScreenProps) {
   const r = getClassRubric(cls)
+  const isAdmin = useAuthStore((s) => s.user?.role === 'admin')
   // Số buổi đang xem của TỪNG học sinh (chỉ lưu những em đã được chọn buổi
   // khác mặc định). Đổi buổi ở 1 em không được làm cả lớp nhảy theo.
   const [noByStudent, setNoByStudent] = useState<Record<string, number>>(() => {
@@ -795,9 +798,31 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   const orderConflict = st?.sessions.find((s) => (s.no < selectedNo && s.date > effectiveDate) || (s.no > selectedNo && s.date < effectiveDate))
   // Buổi đang xung đột (2 máy cùng sửa) — hiện ở thanh vàng đầu màn để chọn.
   const conflicts = cls.students.flatMap((stu) => stu.sessions.filter((s) => s.conflict).map((s) => ({ stu, s })))
-  const totalOf = (s: Session) => {
+  const totalOf = (s: Session, entry: SessionEntry = s.entry) => {
     const mx = s.maxes ?? {}
-    return sessionScore(s.entry, { ...r, comps: r.comps.map((c) => (mx[c.key] != null ? rescaleComp(c, mx[c.key]) : c)) })
+    return sessionScore(entry, { ...r, comps: r.comps.map((c) => (mx[c.key] != null ? rescaleComp(c, mx[c.key]) : c)) })
+  }
+  // Dữ liệu cũ trên máy KHÁC bản server (không biết bản nào đúng, máy không tự
+  // đè) — chỉ admin thấy và tự chọn lấy bản server. Không gửi gì lên server.
+  const serverDiffs = isAdmin
+    ? cls.students.flatMap((stu) => stu.sessions.filter((s) => s.serverCopy && !s.dirty && !s.conflict).map((s) => ({ stu, s })))
+    : []
+  const takeServer = (stu: ClassData['students'][number], s: Session) => {
+    const label = `${sessionLabelOf(s.no, cls.perMonth, stu.sessionOffset)} (${viDate(s.date)}) của ${stu.name}`
+    if (!confirm(`Thay nội dung ${label} TRÊN MÁY NÀY bằng bản trên server (${totalOf(s, s.serverCopy!.entry) ?? '—'}đ)?\n\nBản đang có trên máy (${totalOf(s) ?? '—'}đ) được cất vào "kho giữ lại" (Sao lưu → Dữ liệu kẹt), không mất. Không gửi gì lên server, không ảnh hưởng máy khác.`)) return
+    const result: { orphan: OrphanRecord | null } = { orphan: null }
+    useAppStore.getState().setData((d) => {
+      const c = d.classes.find((x) => x.id === cls.id)
+      if (!c) return
+      result.orphan = takeServerCopy(c, stu.id, s.id)
+      if (result.orphan) d.orphans = appendOrphans(d.orphans, [result.orphan])
+    })
+    if (!result.orphan) {
+      toast.error(`Chưa lấy được bản server cho ${label} — buổi vừa có sửa chưa lưu hoặc đã thay đổi. Tải lại trang rồi thử lại.`)
+      return
+    }
+    toast.success(`✓ ${label}: máy này đã dùng bản server. Bản cũ đã cất vào kho giữ lại.`)
+    logActivity('session.takeServer', { className: cls.name, studentName: stu.name, sessionNo: s.no, date: s.date }, 'ClassSession')
   }
 
   const done = cls.students.filter((s) => {
@@ -842,6 +867,28 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                   if (st2) resolveConflict(st2, s.id, 'theirs')
                 })}>Dùng bản máy kia</Btn>
               </span>
+            </div>
+          ))}
+        </Card>
+      )}
+      {serverDiffs.length > 0 && (
+        <Card className="p-3 space-y-2">
+          <div className="text-sm font-bold" style={{ color: C.amber }}>
+            ⚠ {serverDiffs.length} buổi trên máy này là dữ liệu cũ KHÁC bản trên server — máy đang hiện bản cũ của máy
+          </div>
+          <div className="text-xs" style={{ color: C.muted }}>
+            Chỉ admin thấy. "Lấy bản server" chỉ đổi trên máy này (bản cũ cất vào kho giữ lại), không ghi gì lên server. Đừng sửa điểm các buổi này trước khi chọn.
+          </div>
+          {serverDiffs.map(({ stu, s }) => (
+            <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl p-2 text-sm" style={{ border: `1px solid ${C.gold}55`, background: C.gold + '12' }}>
+              <span style={{ color: C.ink }}>
+                <b>{stu.name}</b> · {sessionLabelOf(s.no, cls.perMonth, stu.sessionOffset)} · {viDate(s.date)}
+                <span style={{ color: C.muted }}>
+                  {' '}— máy này: <b>{totalOf(s) ?? '—'}đ</b>{s.entry.note?.trim() ? ` "${s.entry.note.trim().slice(0, 40)}"` : ''}
+                  {' '}· server: <b>{totalOf(s, s.serverCopy!.entry) ?? '—'}đ</b>{s.serverCopy!.entry.note?.trim() ? ` "${s.serverCopy!.entry.note.trim().slice(0, 40)}"` : ''}
+                </span>
+              </span>
+              <Btn size="sm" onClick={() => takeServer(stu, s)}>Lấy bản server</Btn>
             </div>
           ))}
         </Card>

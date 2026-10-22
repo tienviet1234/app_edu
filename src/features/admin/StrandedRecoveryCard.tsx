@@ -226,10 +226,10 @@ export function StrandedRecoveryCard({ snapshots }: { snapshots: ClientSnapshotM
             })}
             {s.orphans.length > 0 && (
               <div className="text-sm space-y-1" style={{ color: C.amber }}>
-                <div className="font-semibold">⚠ Dữ liệu giữ lại của học sinh/lớp đã bị gỡ khỏi máy (chưa lên server — cần nhập lại tay vào đúng học sinh):</div>
+                <div className="font-semibold">⚠ Kho giữ lại trên máy này (xem lý do từng dòng — phần chưa lên server thì cần nhập lại tay vào đúng học sinh):</div>
                 {s.orphans.map((o) => (
                   <div key={`${o.classId}|${o.studentId}`} style={{ color: C.ink }}>
-                    {o.className} · {o.studentName} ({o.reason === 'classRemoved' ? 'lớp không còn' : o.reason === 'deletedLocal' ? 'giáo viên xóa trên máy khi chưa lên server' : o.reason === 'otherTab' ? 'nhập ở tab khác, học sinh không còn trên tab này' : 'đã rời lớp'}):{' '}
+                    {o.className} · {o.studentName} ({o.reason === 'classRemoved' ? 'lớp không còn' : o.reason === 'deletedLocal' ? 'giáo viên xóa trên máy khi chưa lên server' : o.reason === 'otherTab' ? 'nhập ở tab khác, học sinh không còn trên tab này' : o.reason === 'replacedByServer' ? 'bản cũ trên máy, admin đã chọn lấy bản server — chỉ để đối chiếu' : 'đã rời lớp'}):{' '}
                     {o.sessions.map((x) => `${viDate(x.date)}${x.entry.attendance === 'excused' ? ' vắng phép' : x.entry.attendance === 'absent' ? ' vắng' : ''}`).join(', ')}
                   </div>
                 ))}

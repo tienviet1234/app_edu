@@ -126,6 +126,15 @@ export interface Session {
   /** CHỈ trên máy. Server từ chối lưu vì máy khác đã lưu bản mới hơn — giữ bản
    *  máy kia ở đây để giáo viên tự chọn giữ bản nào (xem resolveConflict). */
   conflict?: SessionConflict
+  /** CHỈ trên máy. Dữ liệu cũ (chưa `synced`) KHÁC bản server mà không biết bản
+   *  nào đúng → đồng bộ giữ bản máy, ghi bản server ở đây để admin có thể chủ
+   *  động "Lấy bản server" (takeServerCopy) — máy không bao giờ tự đè. */
+  serverCopy?: ServerCopy
+}
+
+export interface ServerCopy {
+  entry: SessionEntry
+  updatedAt?: string
 }
 
 export interface SessionConflict {
@@ -144,7 +153,8 @@ export interface OrphanRecord {
   className: string
   studentId: string
   studentName: string
-  reason: 'studentRemoved' | 'classRemoved' | 'deletedLocal' | 'otherTab'
+  /** replacedByServer = bản cũ trên máy, cất lại khi admin chọn "Lấy bản server". */
+  reason: 'studentRemoved' | 'classRemoved' | 'deletedLocal' | 'otherTab' | 'replacedByServer'
   removedAt: string
   sessions: Session[]
 }
