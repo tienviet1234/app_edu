@@ -168,6 +168,51 @@ describe('syncStudentsFromServer', () => {
     expect(sessions[0].entry.scores).toEqual({ mini: 8 })
   })
 
+  it('dữ liệu cũ THIẾU ô so với server (máy giữ bản bị đè, server đã khôi phục đủ) → lấy bản server, đánh dấu synced', () => {
+    // Lớp 10 Hữu Hoàn 17/09: máy cô Hoài Thương (Windows) giữ bản bị đè chỉ còn ghi chú.
+    const { sessions } = run(
+      [sess({ entry: { ...emptyEntry(), note: 'KHÔNG NỘP NGHE LẦN 2/ TUẦN' } })],
+      [serverSess()],
+      [serverScore({ scores: { mini: 8, listen: 1 }, ticks: { attitude: ['a_speak', 'a_focus'] }, note: 'KHÔNG NỘP NGHE LẦN 2/ TUẦN' })],
+    )
+    expect(sessions[0].entry.scores).toEqual({ mini: 8, listen: 1 })
+    expect(sessions[0].synced).toBe(true)
+  })
+
+  it('dữ liệu cũ có ghi chú bị cắt ngắn, server có bản đầy đủ → lấy bản server', () => {
+    const { sessions } = run(
+      [sess({ entry: { ...emptyEntry(), scores: { mini: 8 }, note: 'Còn nói chuyện nhiều với Thịnh' } })],
+      [serverSess()],
+      [serverScore({ note: 'Còn nói chuyện nhiều với Thịnh. KHÔNG LÀM BÀI NGHE' })],
+    )
+    expect(sessions[0].entry.note).toBe('Còn nói chuyện nhiều với Thịnh. KHÔNG LÀM BÀI NGHE')
+  })
+
+  it('dữ liệu cũ có ô KHÁC giá trị server (không phải thiếu ô) → GIỮ NGUYÊN bản máy (không biết bản nào đúng)', () => {
+    const { sessions } = run(
+      [sess({ entry: { ...emptyEntry(), scores: { mini: 9 } } })],
+      [serverSess()], [serverScore({ scores: { mini: 8, listen: 1 } })],
+    )
+    expect(sessions[0].entry.scores).toEqual({ mini: 9 })
+    expect(sessions[0].synced).toBeUndefined()
+  })
+
+  it('dữ liệu cũ có ô server KHÔNG có → GIỮ NGUYÊN bản máy (lấy server sẽ mất ô đó)', () => {
+    const { sessions } = run(
+      [sess({ entry: { ...emptyEntry(), scores: { mini: 8 }, choice: { hw: 'full' } } })],
+      [serverSess()], [serverScore({ scores: { mini: 8, listen: 1 } })],
+    )
+    expect(sessions[0].entry.choice).toEqual({ hw: 'full' })
+  })
+
+  it('máy đang SỬA DỞ (dirty) thiếu ô so với server → vẫn giữ bản máy (không đụng phần đang sửa)', () => {
+    const { sessions } = run(
+      [sess({ dirty: true, entry: { ...emptyEntry(), note: 'đang gõ' } })],
+      [serverSess()], [serverScore({ scores: { mini: 8 }, note: 'đang gõ thêm' })],
+    )
+    expect(sessions[0].entry.scores).toEqual({})
+  })
+
   it('số buổi / ngày / đã thu tiền luôn theo server — kể cả khi máy đang dirty (admin xếp lại số, đánh dấu đã thu)', () => {
     const { sessions } = run(
       [sess({ no: 9, date: '2026-10-11', dirty: true })],

@@ -91,6 +91,37 @@ export const toSessionEntry = (sc: ServerScoreForSync): SessionEntry => ({
 
 const isBlankEntry = (e: SessionEntry | undefined) => JSON.stringify(e ?? emptyEntry()) === JSON.stringify(emptyEntry())
 
+/** Trải phẳng nội dung 1 buổi thành "đường dẫn → giá trị" (bỏ ô trống, "8" = 8,
+ *  thứ tự tick không quan trọng, "có mặt" là mặc định) — để so từng ô. */
+function flattenEntry(e: SessionEntry): Record<string, string> {
+  const out: Record<string, string> = {}
+  const walk = (v: unknown, path: string) => {
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      for (const [k, x] of Object.entries(v as Record<string, unknown>)) walk(x, path ? `${path}.${k}` : k)
+    } else if (Array.isArray(v)) {
+      if (v.length) out[path] = JSON.stringify([...v].map(String).sort())
+    } else if (v !== undefined && v !== null && v !== '' && v !== false) {
+      const s = typeof v === 'string' ? v.trim() : v
+      if (s !== '') out[path] = typeof s === 'string' && !Number.isNaN(Number(s)) ? String(Number(s)) : JSON.stringify(s)
+    }
+  }
+  for (const f of ['attendance', 'scores', 'tags', 'ticks', 'choice', 'parts', 'skip', 'ev', 'note'] as const) walk(e[f], f)
+  if (out.attendance === '"present"') delete out.attendance
+  return out
+}
+
+/** Bản server CHỨA TRỌN bản máy (mọi ô máy có, server có đúng giá trị đó; ghi
+ *  chú server được phép dài thêm ở cuối) → máy lấy bản server không mất gì. */
+export function entryContains(server: SessionEntry, local: SessionEntry): boolean {
+  const s = flattenEntry(server)
+  for (const [k, v] of Object.entries(flattenEntry(local))) {
+    if (s[k] === v) continue
+    if (k === 'note' && s[k] && (JSON.parse(s[k]) as string).startsWith(JSON.parse(v) as string)) continue
+    return false
+  }
+  return true
+}
+
 /**
  * Đồng bộ server → máy cho các học sinh của 1 lớp (sửa TRỰC TIẾP mảng được
  * truyền vào — gọi trong immer `produce`). Trả về true nếu có thay đổi.
@@ -170,8 +201,13 @@ export function syncStudentsFromServer(
       setBase()
       continue
     }
-    // Dữ liệu cũ, chưa biết đã khớp server chưa.
-    if (serverEntry && isBlankEntry(local.entry)) { local.entry = serverEntry; changed = true }
+    // Dữ liệu cũ, chưa biết đã khớp server chưa. Máy trống, hoặc server CHỨA
+    // TRỌN bản máy (VD máy giữ bản bị đè thiếu ô, server đã được khôi phục đủ)
+    // → lấy bản server, không mất gì; khác kiểu khác thì vẫn giữ bản máy.
+    if (serverEntry && (isBlankEntry(local.entry) || (!sameEntry(local.entry, serverEntry) && entryContains(serverEntry, local.entry)))) {
+      local.entry = serverEntry
+      changed = true
+    }
     // Bài tập về nhà: giữ hành vi cũ — server thắng (luôn được gửi kèm mỗi
     // lần lưu điểm nên server là bản chuẩn); máy đang sửa dở đã được chặn ở
     // nhánh dirty phía trên.
