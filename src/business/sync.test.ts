@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   pruneGoneFromServer, resolvePlausibleNo, syncStudentsFromServer, adoptServerSession, pendingSessionsOf, markSessionSaved,
   markConflict, resolveConflict, collectOrphans, appendOrphans, sameDateClash, detachDeletedSession,
-  orphanForLocalDelete, rescueOtherTabSessions,
+  orphanForLocalDelete, rescueOtherTabSessions, maxesToBackfill,
   type ServerSessionForSync, type ServerScoreForSync,
 } from './sync'
 import { emptyEntry, normalize } from './seed'
@@ -427,6 +427,29 @@ describe('detachDeletedSession (server báo buổi đã bị xóa — 409 SESSIO
     const st = { sessions: [sess({ dirty: true, conflict: { entry: emptyEntry(), total: 0, updatedAt: '2026-10-18T00:00:00.000Z' } })] }
     detachDeletedSession(st, SV1, 'tmp-new')
     expect(st.sessions[0].conflict).toBeUndefined()
+  })
+})
+
+describe('maxesToBackfill ("Số câu" chỉ nằm trên máy giáo viên → điền lên server)', () => {
+  it('buổi Lớp 7 17/09: máy có Mini 15 / Nghe 43, server trống → cần điền', () => {
+    const st = { sessions: [sess({ maxes: { mini: 15, listen: 43 } })] }
+    expect(maxesToBackfill([st], [{ _id: SV1 }])).toEqual([{ sessionId: SV1, maxes: { mini: 15, listen: 43 } }])
+  })
+  it('server ĐÃ có số câu → không gửi (không bao giờ ghi đè máy khác)', () => {
+    const st = { sessions: [sess({ maxes: { mini: 15 } })] }
+    expect(maxesToBackfill([st], [{ _id: SV1, maxes: { mini: 20 } }])).toEqual([])
+  })
+  it('buổi đang sửa dở / chưa lên server / máy không có số câu → bỏ qua', () => {
+    const st = { sessions: [
+      sess({ id: SV1, dirty: true, maxes: { mini: 15 } }),
+      sess({ id: 'tmp', maxes: { mini: 15 } }),
+      sess({ id: SV2 }),
+    ] }
+    expect(maxesToBackfill([st], [{ _id: SV1 }, { _id: SV2, maxes: {} }])).toEqual([])
+  })
+  it('bỏ giá trị rác (0, âm, không phải số)', () => {
+    const st = { sessions: [sess({ maxes: { mini: 0, listen: -3, hw: 35 } as Record<string, number> })] }
+    expect(maxesToBackfill([st], [{ _id: SV1, maxes: null }])).toEqual([{ sessionId: SV1, maxes: { hw: 35 } }])
   })
 })
 

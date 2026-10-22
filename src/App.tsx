@@ -17,7 +17,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useClasses, useClassStudents, useSessions, useClassScores, usePwaInstall, useTuitionUnpaidCount, STUDENT_KEYS } from '@/hooks'
 import { isMongoid } from '@/utils/mongoid'
 import {
-  pruneGoneFromServer, syncStudentsFromServer, adoptServerSession, markSessionSaved, markConflict, detachDeletedSession, toSessionEntry,
+  pruneGoneFromServer, syncStudentsFromServer, adoptServerSession, markSessionSaved, markConflict, detachDeletedSession, toSessionEntry, maxesToBackfill,
   collectOrphans, appendOrphans, type ServerScoreForSync,
 } from '@/business/sync'
 import { getClassRubric } from '@/constants/rubrics'
@@ -589,6 +589,30 @@ export default function App() {
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiSessionsKey, apiScoresKey, syncClassId, scoresError])
+
+  // "Số câu" máy này có mà server còn trống (trước 21/10 chỉ lưu trên máy) →
+  // điền lên, server CHỈ nhận khi đang trống (không ghi đè máy khác). Mỗi buổi
+  // thử 1 lần/phiên; lỗi mạng thì lần mở lớp sau thử lại — không đổi gì trên
+  // máy nên không có trạng thái "tưởng đã lưu".
+  const maxesFilledRef = useRef(new Set<string>())
+  useEffect(() => {
+    if (!cls || !syncClassId || apiSessions === undefined || cls.id !== syncClassId) return
+    const jobs = maxesToBackfill(cls.students, apiSessions.items.map((as) => ({ _id: as._id, maxes: as.maxes })))
+      .filter((j) => !maxesFilledRef.current.has(j.sessionId))
+    if (!jobs.length) return
+    jobs.forEach((j) => maxesFilledRef.current.add(j.sessionId))
+    void (async () => {
+      for (const j of jobs) {
+        try {
+          await sessionService.update(j.sessionId, { maxes: j.maxes, maxesIfAbsent: true })
+        } catch (err) {
+          maxesFilledRef.current.delete(j.sessionId)
+          console.warn('Chưa điền được số câu lên server, lần sau thử lại:', j.sessionId, err)
+        }
+      }
+    })()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiSessionsKey, syncClassId])
 
   // Tự động đồng bộ học sinh + điểm còn kẹt lại máy này lên server — 1 lần
   // mỗi khi mở app (không lặp lại liên tục vì effect chỉ phụ thuộc userId,

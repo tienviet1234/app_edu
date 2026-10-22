@@ -101,7 +101,32 @@ export function checkScoreRestore(
   return { ok: true, added }
 }
 
-const REJECT_KEEP = ['classId', 'studentId', 'sessionId', 'lessonNo', 'scheduledAt', 'placeByDate', 'baseUpdatedAt', 'total', ...SCORE_CONTENT_FIELDS] as const
+const nonEmpty = (v: unknown): boolean =>
+  v !== '' && v != null && v !== false && !(Array.isArray(v) && !v.length)
+  && !(typeof v === 'object' && !Array.isArray(v) && !Object.values(v as Record<string, unknown>).some(nonEmpty))
+
+/** Buổi có CHẤM ĐIỂM thật không — có ít nhất 1 ô điểm / tích / lựa chọn /
+ *  phần nhỏ / "không làm" (skip). Buổi chỉ có ghi chú hoặc chỉ điểm danh
+ *  KHÔNG phải điểm 0: app lưu tổng = 0 cho các buổi này (`sessionScore` trả
+ *  null → `?? 0`), trước đây màn phụ huynh + thống kê cộng vào điểm TB như 0
+ *  điểm, kéo điểm phụ huynh thấy xuống (VD buổi admin thêm bù 12–13/09 chỉ
+ *  có ghi chú). Vắng không phép = 0 điểm thật; vắng có phép = không tính. */
+export function isGradedScore(sc: Record<string, unknown> | null | undefined): boolean {
+  const att = (sc?.attendance as string | undefined) ?? 'present'
+  if (att === 'absent') return true
+  if (att === 'excused') return false
+  return ['scores', 'ticks', 'choice', 'parts', 'skip'].some((f) => nonEmpty(sc?.[f]))
+}
+
+/** Tổng điểm để HIỂN THỊ / tính điểm TB: null khi buổi không có điểm thật
+ *  (chưa chấm, vắng có phép) — không được hiện/cộng như 0 điểm. */
+export function gradedTotal(sc: Record<string, unknown> | null | undefined): number | null {
+  if (!isGradedScore(sc)) return null
+  const t = Number(sc?.total)
+  return Number.isFinite(t) ? t : 0
+}
+
+const REJECT_KEEP =['classId', 'studentId', 'sessionId', 'lessonNo', 'scheduledAt', 'placeByDate', 'baseUpdatedAt', 'total', ...SCORE_CONTENT_FIELDS] as const
 
 /** Nhật ký 1 lần server TỪ CHỐI lưu buổi/điểm — giữ cả NỘI DUNG bị từ chối.
  *  Sự cố thật 18/10: tạo buổi 17–18/10 bị từ chối (trùng số), server không ghi

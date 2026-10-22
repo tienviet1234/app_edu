@@ -1,7 +1,44 @@
 import { describe, it, expect } from 'vitest'
-import { compScore, compHasData, sessionScore, rescaleComp, detectMissingComps, applyPercentToComp } from './scoring'
+import { compScore, compHasData, sessionScore, rescaleComp, detectMissingComps, applyPercentToComp, resolveComp, sessionComps, LEGACY_ATTITUDE_PARTS } from './scoring'
 import { emptyEntry } from './seed'
+import { RUBRICS } from '@/constants/rubrics'
 import type { ClassData, RubricComponent, RubricDef, Session, SessionEntry } from '@/types'
+
+describe('Thái độ học tập Cấp 1 kiểu CŨ (trước 06/10) — giữ nguyên thang 10, không tính 0', () => {
+  const primary = RUBRICS.primary
+  const att = primary.comps.find((c) => c.key === 'attitude')!
+  // Buổi thật 19/09 (Lớp 1): Thái độ chấm kiểu cũ focus 4 / active 3 / polite 3, chưa từng tích kiểu mới.
+  const legacy: SessionEntry = { ...emptyEntry(), parts: { attitude: { focus: 4, active: 3, polite: 3 } } }
+  it('buổi chỉ có dữ liệu kiểu cũ → dùng định nghĩa cũ, 10/10 (trước đây 0/20)', () => {
+    const c = resolveComp(att, legacy)
+    expect(c).toBe(LEGACY_ATTITUDE_PARTS)
+    expect(compHasData(c, legacy)).toBe(true)
+    expect(`${compScore(c, legacy)}/${c.max}`).toBe('10/10')
+  })
+  it('tổng buổi tính cả Thái độ cũ (thang 10) — không còn bị kéo xuống', () => {
+    const withHw: SessionEntry = { ...legacy, choice: { hw: primary.comps.find((c) => c.key === 'hw')?.options?.[0]?.id ?? '' } }
+    const before = sessionScore({ ...withHw, parts: {} }, primary)
+    const now = sessionScore(withHw, primary)
+    expect(now).not.toBeNull()
+    expect(now!).toBeGreaterThanOrEqual(before ?? 0)
+    // Đúng công thức: chuyên cần + BTVN + Thái độ cũ (10/10) trên tổng tối đa tương ứng.
+    const hw = primary.comps.find((c) => c.key === 'hw')!
+    expect(now).toBe(Math.round(((10 + compScore(hw, withHw) + 10) / (10 + hw.max + 10)) * 100))
+  })
+  it('đã tích Thái độ kiểu MỚI → luôn theo kiểu mới (bỏ qua dữ liệu cũ còn sót)', () => {
+    const both: SessionEntry = { ...legacy, ticks: { attitude: [att.items![0].id] } }
+    expect(resolveComp(att, both)).toBe(att)
+  })
+  it('buổi không có Thái độ gì → giữ tiêu chí mới, không tự thêm', () => {
+    expect(resolveComp(att, emptyEntry())).toBe(att)
+    expect(compHasData(resolveComp(att, emptyEntry()), emptyEntry())).toBe(false)
+  })
+  it('sessionComps theo từng buổi cũng trả Thái độ cũ (báo cáo/thống kê/Excel hiện "10/10" thay vì "0/20")', () => {
+    const comps = sessionComps(primary, { entry: legacy })
+    expect(comps.find((c) => c.key === 'attitude')?.max).toBe(10)
+    expect(sessionComps(primary, {}).find((c) => c.key === 'attitude')?.max).toBe(att.max)
+  })
+})
 
 // Tính điểm là phần lõi quan trọng nhất của toàn hệ thống — 1 lỗi ở đây làm
 // sai điểm thật của học sinh mà không ai để ý, khác với lỗi UI dễ thấy ngay.

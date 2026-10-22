@@ -9,6 +9,7 @@ import { Score } from '../models/Score.js'
 import { User } from '../models/User.js'
 import { computeBillingReport } from '../services/billingService.js'
 import { badRequest, ok } from '../utils/response.js'
+import { gradedTotal } from '../utils/dataRules.js'
 
 export async function getAnalyticsOverview(_req: Request, res: Response): Promise<void> {
   const [
@@ -63,20 +64,21 @@ export async function getAttendanceTrend(req: Request, res: Response): Promise<v
   // Group scores by session → count each attendance status. KHÔNG cắt ở đây:
   // mỗi học sinh có buổi riêng nên 1 lớp có (số em × số buổi) session — cắt
   // sớm sẽ chỉ giữ vài em đầu tiên. Gộp theo "Buổi số N" rồi mới lấy N buổi cuối.
-  const rows = await Score.aggregate([
-    { $match: matchStage },
-    {
-      $group: {
-        _id: '$sessionId',
-        present:  { $sum: { $cond: [{ $eq: ['$attendance', 'present']  }, 1, 0] } },
-        late:     { $sum: { $cond: [{ $eq: ['$attendance', 'late']     }, 1, 0] } },
-        excused:  { $sum: { $cond: [{ $eq: ['$attendance', 'excused']  }, 1, 0] } },
-        absent:   { $sum: { $cond: [{ $eq: ['$attendance', 'absent']   }, 1, 0] } },
-        total:    { $sum: 1 },
-        scoreSum: { $sum: { $ifNull: ['$total', 0] } },
-      },
-    },
-  ])
+  // Gộp ở JS (không dùng $group) để dùng chung quy tắc "buổi có chấm điểm
+  // thật" — buổi chỉ có ghi chú/điểm danh lưu tổng 0 nhưng không phải 0 điểm.
+  const scoreDocs = await Score.find(matchStage, { sessionId: 1, attendance: 1, total: 1, scores: 1, ticks: 1, choice: 1, parts: 1, skip: 1 }).lean()
+  const rowById = new Map<string, { _id: unknown; present: number; late: number; excused: number; absent: number; total: number; scoreSum: number; graded: number }>()
+  for (const sc of scoreDocs) {
+    const k = String(sc.sessionId)
+    const r = rowById.get(k) ?? { _id: sc.sessionId, present: 0, late: 0, excused: 0, absent: 0, total: 0, scoreSum: 0, graded: 0 }
+    const att = sc.attendance as 'present' | 'late' | 'excused' | 'absent'
+    if (att in r) r[att]++
+    r.total++
+    const t = gradedTotal(sc as unknown as Record<string, unknown>)
+    if (t !== null && att !== 'absent') { r.scoreSum += t; r.graded++ }
+    rowById.set(k, r)
+  }
+  const rows = [...rowById.values()]
 
   const sessionIds = rows.map((r) => r._id)
   const sessions = await ClassSession.find(
@@ -85,15 +87,15 @@ export async function getAttendanceTrend(req: Request, res: Response): Promise<v
   ).lean()
   const sessionMap = new Map(sessions.map((s) => [String(s._id), s]))
 
-  interface Bucket { no: number; date: string | null; present: number; late: number; excused: number; absent: number; total: number; scoreSum: number }
+  interface Bucket { no: number; date: string | null; present: number; late: number; excused: number; absent: number; total: number; scoreSum: number; graded: number }
   const byNo = new Map<number, Bucket>()
   for (const r of rows) {
     const sess = sessionMap.get(String(r._id))
     const no = sess?.lessonNo ?? 0
     const date = sess?.scheduledAt ? (sess.scheduledAt as Date).toISOString().slice(0, 10) : null
-    const b = byNo.get(no) ?? { no, date, present: 0, late: 0, excused: 0, absent: 0, total: 0, scoreSum: 0 }
+    const b = byNo.get(no) ?? { no, date, present: 0, late: 0, excused: 0, absent: 0, total: 0, scoreSum: 0, graded: 0 }
     b.present += r.present; b.late += r.late; b.excused += r.excused; b.absent += r.absent
-    b.total += r.total; b.scoreSum += r.scoreSum
+    b.total += r.total; b.scoreSum += r.scoreSum; b.graded += r.graded
     if (date && (!b.date || date < b.date)) b.date = date
     byNo.set(no, b)
   }
@@ -112,7 +114,9 @@ export async function getAttendanceTrend(req: Request, res: Response): Promise<v
       absent: b.absent,
       total: b.total,
       attendRate: b.total > 0 ? Math.round(((b.present + b.late + b.excused) / b.total) * 100) : 0,
-      avgScore: b.total > 0 ? Math.round((b.scoreSum / b.total) * 10) / 10 : null,
+      // TB trên những bạn CÓ chấm điểm buổi đó (trước đây chia cho mọi bản
+      // điểm kể cả vắng có phép/chưa chấm → điểm TB thấp oan).
+      avgScore: b.graded > 0 ? Math.round((b.scoreSum / b.graded) * 10) / 10 : null,
     }))
 
   ok(res, data)
@@ -132,7 +136,7 @@ export async function getScoreHeatmap(req: Request, res: Response): Promise<void
     ClassSession.find({ classId: classOid, migratedAt: { $exists: false } }, { scheduledAt: 1, lessonNo: 1, title: 1 })
       .sort({ scheduledAt: 1 })
       .lean(),
-    Score.find({ classId: classOid }, { sessionId: 1, studentId: 1, total: 1, attendance: 1 }).lean(),
+    Score.find({ classId: classOid }, { sessionId: 1, studentId: 1, total: 1, attendance: 1, scores: 1, ticks: 1, choice: 1, parts: 1, skip: 1 }).lean(),
   ])
 
   // Collect unique student IDs from scores
@@ -165,7 +169,8 @@ export async function getScoreHeatmap(req: Request, res: Response): Promise<void
     const colId = colBySession.get(String(s.sessionId))
     if (!colId) continue
     if (!cells[sid]) cells[sid] = {}
-    cells[sid][colId] = s.attendance === 'absent' ? null : (s.total ?? 0)
+    // Ô trống (không phải 0) cho buổi vắng / vắng có phép / chưa chấm điểm.
+    cells[sid][colId] = s.attendance === 'absent' ? null : gradedTotal(s as unknown as Record<string, unknown>)
   }
 
   ok(res, {
@@ -187,24 +192,22 @@ export async function getTeacherPerformance(_req: Request, res: Response): Promi
   const teacherIds = classCounts.map((c) => c._id).filter(Boolean)
 
   // 2. Avg score per teacher (via Score.classId → Class.teacherId join)
-  const scoreAvgs = await Score.aggregate([
-    {
-      $lookup: {
-        from: 'classes',
-        localField: 'classId',
-        foreignField: '_id',
-        as: 'cls',
-      },
-    },
-    { $unwind: '$cls' },
-    {
-      $group: {
-        _id: '$cls.teacherId',
-        avgScore: { $avg: '$total' },
-        scoreCount: { $sum: 1 },
-      },
-    },
-  ]) as Array<{ _id: Types.ObjectId; avgScore: number; scoreCount: number }>
+  // TB chỉ trên buổi CÓ chấm điểm (có mặt/muộn) — xem gradedTotal.
+  const [allClasses, allScores] = await Promise.all([
+    Class.find({}, { teacherId: 1 }).lean(),
+    Score.find({ attendance: { $in: ['present', 'late'] } }, { classId: 1, attendance: 1, total: 1, scores: 1, ticks: 1, choice: 1, parts: 1, skip: 1 }).lean(),
+  ])
+  const teacherOfClass = new Map(allClasses.map((c) => [String(c._id), c.teacherId ? String(c.teacherId) : '']))
+  const acc = new Map<string, { sum: number; n: number }>()
+  for (const sc of allScores) {
+    const tid = teacherOfClass.get(String(sc.classId))
+    const t = gradedTotal(sc as unknown as Record<string, unknown>)
+    if (!tid || t === null) continue
+    const a = acc.get(tid) ?? { sum: 0, n: 0 }
+    a.sum += t; a.n++
+    acc.set(tid, a)
+  }
+  const scoreAvgs = [...acc.entries()].map(([tid, a]) => ({ _id: new Types.ObjectId(tid), avgScore: a.sum / a.n, scoreCount: a.n }))
 
   // 3. Published report count per teacher
   const reportCounts = await Report.aggregate([

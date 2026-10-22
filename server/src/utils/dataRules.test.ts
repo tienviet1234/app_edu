@@ -1,5 +1,27 @@
 import { describe, it, expect } from 'vitest'
-import { checkScoreRestore, decideIfAbsent, flattenScoreContent, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator } from './dataRules.js'
+import { checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator } from './dataRules.js'
+
+describe('isGradedScore / gradedTotal (buổi chỉ có ghi chú KHÔNG phải 0 điểm)', () => {
+  it('buổi admin thêm bù chỉ có ghi chú (Trần Đan 12/09 "Con chưa hoàn thành video") → không tính vào điểm TB', () => {
+    const sc = { attendance: 'present', total: 0, scores: {}, ticks: {}, choice: {}, parts: {}, skip: {}, ev: {}, note: 'Con chưa hoàn thành video trước lễ' }
+    expect(isGradedScore(sc)).toBe(false)
+    expect(gradedTotal(sc)).toBeNull()
+  })
+  it('chỉ có ô trống / mảng rỗng / phần nhỏ rỗng → vẫn là chưa chấm', () => {
+    expect(isGradedScore({ attendance: 'late', total: 0, scores: { mini: '' }, ticks: { hw: [] }, parts: { vocab: {} } })).toBe(false)
+  })
+  it('có chấm (điểm / tích / lựa chọn / phần nhỏ / "không làm") → tính, kể cả tổng 0 thật', () => {
+    expect(gradedTotal({ attendance: 'present', total: 85, scores: { mini: 8 } })).toBe(85)
+    expect(isGradedScore({ ticks: { attitude: ['a_focus'] } })).toBe(true)
+    expect(isGradedScore({ choice: { hw: 'none' } })).toBe(true)
+    expect(isGradedScore({ parts: { vocab: { pron: 0 } } })).toBe(true)
+    expect(gradedTotal({ attendance: 'present', total: 0, skip: { video: true } })).toBe(0)
+  })
+  it('vắng không phép = 0 điểm thật; vắng có phép = không tính', () => {
+    expect(gradedTotal({ attendance: 'absent', total: 0 })).toBe(0)
+    expect(gradedTotal({ attendance: 'excused', total: 0, scores: { mini: 5 } })).toBeNull()
+  })
+})
 
 describe('rejectedWriteMetadata (server từ chối lưu → vẫn giữ nội dung trong nhật ký)', () => {
   it('tạo buổi bị từ chối vì trùng số (sự cố 17–18/10 Trần Đan, Ken) → nhật ký có đủ học sinh/ngày/số/bài tập', () => {

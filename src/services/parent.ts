@@ -1,7 +1,8 @@
 import { api } from '@/utils/api'
 
 export interface ChildSession {
-  total: number
+  /** null = buổi chưa chấm điểm (chỉ ghi chú/điểm danh) hoặc vắng có phép — không phải 0 điểm. */
+  total: number | null
   attendance: 'present' | 'late' | 'excused' | 'absent'
   date: string
 }

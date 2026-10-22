@@ -107,7 +107,12 @@ export const sessionBodySchema = z.object({
   onBehalfOf: objectIdSchema.optional(),
 })
 
-export const sessionUpdateSchema = sessionBodySchema.partial().omit({ centerId: true, classId: true, studentId: true, placeByDate: true, onBehalfOf: true })
+export const sessionUpdateSchema = sessionBodySchema.partial().omit({ centerId: true, classId: true, studentId: true, placeByDate: true, onBehalfOf: true }).extend({
+  // Máy giáo viên tự điền "Số câu" server còn thiếu (trước 21/10 số câu chỉ
+  // nằm trên máy) — CHỈ điền khi server đang trống, không ghi đè. Thiếu dòng
+  // này Zod âm thầm xóa field (gotcha CLAUDE.md) → thành ghi đè thường.
+  maxesIfAbsent: z.boolean().optional(),
+})
 
 // Đổi số buổi HÀNG LOẠT trong 1 giao dịch atomic — xem
 // services/sessionRenumberService.ts. Tối đa 200 buổi/lần (đủ cho cả học kỳ

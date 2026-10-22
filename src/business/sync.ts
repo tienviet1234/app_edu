@@ -450,6 +450,28 @@ export function rescueOtherTabSessions(mine: LocalData, stored: LocalData, basel
   return { kept: rescued, conflicts }
 }
 
+/** "Số câu" (`maxes`) máy này có mà server còn TRỐNG → cần điền lên. Trước
+ *  21/10 số câu chỉ lưu trên máy giáo viên (server chỉ có 1/917 buổi): mọi máy
+ *  khác + màn phụ huynh tính % theo số câu MẶC ĐỊNH (VD "Nghe 37/20"). Bản sửa
+ *  21/10 chỉ gửi số câu khi buổi được sửa lại → buổi cũ không bao giờ tự lên.
+ *  Bỏ qua buổi đang sửa dở (dirty — lần lưu tới tự gửi số câu) và buổi chưa
+ *  lên server. Server chỉ điền khi đang trống (`maxesIfAbsent`), không ghi đè. */
+export function maxesToBackfill(
+  students: Array<{ sessions: Session[] }>,
+  serverSessions: Array<{ _id: string; maxes?: Record<string, number> | null }>,
+): Array<{ sessionId: string; maxes: Record<string, number> }> {
+  const serverEmpty = new Set(serverSessions.filter((s) => !s.maxes || !Object.keys(s.maxes).length).map((s) => s._id))
+  const out: Array<{ sessionId: string; maxes: Record<string, number> }> = []
+  for (const st of students) {
+    for (const s of st.sessions) {
+      if (!isMongoid(s.id) || s.dirty || !serverEmpty.has(s.id)) continue
+      const valid = Object.entries(s.maxes ?? {}).filter(([, v]) => typeof v === 'number' && Number.isFinite(v) && v > 0)
+      if (valid.length) out.push({ sessionId: s.id, maxes: Object.fromEntries(valid) })
+    }
+  }
+  return out
+}
+
 /** Thêm bản ghi vào kho giữ lại, KHÔNG trùng (cùng lớp + học sinh thì gộp,
  *  buổi đã có trong kho thì bỏ qua) — hiệu ứng đồng bộ có thể chạy lại. */
 export function appendOrphans(existing: OrphanRecord[] | undefined, incoming: OrphanRecord[]): OrphanRecord[] {

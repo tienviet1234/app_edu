@@ -55,9 +55,37 @@ export function rescaleComp(comp: RubricComponent, newMax: number): RubricCompon
  *  với mức mặc định (12/20 thay vì đúng ra là 12/15), có buổi cộng dồn còn
  *  vượt quá mức tối đa hiển thị (VD "48/20"). Luôn dùng hàm này khi cần
  *  điểm/tối đa của 1 buổi đã lưu — không tự đọc thẳng `r.comps`. */
-export function sessionComps(r: { comps: RubricComponent[] }, sess: { maxes?: Record<string, number> }): RubricComponent[] {
+export function sessionComps(r: { comps: RubricComponent[] }, sess: { maxes?: Record<string, number>; entry?: SessionEntry }): RubricComponent[] {
   const maxes = sess.maxes ?? {}
-  return r.comps.map((c) => (maxes[c.key] != null ? rescaleComp(c, maxes[c.key]) : c))
+  return r.comps.map((c) => resolveComp(maxes[c.key] != null ? rescaleComp(c, maxes[c.key]) : c, sess.entry))
+}
+
+/** "Thái độ học tập" Cấp 1 TRƯỚC 06/10/2026: 3 mức điểm (parts), tổng 10đ.
+ *  Ngày 06/10 đổi sang tích việc (ticks, 20đ) nhưng KHÔNG chuyển dữ liệu cũ
+ *  → mọi buổi chấm trước đó bị tính Thái độ = 0 (185 buổi Lớp 1–5/Starters,
+ *  tổng thấp hơn 6–9 điểm). Giữ nguyên thang cũ cho các buổi đó. */
+export const LEGACY_ATTITUDE_PARTS: RubricComponent = {
+  key: 'attitude',
+  label: 'Thái độ học tập',
+  max: 10,
+  type: 'parts',
+  parts: [
+    { id: 'focus', label: 'Tập trung trong giờ học', max: 4, weak: 'sự tập trung trong giờ', fix: 'rèn sự tập trung cho con' },
+    { id: 'active', label: 'Tích cực tham gia hoạt động', max: 3, weak: 'sự chủ động tham gia', fix: 'khuyến khích con phát biểu nhiều hơn' },
+    { id: 'polite', label: 'Lễ phép, hợp tác với cô và bạn', max: 3, weak: 'nề nếp hợp tác', fix: 'trao đổi thêm với phụ huynh về nề nếp' },
+  ],
+}
+
+/** Tiêu chí dùng để chấm ĐÚNG 1 buổi cụ thể: buổi chưa tích "Thái độ" kiểu
+ *  mới nhưng còn dữ liệu kiểu cũ (parts) → dùng định nghĩa cũ (thang 10).
+ *  Tích kiểu mới rồi thì luôn theo kiểu mới. Mọi chỗ tính điểm theo từng
+ *  tiêu chí của 1 buổi phải đi qua hàm này (tổng, báo cáo, thống kê, Excel). */
+export function resolveComp(comp: RubricComponent, e: SessionEntry | undefined): RubricComponent {
+  if (comp.key !== 'attitude' || comp.type !== 'ticks' || !e) return comp
+  if ((e.ticks?.[comp.key] ?? []).length > 0) return comp
+  const old = e.parts?.[comp.key]
+  const hasOld = !!old && Object.values(old).some((v) => v !== '' && v != null)
+  return hasOld ? LEGACY_ATTITUDE_PARTS : comp
 }
 
 export function compScore(comp: RubricComponent, e: SessionEntry): number {
@@ -179,7 +207,7 @@ export function sessionScore(e: SessionEntry | undefined, r: { comps: RubricComp
   if (!e) return null
   if (e.attendance === 'excused') return null
   if (e.attendance === 'absent') return 0
-  const applicable = r.comps.filter((c) => compHasData(c, e))
+  const applicable = r.comps.map((c) => resolveComp(c, e)).filter((c) => compHasData(c, e))
   if (applicable.length === 0) return null
   const earned = attInfo(e.attendance).pts + applicable.reduce((a, c) => a + compScore(c, e), 0)
   const maxPossible = ATTEND_MAX + applicable.reduce((a, c) => a + c.max, 0)

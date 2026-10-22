@@ -134,7 +134,7 @@ function ChildCard({ child, onUnlink }: { child: Child; onUnlink: () => void }) 
                       return (
                         <div
                           key={i}
-                          title={`${new Date(s.date).toLocaleDateString('vi-VN')} · ${s.total} điểm`}
+                          title={`${new Date(s.date).toLocaleDateString('vi-VN')} · ${s.total ?? 'chưa chấm'}${s.total != null ? ' điểm' : ''}`}
                           style={{
                             width: 30, height: 30, borderRadius: 6,
                             background: a.bg, color: a.color,
@@ -146,7 +146,7 @@ function ChildCard({ child, onUnlink }: { child: Child; onUnlink: () => void }) 
                         >
                           <span>{a.label}</span>
                           {s.attendance !== 'absent' && s.attendance !== 'excused' && (
-                            <span style={{ fontSize: '.6rem', marginTop: 1 }}>{s.total}</span>
+                            <span style={{ fontSize: '.6rem', marginTop: 1 }}>{s.total ?? '—'}</span>
                           )}
                         </div>
                       )
@@ -155,10 +155,10 @@ function ChildCard({ child, onUnlink }: { child: Child; onUnlink: () => void }) 
                 )}
 
                 {/* Score bar */}
-                {cls.recentSessions.filter((s) => s.attendance !== 'absent' && s.attendance !== 'excused').length > 1 && (
+                {cls.recentSessions.filter((s) => s.attendance !== 'absent' && s.attendance !== 'excused' && s.total != null).length > 1 && (
                   <div style={{ display: 'flex', gap: 2, alignItems: 'flex-end', height: 32 }}>
                     {cls.recentSessions
-                      .filter((s) => s.attendance !== 'absent' && s.attendance !== 'excused')
+                      .filter((s): s is typeof s & { total: number } => s.attendance !== 'absent' && s.attendance !== 'excused' && s.total != null)
                       .map((s, i) => {
                         const pct = Math.max(4, (s.total / 100) * 100)
                         return (

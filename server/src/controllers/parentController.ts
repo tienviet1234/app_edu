@@ -8,6 +8,7 @@ import { Notification } from '../models/Notification.js'
 import { badRequest, notFound, ok } from '../utils/response.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { sendPushToUser } from '../services/pushService.js'
+import { gradedTotal } from '../utils/dataRules.js'
 
 const linkSchema = z.object({
   email: z.string().email().toLowerCase().trim(),
@@ -85,12 +86,16 @@ export async function getChildren(req: Request, res: Response): Promise<void> {
       classes.map(async (cls) => {
         const scores = await Score.find(
           { studentId: childId, classId: cls._id },
-          'total attendance createdAt',
+          'total attendance createdAt scores ticks choice parts skip',
         )
           .sort({ createdAt: -1 })
           .lean()
 
-        const totals = scores.filter((s) => s.attendance !== 'excused' && s.attendance !== 'absent').map((s) => s.total)
+        // Chỉ buổi CÓ CHẤM điểm — buổi chỉ có ghi chú/điểm danh lưu tổng 0 nhưng
+        // không phải 0 điểm (trước đây kéo điểm TB phụ huynh thấy xuống).
+        const totals = scores.filter((s) => s.attendance !== 'excused' && s.attendance !== 'absent')
+          .map((s) => gradedTotal(s as unknown as Record<string, unknown>))
+          .filter((t): t is number => t !== null)
         const avg = totals.length ? Math.round(totals.reduce((a, b) => a + b, 0) / totals.length) : null
         const presentCount = scores.filter((s) => s.attendance === 'present' || s.attendance === 'late').length
 
@@ -103,7 +108,7 @@ export async function getChildren(req: Request, res: Response): Promise<void> {
           presentCount,
           avg,
           recentSessions: scores.slice(0, 8).reverse().map((s) => ({
-            total: s.total,
+            total: gradedTotal(s as unknown as Record<string, unknown>),
             attendance: s.attendance,
             date: s.createdAt,
           })),

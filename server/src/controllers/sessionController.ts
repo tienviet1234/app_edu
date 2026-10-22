@@ -152,6 +152,21 @@ export async function updateSession(req: Request, res: Response): Promise<void> 
     forbidden(res, 'You can only update sessions in your own classes.')
     return
   }
+  // Điền "Số câu" CHỈ KHI server còn trống (máy giáo viên tự đẩy số câu cũ
+  // chỉ nằm trên máy lên) — không bao giờ ghi đè số câu đã có, không đổi gì khác.
+  if (req.body.maxesIfAbsent === true) {
+    if (!req.body.maxes || !Object.keys(req.body.maxes).length) {
+      badRequest(res, 'Thiếu số câu để điền.')
+      return
+    }
+    const r = await ClassSession.updateOne(
+      { _id: existing._id, $or: [{ maxes: { $exists: false } }, { maxes: null }, { maxes: {} }] },
+      { $set: { maxes: req.body.maxes } },
+    )
+    if (r.modifiedCount === 1) await writeAudit(req, { action: 'session.maxesFill', resource: 'ClassSession', resourceId: String(existing._id), metadata: { maxes: req.body.maxes } })
+    ok(res, { applied: r.modifiedCount === 1 })
+    return
+  }
   // Chỉ cần kiểm tra khi THỰC SỰ đổi sang số khác — tránh tự báo trùng với
   // chính buổi đang sửa khi admin chỉ đổi ngày/ghi chú, không đổi số buổi.
   if (req.body.lessonNo != null && req.body.lessonNo !== existing.lessonNo) {
