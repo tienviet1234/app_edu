@@ -11,7 +11,13 @@ import { makeStorage } from '@/utils/storage'
  *  hay server lỗi đều im lặng bỏ qua (lần sau gửi lại), không chặn việc gì. */
 
 const DEVICE_KEY = 'lms:deviceId'
-const INTERVAL_MS = 5 * 60 * 1000
+// Trước đây 5 phút/lần: giáo viên mở app, nhập vài phút rồi đóng luôn (lần gửi
+// lúc đóng tab bị trình duyệt hủy ngang) thì phần vừa nhập không có bản chụp
+// nào (gặp thật 22/10, máy cô Trà 13:31–13:35). Giờ 30 giây kiểm tra 1 lần, có
+// đổi thì gửi, tối đa 1 lần/phút (server dọn bản cũ thưa dần —
+// server/src/utils/snapshotRetention.ts).
+const CHECK_MS = 30_000
+const MIN_GAP_MS = 60_000
 const FIRST_DELAY_MS = 5_000
 
 function deviceId(): string {
@@ -40,11 +46,14 @@ function quickHash(s: string): string {
 
 export function startClientSnapshotLoop(userId: string): () => void {
   let lastSentHash = ''
+  let lastSentAt = 0
   let inFlight = false
   let stopped = false
 
-  const send = async () => {
+  /** `now` = gửi ngay không chờ đủ khoảng cách tối thiểu (mở app, rời tab). */
+  const send = async (now = false) => {
     if (stopped || inFlight) return
+    if (!now && Date.now() - lastSentAt < MIN_GAP_MS) return
     const raw = makeStorage(userId).get()
     if (!raw) return
     const h = quickHash(raw)
@@ -53,6 +62,7 @@ export function startClientSnapshotLoop(userId: string): () => void {
     try {
       await backupService.uploadSnapshot(deviceId(), raw)
       lastSentHash = h
+      lastSentAt = Date.now()
     } catch (err) {
       console.warn('Sao lưu bản chụp máy này chưa gửi được, sẽ thử lại sau:', err)
     } finally {
@@ -60,9 +70,9 @@ export function startClientSnapshotLoop(userId: string): () => void {
     }
   }
 
-  const first = setTimeout(() => void send(), FIRST_DELAY_MS)
-  const timer = setInterval(() => void send(), INTERVAL_MS)
-  const onHide = () => { if (document.visibilityState === 'hidden') void send() }
+  const first = setTimeout(() => void send(true), FIRST_DELAY_MS)
+  const timer = setInterval(() => void send(), CHECK_MS)
+  const onHide = () => { if (document.visibilityState === 'hidden') void send(true) }
   document.addEventListener('visibilitychange', onHide)
 
   return () => {

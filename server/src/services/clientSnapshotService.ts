@@ -2,11 +2,9 @@ import crypto from 'node:crypto'
 import { Types } from 'mongoose'
 import { ClientSnapshot } from '../models/ClientSnapshot.js'
 import { uploadBufferToR2, deleteVideoFromR2, getDownloadPresignedUrl, listR2Keys, getR2ObjectText } from './storageService.js'
+import { snapshotsToDelete } from '../utils/snapshotRetention.js'
 
 const PREFIX = 'client-snapshots/'
-// Giữ 60 bản gần nhất / 1 máy — client gửi tối đa 5 phút/lần khi có thay đổi,
-// đủ phủ nhiều ngày làm việc; xa hơn nữa đã có sao lưu DB hằng ngày.
-const KEEP_PER_DEVICE = 60
 const isMongoid = (id: string) => /^[a-f0-9]{24}$/i.test(id)
 
 interface AppDataLike { classes?: Array<{ students?: Array<{ sessions?: Array<{ id?: string; dirty?: boolean }> }> }> }
@@ -35,8 +33,9 @@ export async function saveClientSnapshot(input: {
     unsyncedSessionCount: sessions.filter((s) => !s.id || !isMongoid(s.id) || s.dirty === true).length,
   })
 
-  const old = await ClientSnapshot.find({ userId, deviceId: input.deviceId }, 'r2Key').sort({ createdAt: -1 }).skip(KEEP_PER_DEVICE).lean()
-  for (const o of old) {
+  // Giữ dày gần đây, thưa dần về quá khứ — xem snapshotsToDelete.
+  const all = await ClientSnapshot.find({ userId, deviceId: input.deviceId }, 'r2Key createdAt').lean()
+  for (const o of snapshotsToDelete(all)) {
     await deleteVideoFromR2(o.r2Key).catch(() => null)
     await ClientSnapshot.deleteOne({ _id: o._id })
   }
