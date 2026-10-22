@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { historyPlugin } from './historyPlugin.js'
 import { randomBytes } from 'crypto'
 
 export type ClassStatus = 'upcoming' | 'active' | 'completed' | 'cancelled'
@@ -128,5 +129,8 @@ classSchema.index({ centerId: 1, status: 1 })
 classSchema.index({ centerId: 1, teacherId: 1 })
 classSchema.index({ centerId: 1, studentIds: 1 })
 classSchema.index({ name: 'text' })
+
+// Cất bản cũ trước mỗi lần sửa/xóa (phiếu chấm, học sinh trong lớp...) — xem historyPlugin.
+classSchema.plugin(historyPlugin, { coll: 'classes' })
 
 export const Class = model<IClass>('Class', classSchema)

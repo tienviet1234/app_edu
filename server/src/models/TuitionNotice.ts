@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { historyPlugin } from './historyPlugin.js'
 
 /** Hồ sơ "đã gửi thông báo học phí + báo cáo học tập" cho 1 học sinh ở ĐÚNG
  *  1 kỳ (cuối 8 hoặc cuối 12 buổi, xem business/tuition.ts billingPeriodsOf).
@@ -60,5 +61,8 @@ const TuitionNoticeSchema = new Schema<ITuitionNotice>(
 
 // Mỗi học sinh chỉ có 1 bản ghi "đã gửi" cho ĐÚNG 1 kỳ — tránh gửi/tính trùng.
 TuitionNoticeSchema.index({ classId: 1, studentId: 1, periodFrom: 1, periodTo: 1 }, { unique: true })
+
+// Cất bản cũ trước mỗi lần sửa/xóa — xem historyPlugin.
+TuitionNoticeSchema.plugin(historyPlugin, { coll: 'tuitionnotices' })
 
 export const TuitionNotice = model<ITuitionNotice>('TuitionNotice', TuitionNoticeSchema)

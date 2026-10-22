@@ -2,7 +2,7 @@ import mongoose from 'mongoose'
 import { uploadBufferToR2, listR2Keys, deleteVideoFromR2 } from './storageService.js'
 
 const BACKUP_PREFIX = 'backups/'
-const RETENTION_COUNT = 30 // giữ 30 bản gần nhất (~1 tháng nếu chạy hàng ngày)
+const RETENTION_COUNT = 60 // giữ 60 bản gần nhất (~1 tháng — chạy 2 lần/ngày, 02:00 và 14:00)
 
 // Token đăng nhập/OTP là trạng thái phiên tạm thời (có hạn dùng riêng), không
 // phải dữ liệu cần giữ lâu dài — mất đi chỉ buộc người dùng đăng nhập lại /

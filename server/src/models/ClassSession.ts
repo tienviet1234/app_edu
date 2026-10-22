@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { historyPlugin } from './historyPlugin.js'
 
 export type SessionStatus = 'scheduled' | 'completed' | 'cancelled'
 
@@ -79,5 +80,8 @@ const classSessionSchema = new Schema<IClassSession>(
 classSessionSchema.index({ classId: 1, scheduledAt: 1 })
 classSessionSchema.index({ classId: 1, studentId: 1, scheduledAt: 1 })
 classSessionSchema.index({ centerId: 1, status: 1, scheduledAt: -1 })
+
+// Cất bản cũ trước mỗi lần sửa/xóa — xem historyPlugin.
+classSessionSchema.plugin(historyPlugin, { coll: 'classsessions' })
 
 export const ClassSession = model<IClassSession>('ClassSession', classSessionSchema)

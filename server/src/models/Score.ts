@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { historyPlugin } from './historyPlugin.js'
 import type { AttendanceStatus } from './Attendance.js'
 
 export type { AttendanceStatus }
@@ -69,5 +70,8 @@ scoreSchema.index({ sessionId: 1, studentId: 1 }, { unique: true })
 // Queries: all scores for a class, or for a student across classes
 scoreSchema.index({ classId: 1, studentId: 1 })
 scoreSchema.index({ centerId: 1, studentId: 1, createdAt: -1 })
+
+// Cất bản cũ trước mỗi lần sửa/xóa — xem historyPlugin.
+scoreSchema.plugin(historyPlugin, { coll: 'scores' })
 
 export const Score = model<IScore>('Score', scoreSchema)

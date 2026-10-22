@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { historyPlugin } from './historyPlugin.js'
 
 export type DebtKind = 'btvn' | 'chep_phat' | 'vocab' | 'other'
 export type DebtStatus = 'pending' | 'submitted' | 'cleared'
@@ -42,5 +43,8 @@ const DebtSchema = new Schema<IDebt>(
 )
 
 DebtSchema.index({ classId: 1, studentId: 1, status: 1 })
+
+// Cất bản cũ trước mỗi lần sửa/xóa — xem historyPlugin.
+DebtSchema.plugin(historyPlugin, { coll: 'debts' })
 
 export const Debt = model<IDebt>('Debt', DebtSchema)
