@@ -11,6 +11,8 @@ export interface IClientSnapshot extends Document {
   userId: Types.ObjectId
   deviceId: string
   userAgent?: string
+  /** Phiên bản app trên máy lúc chụp (header X-App-Version). */
+  appVersion?: string
   r2Key: string
   sizeBytes: number
   contentHash: string
@@ -25,6 +27,7 @@ const clientSnapshotSchema = new Schema<IClientSnapshot>(
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     deviceId: { type: String, required: true, maxlength: 80 },
     userAgent: { type: String, maxlength: 300 },
+    appVersion: { type: String, maxlength: 40 },
     r2Key: { type: String, required: true },
     sizeBytes: { type: Number, required: true },
     contentHash: { type: String, required: true, maxlength: 80 },

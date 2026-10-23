@@ -12,3 +12,9 @@ export function tryLockSession(sessionLocalId: string): boolean {
 export function unlockSession(sessionLocalId: string): void {
   inFlight.delete(sessionLocalId)
 }
+
+/** Đang có buổi nào đang gửi dở lên server không — tự tải lại app (cập nhật
+ *  bản mới) phải đợi xong, kẻo cắt ngang 1 lần lưu. */
+export function hasActiveSyncs(): boolean {
+  return inFlight.size > 0
+}

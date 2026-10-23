@@ -871,7 +871,7 @@ export default function App() {
 
         <div className="mt-6 flex flex-wrap items-center gap-2 text-xs" style={{ color: C.muted }}>
           <span className="mr-auto">
-            Dữ liệu lưu tự động trên thiết bị của bạn. Nên xuất file sao lưu cuối mỗi tháng.
+            Dữ liệu lưu tự động trên thiết bị của bạn. Nên xuất file sao lưu cuối mỗi tháng. · Bản app {__APP_VERSION__}
           </span>
           <Btn onClick={exportData}>Xuất file sao lưu</Btn>
           {user && (user.role === 'teacher' || user.role === 'admin') && (

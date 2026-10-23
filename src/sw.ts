@@ -6,16 +6,16 @@ declare let self: ServiceWorkerGlobalScope & typeof globalThis
 cleanupOutdatedCaches()
 precacheAndRoute(self.__WB_MANIFEST)
 
-// BẮT BUỘC để registerType: 'autoUpdate' (vite.config.ts) hoạt động đúng —
-// thiếu đoạn này, Service Worker MỚI tải về sau mỗi lần push code chỉ nằm
-// "chờ" (waiting), không bao giờ tự kích hoạt — F5 bao nhiêu lần vẫn chạy
-// bản CŨ, chỉ đóng HẲN trình duyệt (đóng hết tab) mới lên bản mới. Script
-// đăng ký tự sinh của vite-plugin-pwa đã tự gửi message này + tự reload khi
-// nhận 'controllerchange' — chỉ cần lắng nghe và gọi skipWaiting() ở đây là
-// đủ, không cần code gì thêm ở phía app. Gặp thật: nhiều lần người dùng báo
-// "F5 không ăn thua, phải đóng hẳn trình duyệt mới hết lỗi" trong phiên này.
+// Bản mới phải TỰ kích hoạt ngay khi cài xong. Ở chế độ 'autoUpdate' với
+// injectManifest, vite-plugin-pwa KHÔNG gửi lệnh SKIP_WAITING — trước đây chỉ
+// chờ lệnh đó (ghi chú cũ tưởng script đăng ký tự gửi — sai, đã xem tận mã
+// plugin + registerSW.js thật 23/10) → Service Worker mới nằm "chờ" tới khi
+// đóng HẲN mọi cửa sổ app; máy giáo viên chạy bản CŨ nhiều ngày, các bản sửa
+// an toàn dữ liệu không tới được máy họ (F5 không ăn thua). App mới tự tải
+// lại khi an toàn (utils/appUpdate.ts, onNeedReload).
+self.addEventListener('install', () => { void self.skipWaiting() })
 self.addEventListener('message', (event) => {
-  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting()
+  if (event.data?.type === 'SKIP_WAITING') void self.skipWaiting()
 })
 self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim())

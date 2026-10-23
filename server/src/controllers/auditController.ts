@@ -3,6 +3,7 @@ import { Types } from 'mongoose'
 import { AuditLog } from '../models/AuditLog.js'
 import { ok } from '../utils/response.js'
 import type { AuthRequest } from '../middleware/auth.js'
+import { appVersionOf } from '../services/auditService.js'
 
 export async function listAuditLogs(req: Request, res: Response): Promise<void> {
   const filter = {
@@ -49,6 +50,7 @@ export async function logActivity(req: Request, res: Response): Promise<void> {
       resource: String(resource ?? 'App').slice(0, 120),
       ip: req.ip,
       userAgent: req.headers['user-agent'],
+      appVersion: appVersionOf(req),
       metadata: safeMetadata,
     })
   } catch { /* best-effort */ }

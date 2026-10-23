@@ -6,10 +6,12 @@ import { AppRouter } from '@/router/AppRouter'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useAuthStore } from '@/store/authStore'
 import { queryClient } from '@/lib/queryClient'
+import { startAppUpdates } from '@/utils/appUpdate'
 
 // Kick off silent refresh before first render so ProtectedRoute
 // never sees isInitialized=false for more than one frame.
 useAuthStore.getState().init()
+startAppUpdates()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

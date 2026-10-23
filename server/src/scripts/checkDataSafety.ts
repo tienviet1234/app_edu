@@ -31,7 +31,8 @@ async function main() {
     const mine = (x: { [k: string]: unknown }) => String(x.actorId) === a
     const e = entries.filter(mine)
     const unpaired = e.filter((x) => !saves.some((s) => mine(s) && Math.abs(s.createdAt.getTime() - x.createdAt.getTime()) < 120e3))
-    console.log(`  ${nameOf(a)}: ${by('score.upsert').filter(mine).length} lần lưu điểm, ${by('session.create').filter(mine).length} buổi mới, ${e.length} lần bấm chuyển em/buổi` +
+    const versions = [...new Set(logs.filter((l) => mine(l) && l.appVersion).map((l) => l.appVersion as string))]
+    console.log(`  ${nameOf(a)}: ${by('score.upsert').filter(mine).length} lần lưu điểm, ${by('session.create').filter(mine).length} buổi mới, ${e.length} lần bấm chuyển em/buổi · bản app ${versions.join(', ') || 'cũ (chưa gửi số phiên bản)'}` +
       (unpaired.length ? ` — ${unpaired.length} lần bấm không thấy lần lưu đi kèm (có thể chỉ xem, không sửa)` : ''))
   }
   const rejected = logs.filter((l) => /\.rejected$/.test(l.action))
@@ -57,13 +58,13 @@ async function main() {
   console.log('    ("chưa lên server" tính cả buổi tạm TRỐNG / chỉ có bài tập về nhà — xem chi tiết ở Sao lưu → Dữ liệu kẹt)')
   const snaps = await db.collection('clientsnapshots').aggregate([
     { $sort: { createdAt: -1 } },
-    { $group: { _id: { u: '$userId', d: '$deviceId' }, last: { $first: '$createdAt' }, unsynced: { $first: '$unsyncedSessionCount' }, sessions: { $first: '$sessionCount' }, ua: { $first: '$userAgent' } } },
+    { $group: { _id: { u: '$userId', d: '$deviceId' }, last: { $first: '$createdAt' }, unsynced: { $first: '$unsyncedSessionCount' }, sessions: { $first: '$sessionCount' }, ua: { $first: '$userAgent' }, ver: { $first: '$appVersion' } } },
     { $sort: { last: -1 } },
   ]).toArray()
   for (const s of snaps) {
     const lastAct = logs.filter((l) => String(l.actorId) === String(s._id.u)).reduce((m, l) => Math.max(m, l.createdAt.getTime()), 0)
     const os = /Mac OS/.test(s.ua ?? '') ? 'Mac' : /Windows/.test(s.ua ?? '') ? 'Windows' : /Android/.test(s.ua ?? '') ? 'Android' : /iPhone|iPad/.test(s.ua ?? '') ? 'iPhone/iPad' : '?'
-    const line = `${nameOf(s._id.u)} (${os}, máy ${String(s._id.d).slice(0, 8)}): chụp gần nhất ${vn(s.last)}, ${s.sessions} buổi trên máy, ${s.unsynced} buổi CHƯA lên server`
+    const line = `${nameOf(s._id.u)} (${os}, máy ${String(s._id.d).slice(0, 8)}, bản app ${s.ver ?? 'cũ'}): chụp gần nhất ${vn(s.last)}, ${s.sessions} buổi trên máy, ${s.unsynced} buổi CHƯA lên server`
     if (s.unsynced > 0 && s.last > since) warn(line)
     else console.log('    ' + line)
     // Device active (saving) well after its last snapshot → snapshots may not be reaching the server.

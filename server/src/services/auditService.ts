@@ -28,6 +28,13 @@ export async function writeAudit(req: Request, input: AuditInput): Promise<void>
     resourceId: input.resourceId ? new Types.ObjectId(input.resourceId) : undefined,
     ip: req.ip,
     userAgent: req.headers['user-agent'],
+    appVersion: appVersionOf(req),
     metadata: input.metadata,
   })
+}
+
+/** Phiên bản app máy gửi kèm (header X-App-Version) — chỉ nhận chuỗi ngắn an toàn. */
+export function appVersionOf(req: Request): string | undefined {
+  const v = req.get('x-app-version')
+  return v && /^[\w.:-]{1,40}$/.test(v) ? v : undefined
 }

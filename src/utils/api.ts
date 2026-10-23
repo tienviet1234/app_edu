@@ -24,6 +24,8 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (accessToken) {
     config.headers.Authorization = `Bearer ${accessToken}`
   }
+  // Server ghi kèm vào nhật ký / bản chụp — biết máy nào còn chạy bản cũ.
+  config.headers['X-App-Version'] = __APP_VERSION__
   return config
 })
 

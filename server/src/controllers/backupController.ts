@@ -4,7 +4,7 @@ import { asyncHandler } from '../utils/asyncHandler.js'
 import { ok, badRequest, notFound } from '../utils/response.js'
 import { saveClientSnapshot, listBackups, presignBackupKey, readSnapshotContent } from '../services/clientSnapshotService.js'
 import { runDatabaseBackup } from '../services/backupService.js'
-import { writeAudit } from '../services/auditService.js'
+import { writeAudit, writeRejectedAudit, appVersionOf } from '../services/auditService.js'
 
 /** POST /api/client-snapshots — máy giáo viên/admin tự gửi bản chụp dữ liệu
  *  đang có trên máy (xem ClientSnapshot model). Body: { deviceId, data } với
@@ -17,7 +17,15 @@ export const postClientSnapshot = asyncHandler(async (req: Request, res: Respons
     badRequest(res, 'Cần deviceId và data (chuỗi JSON).')
     return
   }
-  const result = await saveClientSnapshot({ userId: authReq.userId!, deviceId, userAgent: req.headers['user-agent'], raw: data })
+  let result: Awaited<ReturnType<typeof saveClientSnapshot>>
+  try {
+    result = await saveClientSnapshot({ userId: authReq.userId!, deviceId, userAgent: req.headers['user-agent'], appVersion: appVersionOf(req), raw: data })
+  } catch (err) {
+    // Lưới an toàn cuối mà hỏng thì phải BIẾT (trước đây chỉ máy giáo viên thấy
+    // trong console) — ghi nhật ký rồi trả lỗi như cũ.
+    writeRejectedAudit(req, 'clientSnapshot.failed', 'ClientSnapshot', { deviceId, sizeBytes: data.length, error: String((err as Error)?.message ?? err).slice(0, 300) })
+    throw err
+  }
   ok(res, result)
 })
 

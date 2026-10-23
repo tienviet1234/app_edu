@@ -10,7 +10,7 @@ const isMongoid = (id: string) => /^[a-f0-9]{24}$/i.test(id)
 interface AppDataLike { classes?: Array<{ students?: Array<{ sessions?: Array<{ id?: string; dirty?: boolean }> }> }> }
 
 export async function saveClientSnapshot(input: {
-  userId: string; deviceId: string; userAgent?: string; raw: string
+  userId: string; deviceId: string; userAgent?: string; appVersion?: string; raw: string
 }): Promise<{ saved: boolean; id?: string }> {
   const contentHash = crypto.createHash('sha256').update(input.raw).digest('hex')
   const userId = new Types.ObjectId(input.userId)
@@ -25,7 +25,7 @@ export async function saveClientSnapshot(input: {
   const buffer = Buffer.from(input.raw, 'utf-8')
   await uploadBufferToR2(buffer, r2Key, 'application/json')
   const doc = await ClientSnapshot.create({
-    userId, deviceId: input.deviceId, userAgent: input.userAgent?.slice(0, 300), r2Key,
+    userId, deviceId: input.deviceId, userAgent: input.userAgent?.slice(0, 300), appVersion: input.appVersion, r2Key,
     sizeBytes: buffer.byteLength, contentHash,
     classCount: data.classes?.length ?? 0,
     sessionCount: sessions.length,

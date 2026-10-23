@@ -11,6 +11,9 @@ export interface IAuditLog extends Document {
   resourceId?: Types.ObjectId
   ip?: string
   userAgent?: string
+  /** Phiên bản app trên máy gửi yêu cầu (header X-App-Version) — biết máy giáo
+   *  viên có đang chạy bản mới nhất không (app từng kẹt bản cũ nhiều ngày). */
+  appVersion?: string
   metadata?: Record<string, unknown>
   createdAt: Date
 }
@@ -25,6 +28,7 @@ const auditLogSchema = new Schema<IAuditLog>(
     resourceId: { type: Schema.Types.ObjectId, index: true },
     ip: { type: String, trim: true, maxlength: 80 },
     userAgent: { type: String, trim: true, maxlength: 500 },
+    appVersion: { type: String, trim: true, maxlength: 40 },
     metadata: { type: Schema.Types.Mixed },
   },
   { timestamps: { createdAt: true, updatedAt: false } },

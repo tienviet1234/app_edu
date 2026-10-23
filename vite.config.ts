@@ -63,6 +63,11 @@ export default defineConfig({
       '@': '/src',
     },
   },
+  // Phiên bản app (commit trên Vercel, hoặc giờ build) — gửi kèm mọi yêu cầu
+  // (X-App-Version) để biết máy giáo viên đang chạy bản nào.
+  define: {
+    __APP_VERSION__: JSON.stringify(process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || `local-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}`),
+  },
   server: {
     host: true,
     port: 5173,
