@@ -355,7 +355,7 @@ const NAME = { ...CELL, font: { bold: true }, fill: { fgColor: { rgb: 'FFFF00' }
 
 /** Sheet "Chi tiết từng buổi" theo ĐÚNG mẫu giáo viên gửi phụ huynh (ảnh
  *  23/10): Học sinh (gộp 1 ô tô vàng cho cả các buổi của em đó) · Buổi · Ngày
- *  học · Điểm số (xuống dòng từng tiêu chí) · Nhận xét / Tư vấn cần lưu ý (ghi
+ *  học · Điểm số (xuống dòng từng tiêu chí) · Từ vựng và cấu trúc cần lưu ý (ghi
  *  chú giáo viên; câu tự sinh bỏ phần thái độ vì lặp lại cột Điểm số).
  *  `withAmount` thêm cột "Số tiền" (Tổng quan học phí). */
 export function sessionDetailRowsForSheet(details: TuitionSessionDetailRow[], withAmount: boolean): (string | number)[][] {
@@ -370,7 +370,7 @@ export function sessionDetailRowsForSheet(details: TuitionSessionDetailRow[], wi
 }
 
 function sessionDetailSheet(details: TuitionSessionDetailRow[], withAmount: boolean): XLSX.WorkSheet {
-  const headers = ['Học sinh', 'Buổi', 'Ngày học', 'Điểm số', 'Nhận xét / Tư vấn cần lưu ý', ...(withAmount ? ['Số tiền (VNĐ)'] : [])]
+  const headers = ['Học sinh', 'Buổi', 'Ngày học', 'Điểm số', 'Từ vựng và cấu trúc cần lưu ý', ...(withAmount ? ['Số tiền (VNĐ)'] : [])]
   const widths = [18, 6, 12, 60, 45, ...(withAmount ? [14] : [])]
   const body = sessionDetailRowsForSheet(details, withAmount)
   const ws = XLSX.utils.aoa_to_sheet([headers, ...body])
