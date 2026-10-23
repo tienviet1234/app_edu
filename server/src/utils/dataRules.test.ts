@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { checkNoticeSessions, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator } from './dataRules.js'
+import { checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator } from './dataRules.js'
 
 describe('isGradedScore / gradedTotal (buổi chỉ có ghi chú KHÔNG phải 0 điểm)', () => {
   it('buổi admin thêm bù chỉ có ghi chú (Trần Đan 12/09 "Con chưa hoàn thành video") → không tính vào điểm TB', () => {
@@ -176,5 +176,26 @@ describe('checkNoticeSessions (phiếu học phí kèm danh sách buổi — ch�
   })
   it('buổi đã xóa → từ chối', () => {
     expect(checkNoticeSessions({ ...base, sessions: [sess('a'), sess('b', { deletedAt: new Date() })] })).toMatchObject({ code: 'DELETED', sessionIds: ['b'] })
+  })
+})
+describe('scoreFieldChanges / scoreRestoreSet (trang Lịch sử điểm của admin)', () => {
+  it('liệt kê đúng ô đổi, bỏ qua khác biệt không đáng kể ("8" = 8, thứ tự tick)', () => {
+    const before = { attendance: 'present', scores: { mini: '8', listen: 5 }, ticks: { attitude: ['a', 'b'] }, note: 'cũ' }
+    const after = { attendance: 'present', scores: { mini: 8, listen: 6 }, ticks: { attitude: ['b', 'a'] }, note: 'mới' }
+    expect(scoreFieldChanges(before, after)).toEqual([
+      { field: 'note', before: 'cũ', after: 'mới' },
+      { field: 'scores.listen', before: '5', after: '6' },
+    ])
+  })
+  it('ô bị xóa / ô mới thêm', () => {
+    expect(scoreFieldChanges({ scores: { mini: 8 } }, { scores: {}, choice: { hw: 'full' } })).toEqual([
+      { field: 'choice.hw', before: null, after: 'full' },
+      { field: 'scores.mini', before: '8', after: null },
+    ])
+  })
+  it('khôi phục: chỉ nội dung + tổng, ô bản cũ không có thì để trống (không giữ ô của bản hiện tại)', () => {
+    const set = scoreRestoreSet({ _id: 'x', sessionId: 's', studentId: 'u', classId: 'c', recordedBy: 'r', scores: { mini: 8 }, total: 81 })
+    expect(set).toEqual({ attendance: 'present', scores: { mini: 8 }, tags: {}, ticks: {}, choice: {}, parts: {}, skip: {}, ev: {}, note: '', total: 81 })
+    expect(Object.keys(set)).not.toContain('sessionId')
   })
 })

@@ -101,6 +101,34 @@ export function checkScoreRestore(
   return { ok: true, added }
 }
 
+/** Ô nào khác nhau giữa 2 bản điểm — trang "Lịch sử điểm" của admin hiện
+ *  "ô X: A → B" cho từng lần sửa (cùng cách so như flattenScoreContent: bỏ ô
+ *  trống, "8" = 8, thứ tự tick không quan trọng). */
+export function scoreFieldChanges(
+  before: Record<string, unknown> | null | undefined,
+  after: Record<string, unknown> | null | undefined,
+): Array<{ field: string; before: string | null; after: string | null }> {
+  const a = flattenScoreContent(before)
+  const b = flattenScoreContent(after)
+  const show = (v: string | undefined) => (v === undefined ? null : v.startsWith('"') ? (JSON.parse(v) as string) : v)
+  return [...new Set([...Object.keys(a), ...Object.keys(b)])].sort()
+    .filter((k) => a[k] !== b[k])
+    .map((field) => ({ field, before: show(a[field]), after: show(b[field]) }))
+}
+
+/** Giá trị ghi lại khi admin khôi phục 1 phiên bản điểm cũ — CHỈ nội dung +
+ *  tổng (không đổi buổi/học sinh/lớp/người chấm); ô bản cũ không có thì để
+ *  trống đúng như bản cũ, không giữ lại ô của bản hiện tại. */
+export function scoreRestoreSet(before: Record<string, unknown>): Record<string, unknown> {
+  return {
+    attendance: before.attendance ?? 'present',
+    scores: before.scores ?? {}, tags: before.tags ?? {}, ticks: before.ticks ?? {},
+    choice: before.choice ?? {}, parts: before.parts ?? {}, skip: before.skip ?? {}, ev: before.ev ?? {},
+    note: before.note ?? '',
+    total: typeof before.total === 'number' ? before.total : 0,
+  }
+}
+
 const nonEmpty = (v: unknown): boolean =>
   v !== '' && v != null && v !== false && !(Array.isArray(v) && !v.length)
   && !(typeof v === 'object' && !Array.isArray(v) && !Object.values(v as Record<string, unknown>).some(nonEmpty))

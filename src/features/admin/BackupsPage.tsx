@@ -7,6 +7,7 @@ import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { StrandedRecoveryCard } from './StrandedRecoveryCard'
 import { MissingSessionsCard } from './MissingSessionsCard'
+import { ChangeHistoryCard } from './ChangeHistoryCard'
 
 function viTime(iso?: string): string {
   if (!iso) return '—'
@@ -123,6 +124,8 @@ export function BackupsPage() {
       </Card>
 
       <StrandedRecoveryCard snapshots={data?.snapshots ?? []} />
+
+      <ChangeHistoryCard />
 
       <MissingSessionsCard />
 

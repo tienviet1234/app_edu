@@ -31,6 +31,7 @@ import { sessionMigrationRouter } from './routes/sessionMigrationRoutes.js'
 import { studentMergeRouter } from './routes/studentMergeRoutes.js'
 import { sessionDateReconcileRouter } from './routes/sessionDateReconcileRoutes.js'
 import { clientSnapshotRouter, adminBackupRouter } from './routes/backupRoutes.js'
+import { changeHistoryRouter } from './routes/changeHistoryRoutes.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { notFound } from './utils/response.js'
 
@@ -115,6 +116,7 @@ app.use('/api/admin/session-migration', sessionMigrationRouter)
 app.use('/api/admin/session-date-reconcile', sessionDateReconcileRouter)
 app.use('/api/admin/student-merges', studentMergeRouter)
 app.use('/api/admin/backups', adminBackupRouter)
+app.use('/api/admin/change-histories', changeHistoryRouter)
 
 app.use((_req, res) => {
   notFound(res, 'Route not found.')
