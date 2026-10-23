@@ -38,6 +38,14 @@ export function ParentScreen({ cls }: ParentScreenProps) {
   })
   const [showReports, setShowReports] = useState(false)
 
+  // Hook PHẢI gọi trước mọi lệnh return sớm — trước đây nằm sau "Lớp chưa có
+  // học sinh" → lớp đổi từ 0 em sang có em (hoặc chỉ số lệch) làm React sập
+  // màn ("Rendered more hooks than during the previous render").
+  const apiClassId = isMongoid(cls.id) ? cls.id : ''
+  const apiStudentId = cls.students[stIdx] && isMongoid(cls.students[stIdx].id) ? cls.students[stIdx].id : ''
+  const { data: apiClass } = useClassDetail(apiClassId)
+  const { data: reportsData } = useStudentReports(apiClassId, apiStudentId)
+
   const st = cls.students[stIdx]
   if (!st) return <Card className="p-6 text-center">Lớp chưa có học sinh.</Card>
 
@@ -61,11 +69,6 @@ export function ParentScreen({ cls }: ParentScreenProps) {
     pct: Math.round(s.catAvg[c.key]),
   }))
 
-  const apiClassId = isMongoid(cls.id) ? cls.id : ''
-  const apiStudentId = isMongoid(st.id) ? st.id : ''
-
-  const { data: apiClass } = useClassDetail(apiClassId)
-  const { data: reportsData } = useStudentReports(apiClassId, apiStudentId)
   const apiReports = reportsData?.items ?? []
   const published = apiReports.filter((r) => r.status === 'published')
 

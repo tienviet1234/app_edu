@@ -275,7 +275,7 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
    *  quả nào, không chỉ đọc thông báo rồi tự loay hoay. Chọn lần 2 thì thay
    *  luôn điểm hiện tại bằng điểm lần 2; chọn lần 1 thì giữ nguyên, chỉ đóng
    *  banner lại — cả 2 trường hợp đều coi như đã xử lý xong cảnh báo. */
-  function useSecondCheckResult(row: Row, which: 'first' | 'second') {
+  function applySecondCheckResult(row: Row, which: 'first' | 'second') {
     patch(row.id, (r) => {
       if (which === 'second' && r.secondCheck) {
         r.rawScore = r.secondCheck.rawScore
@@ -1016,7 +1016,7 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
                         {row.secondCheck.agrees ? (
                           <div className="flex items-center justify-between gap-2">
                             <span>✓ Đã chấm kỹ hơn — lần 2 khớp ({row.secondCheck.rawScore}/{row.secondCheck.rawMax}), đáng tin hơn.</span>
-                            <Btn kind="ghost" size="sm" onClick={() => useSecondCheckResult(row, 'first')}>Đã xem</Btn>
+                            <Btn kind="ghost" size="sm" onClick={() => applySecondCheckResult(row, 'first')}>Đã xem</Btn>
                           </div>
                         ) : (
                           <>
@@ -1024,10 +1024,10 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
                               ⚠ 2 lần chấm ra kết quả KHÁC nhau, bạn chọn dùng kết quả nào — hoặc mở ảnh gốc để tự đọc:
                             </div>
                             <div className="flex flex-wrap gap-2">
-                              <Btn kind="ghost" size="sm" onClick={() => useSecondCheckResult(row, 'first')}>
+                              <Btn kind="ghost" size="sm" onClick={() => applySecondCheckResult(row, 'first')}>
                                 Dùng lần 1: {row.rawScore}/{row.rawMax}
                               </Btn>
-                              <Btn kind="ghost" size="sm" onClick={() => useSecondCheckResult(row, 'second')}>
+                              <Btn kind="ghost" size="sm" onClick={() => applySecondCheckResult(row, 'second')}>
                                 Dùng lần 2: {row.secondCheck.rawScore}/{row.secondCheck.rawMax} (tên "{row.secondCheck.studentName || '?'}")
                               </Btn>
                             </div>

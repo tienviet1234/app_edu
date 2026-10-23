@@ -178,11 +178,15 @@ async function autoSyncStrandedScores(
             const conflict = conflictFromError(err)
             if (!conflict) throw err
             const sc = conflict.score
-            onStudent(job, (st) => markConflict(st, job.sessionLocalId, {
-              entry: toSessionEntry(sc as unknown as ServerScoreForSync), total: sc.total, updatedAt: sc.updatedAt,
-              byName: typeof sc.recordedBy === 'object' ? sc.recordedBy?.name : undefined,
-            }))
-            conflicts.push(`${job.studentName} (${job.date})`)
+            const result = { real: false }
+            onStudent(job, (st) => {
+              result.real = markConflict(st, job.sessionLocalId, {
+                entry: toSessionEntry(sc as unknown as ServerScoreForSync), total: sc.total, updatedAt: sc.updatedAt,
+                byName: typeof sc.recordedBy === 'object' ? sc.recordedBy?.name : undefined,
+              })
+            })
+            // Bản server giống hệt bản máy → chỉ cập nhật mốc, lần tự lưu tới gửi tiếp.
+            if (result.real) conflicts.push(`${job.studentName} (${job.date})`)
           }
         } else {
           // Không sửa gì trên máy này → chỉ là bản sao, CHỈ điền nếu server

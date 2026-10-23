@@ -375,6 +375,39 @@ describe('2 máy cùng sửa 1 buổi (baseUpdatedAt / conflict)', () => {
     expect(pendingSessionsOf([student])).toEqual([])
   })
 
+  it('XUNG ĐỘT GIẢ: bản server GIỐNG HỆT bản máy (máy gửi 1 buổi 2 lần cách vài giây, 22–23/10) → không hỏi, lấy mốc mới, bộ tự lưu gửi tiếp', () => {
+    const entry = { ...emptyEntry(), attendance: 'present' as const, scores: { mini: 5 } }
+    const student = { id: STU, sessions: [sess({ dirty: true, entry, baseUpdatedAt: T0 })] }
+    expect(markConflict(student, SV1, { entry: { ...emptyEntry(), attendance: 'present', scores: { mini: '5' } }, total: 50, updatedAt: T1 })).toBe(false)
+    expect(student.sessions[0].conflict).toBeUndefined()
+    expect(student.sessions[0].baseUpdatedAt).toBe(T1)
+    expect(pendingSessionsOf([student])).toHaveLength(1)
+  })
+
+  it('xung đột THẬT (nội dung khác) → vẫn giữ cả 2 bản, trả về true', () => {
+    const student = { id: STU, sessions: [sess({ dirty: true, entry: { ...emptyEntry(), scores: { mini: 5 } } })] }
+    expect(markConflict(student, SV1, { entry: { ...emptyEntry(), scores: { mini: 9 } }, total: 90, updatedAt: T1 })).toBe(true)
+  })
+
+  it('buổi đang kẹt "xung đột" mà server nay giống hệt bản máy → đồng bộ tự gỡ, lấy mốc mới', () => {
+    const entry = { ...emptyEntry(), scores: { mini: 7 } }
+    const { sessions } = run(
+      [sess({ dirty: true, entry, baseUpdatedAt: T0, conflict: { entry, total: 70, updatedAt: T1 } })],
+      [serverSess()], [serverScore({ scores: { mini: 7 }, updatedAt: T1 })],
+    )
+    expect(sessions[0].conflict).toBeUndefined()
+    expect(sessions[0].baseUpdatedAt).toBe(T1)
+    expect(sessions[0].dirty).toBe(true)
+  })
+
+  it('buổi đang xung đột THẬT (server khác bản máy) → đồng bộ KHÔNG đụng, vẫn chờ người chọn', () => {
+    const entry = { ...emptyEntry(), scores: { mini: 7 } }
+    const conflict = { entry: { ...emptyEntry(), scores: { mini: 9 } }, total: 90, updatedAt: T1 }
+    const { sessions } = run([sess({ dirty: true, entry, baseUpdatedAt: T0, conflict })], [serverSess()], [serverScore({ scores: { mini: 9 }, updatedAt: T1 })])
+    expect(sessions[0].conflict).toEqual(conflict)
+    expect(sessions[0].baseUpdatedAt).toBe(T0)
+  })
+
   it('chọn "Dùng bản máy kia" → lấy bản kia, hết dirty, mốc = bản kia', () => {
     const student = { sessions: [sess({ dirty: true, entry: { ...emptyEntry(), scores: { mini: 5 } }, conflict: { entry: { ...emptyEntry(), scores: { mini: 9 } }, total: 80, updatedAt: T1 } })] }
     resolveConflict(student, SV1, 'theirs')

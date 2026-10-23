@@ -227,3 +227,13 @@ export function studentTuitionNote(classRate: number, rule?: StudentTuitionRule 
     : `${rule.value < 0 ? 'Giảm' : 'Tăng'} ${Math.abs(rule.value)}% (${vnd(classRate)} → ${vnd(eff)}/buổi)`
   return `${head} — ${rule.reason}`
 }
+/** Các NGÀY có từ 2 buổi trở lên trong 1 kỳ sắp thu tiền. 1 em không thể học
+ *  2 buổi cùng ngày — cặp trùng (nhập nhầm ngày / tạo trùng) làm kỳ bị đếm DƯ
+ *  buổi → thu tiền thừa. Rà soát 23/10: 13 cặp trùng, 12 cặp sẽ bị tính dư
+ *  (Lớp 2 Khánh Hân, Bảo Ngọc đang đến hạn). Màn Học phí CHẶN gửi phiếu cho
+ *  tới khi xử lý (xóa bản thừa / sửa ngày) ở "Sửa số buổi". */
+export function duplicateDatesIn(sessions: Array<Pick<Session, 'date'>>): string[] {
+  const seen = new Map<string, number>()
+  for (const s of sessions) seen.set(s.date, (seen.get(s.date) ?? 0) + 1)
+  return [...seen.entries()].filter(([, n]) => n > 1).map(([d]) => d).sort()
+}

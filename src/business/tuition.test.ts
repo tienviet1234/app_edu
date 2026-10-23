@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { billingPeriodsOf, sessionsBilledOf, currentProgressOf, periodPositionOf, sessionLabelOf, unbilledSessionsOf, duePeriodsOf, effectiveRateOf, studentTuitionNote } from './tuition'
+import { billingPeriodsOf, sessionsBilledOf, currentProgressOf, periodPositionOf, sessionLabelOf, unbilledSessionsOf, duePeriodsOf, effectiveRateOf, studentTuitionNote, duplicateDatesIn } from './tuition'
 import { emptyEntry } from './seed'
 import type { AttendanceKey, Session, Student } from '@/types'
 
@@ -255,5 +255,16 @@ describe('effectiveRateOf / studentTuitionNote (học phí riêng từng học s
     expect(effectiveRateOf(75000, rule('percent', -100))).toBe(0)
     expect(studentTuitionNote(75000, rule('percent', -10))).toBe('Giảm 10% (75.000đ → 67.500đ/buổi) — anh em ruột')
     expect(studentTuitionNote(75000, rule('percent', 5))).toBe('Tăng 5% (75.000đ → 78.750đ/buổi) — anh em ruột')
+  })
+})
+describe('duplicateDatesIn (chặn thu tiền dư khi kỳ có 2 buổi cùng ngày)', () => {
+  it('không trùng → rỗng', () => {
+    expect(duplicateDatesIn([{ date: '2026-10-02' }, { date: '2026-10-07' }])).toEqual([])
+  })
+  it('Lớp 2 Bảo Ngọc: 2 buổi 14/10 → báo đúng ngày', () => {
+    expect(duplicateDatesIn([{ date: '2026-10-02' }, { date: '2026-10-14' }, { date: '2026-10-14' }, { date: '2026-10-16' }])).toEqual(['2026-10-14'])
+  })
+  it('nhiều ngày trùng → liệt kê đủ, theo thứ tự', () => {
+    expect(duplicateDatesIn([{ date: '2026-10-14' }, { date: '2026-09-26' }, { date: '2026-10-14' }, { date: '2026-09-26' }])).toEqual(['2026-09-26', '2026-10-14'])
   })
 })

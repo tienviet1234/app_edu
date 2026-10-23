@@ -4,7 +4,7 @@ import { C } from '@/constants/colors'
 import { getClassRubric } from '@/constants/rubrics'
 import { statsOf } from '@/business/stats'
 import { buildComment, sessionDetailsOf, type SessionDetailRow } from '@/business/report'
-import { sessionsBilledOf, currentProgressOf, periodPositionOf, sessionLabelOf, unbilledSessionsOf, duePeriodsOf, unbilledOffsetOf, effectiveRateOf, studentTuitionNote, type StudentTuitionRule } from '@/business/tuition'
+import { sessionsBilledOf, currentProgressOf, periodPositionOf, sessionLabelOf, unbilledSessionsOf, duePeriodsOf, unbilledOffsetOf, effectiveRateOf, studentTuitionNote, duplicateDatesIn, type StudentTuitionRule } from '@/business/tuition'
 import { useAuthStore } from '@/store/authStore'
 import { StudentTuitionCard } from './StudentTuitionCard'
 import { isMongoid } from '@/utils/mongoid'
@@ -51,6 +51,8 @@ interface DueRow {
   sessionIds: string[]
   /** Số buổi trong kỳ CHƯA lên server — chặn gửi tới khi đồng bộ xong. */
   unsynced: number
+  /** Ngày có 2+ buổi trong kỳ (buổi trùng → đếm dư, thu thừa) — chặn gửi. */
+  duplicateDates: string[]
   showDetails: boolean
   saving: boolean
   /** 'auto' = tự phát hiện đủ mốc 8/12 buổi (như trước giờ). 'manual' = admin
@@ -191,6 +193,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
           sessionDetails: sessionDetailsOf(stUnbilled, p.from, p.to, r),
           sessionIds: p.sessionIds,
           unsynced: p.unsynced,
+          duplicateDates: duplicateDatesIn(stUnbilled.sessions.slice(p.from, p.to)),
           showDetails: false,
           saving: false,
           kind: 'auto',
@@ -265,6 +268,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
       sessionDetails: sessionDetailsOf({ sessions: srcSessions }, nd.from, nd.to, r),
       sessionIds: slice.map((x) => x.id),
       unsynced: slice.filter((x) => !isMongoid(x.id)).length,
+      duplicateDates: duplicateDatesIn(slice),
       showDetails: false, saving: false, kind: 'manual',
     }])
   }
@@ -414,6 +418,11 @@ export function TuitionReportScreen({ cls, update }: Props) {
     const unsynced = row.sessionIds.filter((id) => !isMongoid(id)).length
     if (unsynced) {
       toast.error(`Kỳ này còn ${unsynced} buổi CHƯA lên server — mở Nhập điểm để máy đồng bộ xong (hoặc tải lại trang) rồi gửi lại.`, { persist: true })
+      return
+    }
+    // 2 buổi cùng 1 ngày trong kỳ → kỳ bị đếm dư buổi, thu tiền thừa.
+    if (row.duplicateDates.length) {
+      toast.error(`Kỳ này của ${row.studentName} có 2 buổi cùng ngày ${row.duplicateDates.map(viDate).join(', ')} — bị đếm dư buổi. Mở "Sửa số buổi" của em này: xóa bản thừa hoặc sửa lại đúng ngày, rồi gửi.`, { persist: true })
       return
     }
     // Học phí riêng của em này vừa đổi SAU khi khoản này được tính (VD khoản
@@ -1106,6 +1115,11 @@ export function TuitionReportScreen({ cls, update }: Props) {
                   Tự tính: {fmtVnd(row.computedAmount)}
                   <div>{row.sessionsBilled} buổi × {fmtVnd(row.ratePerSession)}</div>
                   {row.studentAdjustment && <div className="font-semibold" style={{ color: C.board2 }}>💲 {row.studentAdjustment}</div>}
+                  {row.duplicateDates.length > 0 && (
+                    <div className="font-semibold" style={{ color: C.red }}>
+                      ⚠ 2 buổi cùng ngày {row.duplicateDates.map(viDate).join(', ')} — bị đếm dư, chưa gửi được. Xử lý ở "Sửa số buổi".
+                    </div>
+                  )}
                 </div>
               </div>
               <div>

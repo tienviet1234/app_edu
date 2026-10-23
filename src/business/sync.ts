@@ -187,8 +187,17 @@ export function syncStudentsFromServer(
 
     // Sửa chưa lên server — không ghi đè ngược, và GIỮ NGUYÊN baseUpdatedAt
     // (mốc bản server mà phần sửa dựa vào) để server phát hiện được nếu máy
-    // khác lưu chen vào giữa.
-    if (local.dirty) continue
+    // khác lưu chen vào giữa. Riêng buổi đang "xung đột" mà bản server nay
+    // GIỐNG HỆT bản máy (xung đột giả — xem markConflict) → gỡ xung đột, lấy
+    // mốc mới để bộ tự lưu gửi tiếp.
+    if (local.dirty) {
+      if (local.conflict && score && sameEntry(local.entry, toSessionEntry(score))) {
+        local.conflict = undefined
+        if (score.updatedAt) local.baseUpdatedAt = score.updatedAt
+        changed = true
+      }
+      continue
+    }
     const serverEntry = score ? toSessionEntry(score) : null
     const serverHomework = as.notes ?? ''
     const setBase = () => {
@@ -337,10 +346,21 @@ export function takeServerCopy(
 
 /** Server từ chối lưu vì máy khác vừa lưu bản mới hơn (409 CONFLICT) — giữ bản
  *  máy kia để giáo viên chọn. Bản trên máy giữ nguyên, vẫn dirty, bộ tự lưu
- *  KHÔNG tự thử lại (phải có người chọn, không tự đè). */
-export function markConflict(student: { sessions: Session[] }, sessionId: string, server: SessionConflict): void {
+ *  KHÔNG tự thử lại (phải có người chọn, không tự đè).
+ *  Bản server GIỐNG HỆT bản máy (thường do chính máy này gửi 1 buổi 2 lần cách
+ *  nhau vài giây, lần 2 mang mốc cũ — gặp thật 22–23/10, 5 lần) thì KHÔNG phải
+ *  xung đột: chỉ cập nhật mốc để lần tự lưu tới gửi tiếp (bài tập/số câu).
+ *  Trả về true nếu là xung đột thật (cần người chọn). */
+export function markConflict(student: { sessions: Session[] }, sessionId: string, server: SessionConflict): boolean {
   const s = student.sessions.find((x) => x.id === sessionId)
-  if (s) s.conflict = server
+  if (!s) return false
+  if (sameEntry(s.entry, server.entry)) {
+    s.baseUpdatedAt = server.updatedAt
+    s.conflict = undefined
+    return false
+  }
+  s.conflict = server
+  return true
 }
 
 /** Server từ chối lưu vì buổi đã bị XÓA trên server (409 SESSION_DELETED) mà

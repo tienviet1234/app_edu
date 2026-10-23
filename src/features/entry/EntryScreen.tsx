@@ -469,11 +469,13 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
         const sc = conflict.score
         const byName = typeof sc.recordedBy === 'object' ? sc.recordedBy?.name : undefined
         const localId = target.id
+        const result = { real: false }
         update((c) => {
           const stu = c.students.find((s) => s.id === studentId)
-          if (stu) markConflict(stu, localId, { entry: toSessionEntry(sc as unknown as ServerScoreForSync), total: sc.total, updatedAt: sc.updatedAt, byName })
+          if (stu) result.real = markConflict(stu, localId, { entry: toSessionEntry(sc as unknown as ServerScoreForSync), total: sc.total, updatedAt: sc.updatedAt, byName })
         })
-        toast.error(`${label} của ${student.name} vừa được ${byName ?? 'người khác'} lưu bản khác ở máy khác — chọn giữ bản nào ở thanh vàng phía trên màn Nhập điểm.`, { persist: true })
+        // Bản server giống hệt bản máy (máy gửi 2 lần) → không hỏi gì, bộ tự lưu gửi tiếp.
+        if (result.real) toast.error(`${label} của ${student.name} vừa được ${byName ?? 'người khác'} lưu bản khác ở máy khác — chọn giữ bản nào ở thanh vàng phía trên màn Nhập điểm.`, { persist: true })
         return
       }
       // Nêu đúng lý do server từ chối (VD "đã có Buổi N rồi") thay vì câu
