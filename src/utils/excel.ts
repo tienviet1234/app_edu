@@ -1,4 +1,6 @@
-import * as XLSX from 'xlsx'
+// xlsx-js-style = xlsx (cùng cách dùng) + ghi được định dạng ô (tô màu, gộp ô,
+// xuống dòng) — bản miễn phí của xlsx không ghi định dạng. Chỉ dùng để GHI file.
+import * as XLSX from 'xlsx-js-style'
 import type { AppData, ClassData } from '@/types'
 import { getClassRubric } from '@/constants/rubrics'
 import { statsOf } from '@/business/stats'
@@ -85,13 +87,8 @@ export function exportScores(cls: ClassData, p: ExportPeriod): void {
     sessionDetailsOf(st, p.from, p.to, r).map((d) => ({ studentName: st.name, sessionOffset: st.sessionOffset, ...d })),
   )
   if (sessionDetails.length) {
-    const detailHeaders = ['Học sinh', 'Buổi', 'Ngày học', 'Bài tập về nhà', 'Điểm số', 'Nhận xét']
-    const detailData = sessionDetails.map((d) => [
-      d.studentName, periodPositionOf(d.no, cls.perMonth, d.sessionOffset).displayNo, viDate(d.date), d.homework, scoresCell(d.scores), d.status,
-    ])
-    const detailWs = XLSX.utils.aoa_to_sheet([detailHeaders, ...detailData])
-    detailWs['!cols'] = [{ wch: 20 }, { wch: 6 }, { wch: 12 }, { wch: 28 }, { wch: 40 }, { wch: 50 }]
-    XLSX.utils.book_append_sheet(wb, detailWs, 'Chi tiết từng buổi')
+    const rows = sessionDetails.map((d) => ({ ...d, no: periodPositionOf(d.no, cls.perMonth, d.sessionOffset).displayNo }))
+    XLSX.utils.book_append_sheet(wb, sessionDetailSheet(rows, false), 'Chi tiết từng buổi')
   }
 
   XLSX.utils.book_append_sheet(wb, ws, p.label.replace(/[\\/?*[\]:]/g, '_').slice(0, 31))
@@ -305,6 +302,8 @@ export interface TuitionNoticeRow {
   periodLabel: string
   sessionsBilled: number
   ratePerSession: number
+  /** Học phí riêng của em này (mô tả + lý do), rỗng = theo giá lớp. */
+  studentAdjustment?: string
   finalAmount: number
   adjustmentReason?: string
   reportComment: string
@@ -318,6 +317,13 @@ export interface TuitionSessionDetailRow {
   date: string
   homework: string
   status: string
+  /** true = `status` do hệ thống TỰ SINH từ chính điểm đã chấm (không phải giáo
+   *  viên gõ) — file gửi phụ huynh KHÔNG ghi vào cột Nhận xét (lặp y hệt cột
+   *  Điểm số, giáo viên phải xóa tay trước khi gửi — phản ánh 23/10). */
+  isAuto?: boolean
+  /** Nhận xét cho file gửi phụ huynh (xem SessionDetailRow.parentStatus) — có
+   *  thì dùng thay cho `status`. */
+  parentStatus?: string
   /** Điểm TỪNG tiêu chí đã chấm buổi này (Mini Test/Nghe/BTVN/Thái độ...),
    *  đúng mức chi tiết như màn nhập điểm (xem SessionScoreItem) — rỗng/
    *  undefined thì không ghi gì, không bịa điểm cho tiêu chí chưa chấm. */
@@ -329,20 +335,75 @@ export interface TuitionSessionDetailRow {
   amount?: string
 }
 
-/** Ghép tất cả điểm đã chấm buổi đó thành 1 chuỗi "Nhãn: đạt/tối đa, ..." —
- *  chỉ liệt kê tiêu chí CÓ DỮ LIỆU thật, không bịa điểm cho tiêu chí chưa chấm. */
-function scoresCell(scores: SessionScoreItem[] | undefined): string {
+/** Điểm đã chấm buổi đó, MỖI tiêu chí 1 dòng, mỗi việc đã tích 1 dòng "✓" —
+ *  đúng mẫu giáo viên vẫn tự sửa trước khi gửi phụ huynh (trước đây dồn hết
+ *  vào 1 dòng ngăn bằng "|"). Chỉ tiêu chí CÓ DỮ LIỆU thật, không bịa điểm. */
+export function scoresLines(scores: SessionScoreItem[] | undefined): string {
   return (scores ?? [])
-    .map((s) => {
-      const items = s.checkedItems?.length
-        ? ` (${s.checkedItems.map((it) => `✓ ${it.label} ${it.pts}đ`).join('; ')})`
-        : s.selectedLabel
-          ? ` (${s.selectedLabel})`
-          : ''
-      const ratio = s.ratioText ? ` — ${s.ratioText}` : ''
-      return `${s.label}: ${s.value}${items}${ratio}`
+    .map((s) => [
+      `${s.label}: ${s.value}${s.selectedLabel ? ` (${s.selectedLabel})` : ''}`,
+      ...(s.ratioText ? [`— ${s.ratioText}`] : []),
+      ...(s.checkedItems ?? []).map((it) => `   ✓ ${it.label} ${it.pts}đ`),
+    ].join('\n'))
+    .join('\n')
+}
+
+const BORDER = { style: 'thin', color: { rgb: 'A6A6A6' } }
+const CELL = { alignment: { wrapText: true, vertical: 'top' }, border: { top: BORDER, bottom: BORDER, left: BORDER, right: BORDER } }
+const HEAD = { ...CELL, font: { bold: true }, fill: { fgColor: { rgb: 'E7E6E6' } }, alignment: { wrapText: true, vertical: 'center', horizontal: 'center' } }
+const NAME = { ...CELL, font: { bold: true }, fill: { fgColor: { rgb: 'FFFF00' } }, alignment: { wrapText: true, vertical: 'center', horizontal: 'center' } }
+
+/** Sheet "Chi tiết từng buổi" theo ĐÚNG mẫu giáo viên gửi phụ huynh (ảnh
+ *  23/10): Học sinh (gộp 1 ô tô vàng cho cả các buổi của em đó) · Buổi · Ngày
+ *  học · Điểm số (xuống dòng từng tiêu chí) · Nhận xét / Tư vấn cần lưu ý (ghi
+ *  chú giáo viên; câu tự sinh bỏ phần thái độ vì lặp lại cột Điểm số).
+ *  `withAmount` thêm cột "Số tiền" (Tổng quan học phí). */
+export function sessionDetailRowsForSheet(details: TuitionSessionDetailRow[], withAmount: boolean): (string | number)[][] {
+  return details.map((d, i) => [
+    i > 0 && details[i - 1].studentName === d.studentName ? '' : d.studentName,
+    d.no,
+    d.date ? viDate(d.date) : '',
+    scoresLines(d.scores),
+    d.parentStatus ?? (d.isAuto ? '' : d.status),
+    ...(withAmount ? [d.amount ?? ''] : []),
+  ])
+}
+
+function sessionDetailSheet(details: TuitionSessionDetailRow[], withAmount: boolean): XLSX.WorkSheet {
+  const headers = ['Học sinh', 'Buổi', 'Ngày học', 'Điểm số', 'Nhận xét / Tư vấn cần lưu ý', ...(withAmount ? ['Số tiền (VNĐ)'] : [])]
+  const widths = [18, 6, 12, 60, 45, ...(withAmount ? [14] : [])]
+  const body = sessionDetailRowsForSheet(details, withAmount)
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...body])
+  ws['!cols'] = widths.map((wch) => ({ wch }))
+  // Gộp ô "Học sinh" cho các dòng liền nhau của cùng 1 em.
+  const merges: XLSX.Range[] = []
+  for (let i = 0; i < details.length;) {
+    let j = i
+    while (j + 1 < details.length && details[j + 1].studentName === details[i].studentName) j++
+    if (j > i) merges.push({ s: { r: i + 1, c: 0 }, e: { r: j + 1, c: 0 } })
+    i = j + 1
+  }
+  ws['!merges'] = merges
+  // Định dạng từng ô + chiều cao dòng vừa đủ nội dung (Excel không tự giãn dòng
+  // cho ô xuống dòng khi mở file tạo sẵn).
+  const rows: XLSX.RowInfo[] = [{ hpt: 30 }]
+  body.forEach((row, ri) => {
+    let lines = 1
+    row.forEach((v, ci) => {
+      const text = String(v ?? '')
+      const perLine = Math.max(1, Math.floor(widths[ci] * 1.1))
+      lines = Math.max(lines, text.split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / perLine)), 0))
     })
-    .join(' | ')
+    rows.push({ hpt: Math.min(409, lines * 15 + 4) })
+    headers.forEach((_, ci) => {
+      const addr = XLSX.utils.encode_cell({ r: ri + 1, c: ci })
+      ws[addr] = ws[addr] ?? { t: 's', v: '' }
+      ws[addr].s = ci === 0 ? NAME : CELL
+    })
+  })
+  headers.forEach((_, ci) => { ws[XLSX.utils.encode_cell({ r: 0, c: ci })].s = HEAD })
+  ws['!rows'] = rows
+  return ws
 }
 
 /** Xuất Excel "Báo cáo học tập + học phí" — 2 sheet: sheet 1 tổng hợp (1 dòng/
@@ -355,17 +416,17 @@ export function exportTuitionNotices(
   className: string, rows: TuitionNoticeRow[], sessionDetails: TuitionSessionDetailRow[] = [],
 ): void {
   const headers = [
-    'Học sinh', 'Kỳ báo cáo', 'Số buổi tính phí', 'Đơn giá/buổi (VNĐ)',
+    'Học sinh', 'Kỳ báo cáo', 'Số buổi tính phí', 'Đơn giá/buổi (VNĐ)', 'Học phí riêng (nếu có)',
     'Thành tiền (VNĐ)', 'Lý do điều chỉnh (nếu có)', 'Nhận xét tình hình học tập', 'Ngày gửi',
   ]
   const data = rows.map((r) => [
-    r.studentName, r.periodLabel, r.sessionsBilled, r.ratePerSession,
+    r.studentName, r.periodLabel, r.sessionsBilled, r.ratePerSession, r.studentAdjustment ?? '',
     r.finalAmount, r.adjustmentReason ?? '', r.reportComment, r.sentAtLabel,
   ])
 
   const ws = XLSX.utils.aoa_to_sheet([headers, ...data])
   ws['!cols'] = [
-    { wch: 20 }, { wch: 16 }, { wch: 14 }, { wch: 16 },
+    { wch: 20 }, { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 36 },
     { wch: 16 }, { wch: 28 }, { wch: 50 }, { wch: 14 },
   ]
 
@@ -374,11 +435,7 @@ export function exportTuitionNotices(
   // "Chi tiết từng buổi" lên TRƯỚC (Excel mở vào sheet đầu tiên) — sheet
   // tổng hợp đứng trước dễ gây cảm giác file không có gì chi tiết.
   if (sessionDetails.length) {
-    const detailHeaders = ['Học sinh', 'Buổi', 'Ngày học', 'Bài tập về nhà', 'Điểm số', 'Nhận xét']
-    const detailData = sessionDetails.map((d) => [d.studentName, d.no, viDate(d.date), d.homework, scoresCell(d.scores), d.status])
-    const detailWs = XLSX.utils.aoa_to_sheet([detailHeaders, ...detailData])
-    detailWs['!cols'] = [{ wch: 20 }, { wch: 6 }, { wch: 12 }, { wch: 28 }, { wch: 40 }, { wch: 50 }]
-    XLSX.utils.book_append_sheet(wb, detailWs, 'Chi tiết từng buổi')
+    XLSX.utils.book_append_sheet(wb, sessionDetailSheet(sessionDetails, false), 'Chi tiết từng buổi')
   }
 
   XLSX.utils.book_append_sheet(wb, ws, 'Báo cáo + học phí')
@@ -396,6 +453,8 @@ export interface TuitionOverviewRow {
   periodLabel: string
   sessionsBilled: string
   finalAmount: string
+  /** Học phí riêng của em này (mô tả + lý do), rỗng = theo giá lớp. */
+  studentAdjustment?: string
   adjustmentReason?: string
   reportComment: string
 }
@@ -411,13 +470,13 @@ export interface TuitionOverviewRow {
 export function exportTuitionOverview(
   className: string, rows: TuitionOverviewRow[], sessionDetails: TuitionSessionDetailRow[] = [],
 ): void {
-  const headers = ['Học sinh', 'Trạng thái', 'Kỳ báo cáo', 'Số buổi', 'Số tiền (VNĐ)', 'Lý do điều chỉnh (nếu có)', 'Nhận xét tình hình học tập']
+  const headers = ['Học sinh', 'Trạng thái', 'Kỳ báo cáo', 'Số buổi', 'Số tiền (VNĐ)', 'Học phí riêng (nếu có)', 'Lý do điều chỉnh (nếu có)', 'Nhận xét tình hình học tập']
   const data = rows.map((r) => [
-    r.studentName, r.status, r.periodLabel, r.sessionsBilled, r.finalAmount, r.adjustmentReason ?? '', r.reportComment,
+    r.studentName, r.status, r.periodLabel, r.sessionsBilled, r.finalAmount, r.studentAdjustment ?? '', r.adjustmentReason ?? '', r.reportComment,
   ])
 
   const ws = XLSX.utils.aoa_to_sheet([headers, ...data])
-  ws['!cols'] = [{ wch: 20 }, { wch: 24 }, { wch: 16 }, { wch: 10 }, { wch: 14 }, { wch: 28 }, { wch: 50 }]
+  ws['!cols'] = [{ wch: 20 }, { wch: 24 }, { wch: 16 }, { wch: 10 }, { wch: 14 }, { wch: 36 }, { wch: 28 }, { wch: 50 }]
 
   const wb = XLSX.utils.book_new()
 
@@ -428,11 +487,7 @@ export function exportTuitionOverview(
     // Cột "Số tiền" lặp lại số tiền của ĐÚNG kỳ chứa buổi đó trên mọi dòng
     // cùng kỳ — để trống khi học sinh chưa tới hạn tính phí (không tự bịa
     // số, chỉ hiện khi đã có số tiền thật từ sheet "Tổng quan").
-    const detailHeaders = ['Học sinh', 'Buổi', 'Ngày học', 'Bài tập về nhà', 'Điểm số', 'Nhận xét', 'Số tiền (VNĐ)']
-    const detailData = sessionDetails.map((d) => [d.studentName, d.no, viDate(d.date), d.homework, scoresCell(d.scores), d.status, d.amount ?? ''])
-    const detailWs = XLSX.utils.aoa_to_sheet([detailHeaders, ...detailData])
-    detailWs['!cols'] = [{ wch: 20 }, { wch: 6 }, { wch: 12 }, { wch: 28 }, { wch: 40 }, { wch: 50 }, { wch: 14 }]
-    XLSX.utils.book_append_sheet(wb, detailWs, 'Chi tiết từng buổi')
+    XLSX.utils.book_append_sheet(wb, sessionDetailSheet(sessionDetails, true), 'Chi tiết từng buổi')
   }
 
   XLSX.utils.book_append_sheet(wb, ws, 'Tổng quan')

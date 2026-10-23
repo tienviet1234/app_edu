@@ -3,7 +3,7 @@ import {
   addManagedStudents,
   createClass, deleteClass, enrollStudents, getClass,
   getClassStudents, getJoinCode, joinClass,
-  listClasses, removeStudent, updateClass,
+  listClasses, removeStudent, updateClass, setStudentTuition, removeStudentTuition,
 } from '../controllers/classController.js'
 import { authenticate, authorize } from '../middleware/auth.js'
 import { validate } from '../middleware/validate.js'
@@ -57,6 +57,11 @@ classRouter.post(
   validate({ params: idParamsSchema, body: z.object({ names: z.array(z.string().min(1)).min(1).max(50) }) }),
   asyncHandler(addManagedStudents),
 )
+
+// Học phí riêng từng học sinh — CHỈ admin (giảm em này/tăng em kia, bắt buộc lý do).
+const studentTuitionParams = z.object({ id: objectIdSchema, studentId: objectIdSchema })
+classRouter.put('/:id/student-tuition/:studentId', authorize('admin'), validate({ params: studentTuitionParams }), asyncHandler(setStudentTuition))
+classRouter.delete('/:id/student-tuition/:studentId', authorize('admin'), validate({ params: studentTuitionParams }), asyncHandler(removeStudentTuition))
 
 // Get join code for a class (teacher only)
 classRouter.get(

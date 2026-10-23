@@ -129,6 +129,9 @@ export interface SessionDetailRow {
    *  viên không ghi chú/ghi chú cụ thể gì) — false nếu là nguyên văn giáo
    *  viên tự gõ. Không bao giờ ghi đè lên ghi chú thật, chỉ điền khi trống. */
   isAuto: boolean
+  /** Nhận xét cho FILE GỬI PHỤ HUYNH: ghi chú giáo viên gõ (nguyên văn), hoặc
+   *  câu tự sinh ĐÃ BỎ phần thái độ (đã có từng dòng ✓ ở cột Điểm số). */
+  parentStatus: string
   /** Điểm danh buổi này — dùng để tính tiền ĐÚNG BUỔI (chỉ 'present'/'late'
    *  mới tính phí, khớp sessionsBilledOf trong business/tuition.ts). */
   attendance: AttendanceKey
@@ -282,12 +285,23 @@ export function sessionDetailsOf(
         scores.push(item)
       })
     }
+    // Bản cho FILE GỬI PHỤ HUYNH: câu tự sinh BỎ phần thái độ (danh sách "chủ
+    // động phát biểu, chú ý nghe giảng...") — đã có từng dòng ✓ ở cột Điểm số,
+    // lặp y nguyên (giáo viên phải xóa tay, phản ánh 23/10); GIỮ câu ĐÃ LÀM/
+    // CHƯA LÀM (mẫu giáo viên vẫn giữ). Ghi chú giáo viên gõ thì giữ nguyên.
+    let parentStatus = status
+    if (!status && r) {
+      const starKeys = new Set(sessionComps(r, s).filter((c) => c.type === 'ticks' && c.stars).map((c) => c.key))
+      parentStatus = sessionStatusFragments(sessionComps(r, s), s.entry).filter((f) => !starKeys.has(f.key)).map((f) => f.text).join(' ')
+      if (!parentStatus && auto && !starKeys.size) parentStatus = auto
+    }
     return {
       no: s.no,
       date: s.date,
       homework: s.homework?.trim() ?? '',
       status: status || auto,
       isAuto: !status && !!auto,
+      parentStatus,
       attendance: s.entry.attendance,
       scores,
     }

@@ -852,6 +852,7 @@ export function AdminBillingPage() {
                         <td className="py-2 px-3 text-right tabular-nums">{row.sessionsCount}</td>
                         <td className="py-2 px-3 text-right tabular-nums" style={{ color: C.muted }}>
                           {row.ratePerSession ? fmtVnd(row.ratePerSession) : '—'}
+                          {row.tuitionNote && <div className="text-xs font-semibold" style={{ color: C.board2 }}>💲 {row.tuitionNote}</div>}
                         </td>
                         <td className="py-2 px-3 text-right font-bold tabular-nums">{fmtVnd(row.total)}</td>
                       </tr>

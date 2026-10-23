@@ -65,9 +65,23 @@ export interface IClass extends Document {
   // cao hơn, buổi vắng nhiều thì thấp hơn). Xem
   // analyticsController.getBillingReport() — nơi duy nhất tính ra số tiền.
   tuitionPerSession?: number
+  /** Học phí RIÊNG từng học sinh trong lớp (admin đặt, bắt buộc lý do):
+   *  'rate' = giá riêng/buổi; 'percent' = giảm/tăng % trên giá lớp. Không có =
+   *  theo giá lớp. Áp dụng cho kỳ CHƯA gửi phiếu — phiếu đã gửi giữ nguyên số
+   *  tiền đã ghi. Xem effectiveTuitionRate (utils/dataRules.ts). */
+  studentTuition?: IStudentTuition[]
   teacherPayPerSession?: number
   teacherPayMode?: 'fixed' | 'perStudent'
   teacherPayPerStudentSession?: number
+}
+
+export interface IStudentTuition {
+  studentId: Types.ObjectId
+  mode: 'rate' | 'percent'
+  value: number
+  reason: string
+  updatedBy?: Types.ObjectId
+  updatedAt?: Date
 }
 
 const scheduleSlotSchema = new Schema<IScheduleSlot>(
@@ -118,6 +132,14 @@ const classSchema = new Schema<IClass>(
     compExtraItems: { type: Schema.Types.Mixed },
     customNotePhrases: [{ type: String, trim: true, maxlength: 300 }],
     tuitionPerSession: { type: Number, min: 0 },
+    studentTuition: [new Schema<IStudentTuition>({
+      studentId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+      mode: { type: String, enum: ['rate', 'percent'], required: true },
+      value: { type: Number, required: true },
+      reason: { type: String, required: true, trim: true, maxlength: 200 },
+      updatedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+      updatedAt: { type: Date },
+    }, { _id: false })],
     teacherPayPerSession: { type: Number, min: 0 },
     teacherPayMode: { type: String, enum: ['fixed', 'perStudent'], default: 'fixed' },
     teacherPayPerStudentSession: { type: Number, min: 0 },

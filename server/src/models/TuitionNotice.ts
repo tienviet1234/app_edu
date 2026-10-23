@@ -26,6 +26,11 @@ export interface ITuitionNotice extends Document {
   computedAmount: number
   finalAmount: number
   adjustmentReason?: string
+  /** Học phí RIÊNG của em này lúc gửi (VD "Giảm 10% (75.000đ → 67.500đ/buổi) —
+   *  anh em ruột") — ghi lại nguyên văn để sau này đối chiếu. */
+  studentAdjustment?: string
+  /** Số tiền nếu tính theo GIÁ LỚP (không học phí riêng) — để thấy chênh lệch. */
+  baseAmount?: number
   reportComment: string
   sentAt: Date
   sentBy: Types.ObjectId
@@ -53,6 +58,8 @@ const TuitionNoticeSchema = new Schema<ITuitionNotice>(
     computedAmount:  { type: Number, required: true, min: 0 },
     finalAmount:     { type: Number, required: true, min: 0 },
     adjustmentReason: { type: String, trim: true, maxlength: 500 },
+    studentAdjustment: { type: String, trim: true, maxlength: 300 },
+    baseAmount: { type: Number, min: 0 },
     reportComment:   { type: String, trim: true, maxlength: 5000 },
     sentAt: { type: Date, required: true },
     sentBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },

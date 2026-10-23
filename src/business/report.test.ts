@@ -68,8 +68,8 @@ describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình
     }
     const rows = sessionDetailsOf(student, 0, 2)
     expect(rows).toEqual([
-      { no: 5, date: '2026-07-30', homework: 'Đọc sách bài tập trang 28', status: 'ĐÃ LÀM VIDEO; make, snowflake, snowman', isAuto: false, attendance: 'present', scores: [] },
-      { no: 6, date: '2026-08-04', homework: 'Làm sách bài tập trang 29,30', status: 'Nghỉ không phép', isAuto: false, attendance: 'absent', scores: [] },
+      { no: 5, date: '2026-07-30', homework: 'Đọc sách bài tập trang 28', status: 'ĐÃ LÀM VIDEO; make, snowflake, snowman', isAuto: false, parentStatus: 'ĐÃ LÀM VIDEO; make, snowflake, snowman', attendance: 'present', scores: [] },
+      { no: 6, date: '2026-08-04', homework: 'Làm sách bài tập trang 29,30', status: 'Nghỉ không phép', isAuto: false, parentStatus: 'Nghỉ không phép', attendance: 'absent', scores: [] },
     ])
   })
 
@@ -224,6 +224,36 @@ describe('sessionDetailsOf — chi tiết từng buổi (bài giao + tình hình
     // Thiếu "Hợp tác/Chuẩn bị bài/Tự giác sửa lỗi" — phải nêu đúng tên việc còn thiếu.
     expect(rows[0].status).toContain('Cần cải thiện')
     expect(rows[0].status.toLowerCase()).toContain('hợp tác')
+  })
+
+  it('FILE GỬI PHỤ HUYNH (parentStatus): bỏ danh sách thái độ lặp với cột Điểm số, GIỮ câu ĐÃ LÀM/CHƯA LÀM — phản ánh 23/10', () => {
+    const r = getRubric('secondary')
+    const student: Student = {
+      id: 'st1', name: 'Minh Khôi',
+      sessions: [{
+        id: 's1', no: 1, date: '2026-01-01',
+        entry: { ...emptyEntry(), attendance: 'present', ticks: { hw: ['h_full', 'h_correct', 'h_ontime'], attitude: ['a_speak', 'a_focus'] } },
+      }],
+    }
+    const [row] = sessionDetailsOf(student, 0, 1, r)
+    expect(row.status).toContain('Cần cải thiện') // màn hình vẫn đủ như cũ
+    expect(row.parentStatus).toContain('BÀI TẬP VỀ NHÀ')
+    expect(row.parentStatus).not.toContain('Cần cải thiện')
+    expect(row.parentStatus.toLowerCase()).not.toContain('phát biểu')
+  })
+
+  it('FILE GỬI PHỤ HUYNH: ghi chú giáo viên gõ giữ nguyên văn; chỉ chấm thái độ → để trống (đã có ✓ ở cột Điểm số)', () => {
+    const r = getRubric('secondary')
+    const student: Student = {
+      id: 'st1', name: 'Minh Khôi',
+      sessions: [
+        { id: 's1', no: 1, date: '2026-01-01', entry: { ...emptyEntry(), attendance: 'present', note: '- pencil - pen (miss spelling)', ticks: { attitude: ['a_speak'] } } },
+        { id: 's2', no: 2, date: '2026-01-02', entry: { ...emptyEntry(), attendance: 'present', ticks: { attitude: ['a_speak', 'a_focus'] } } },
+      ],
+    }
+    const rows = sessionDetailsOf(student, 0, 2, r)
+    expect(rows[0].parentStatus).toBe('- pencil - pen (miss spelling)')
+    expect(rows[1].parentStatus).toBe('')
   })
 
   it('buổi có mặt nhưng chưa chấm điểm gì cả — vẫn ghi rõ có đi học, không để trống, không lặp bài giao', () => {

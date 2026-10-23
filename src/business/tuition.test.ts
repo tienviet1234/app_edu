@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { billingPeriodsOf, sessionsBilledOf, currentProgressOf, periodPositionOf, sessionLabelOf, unbilledSessionsOf, duePeriodsOf } from './tuition'
+import { billingPeriodsOf, sessionsBilledOf, currentProgressOf, periodPositionOf, sessionLabelOf, unbilledSessionsOf, duePeriodsOf, effectiveRateOf, studentTuitionNote } from './tuition'
 import { emptyEntry } from './seed'
 import type { AttendanceKey, Session, Student } from '@/types'
 
@@ -236,5 +236,24 @@ describe('duePeriodsOf (kỳ đến hạn gửi phiếu — nhận ra kỳ đã 
     const due2 = duePeriodsOf({ sessions: mk(13, 5), sessionOffset: 3 }, 8, [{ periodFrom: 0, periodTo: 5, sessionIds: ids(0, 5) }])
     expect(due2).toHaveLength(1)
     expect(due2[0]).toMatchObject({ storeFrom: 5, storeTo: 13 })
+  })
+})
+describe('effectiveRateOf / studentTuitionNote (học phí riêng từng học sinh)', () => {
+  const rule = (mode: 'rate' | 'percent', value: number) => ({ studentId: 's', mode, value, reason: 'anh em ruột' })
+  it('không có học phí riêng → giá lớp, không ghi chú', () => {
+    expect(effectiveRateOf(75000, null)).toBe(75000)
+    expect(studentTuitionNote(75000, null)).toBe('')
+  })
+  it('giá riêng/buổi', () => {
+    expect(effectiveRateOf(75000, rule('rate', 70000))).toBe(70000)
+    expect(studentTuitionNote(75000, rule('rate', 70000))).toBe('Giá riêng 70.000đ/buổi (giá lớp 75.000đ) — anh em ruột')
+  })
+  it('giảm/tăng % — làm tròn tới đồng, khớp đúng công thức server', () => {
+    expect(effectiveRateOf(75000, rule('percent', -10))).toBe(67500)
+    expect(effectiveRateOf(75000, rule('percent', 12.5))).toBe(84375)
+    expect(effectiveRateOf(70001, rule('percent', -33.33))).toBe(46670)
+    expect(effectiveRateOf(75000, rule('percent', -100))).toBe(0)
+    expect(studentTuitionNote(75000, rule('percent', -10))).toBe('Giảm 10% (75.000đ → 67.500đ/buổi) — anh em ruột')
+    expect(studentTuitionNote(75000, rule('percent', 5))).toBe('Tăng 5% (75.000đ → 78.750đ/buổi) — anh em ruột')
   })
 })

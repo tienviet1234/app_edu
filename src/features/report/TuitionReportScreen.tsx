@@ -4,7 +4,9 @@ import { C } from '@/constants/colors'
 import { getClassRubric } from '@/constants/rubrics'
 import { statsOf } from '@/business/stats'
 import { buildComment, sessionDetailsOf, type SessionDetailRow } from '@/business/report'
-import { sessionsBilledOf, currentProgressOf, periodPositionOf, sessionLabelOf, unbilledSessionsOf, duePeriodsOf, unbilledOffsetOf } from '@/business/tuition'
+import { sessionsBilledOf, currentProgressOf, periodPositionOf, sessionLabelOf, unbilledSessionsOf, duePeriodsOf, unbilledOffsetOf, effectiveRateOf, studentTuitionNote, type StudentTuitionRule } from '@/business/tuition'
+import { useAuthStore } from '@/store/authStore'
+import { StudentTuitionCard } from './StudentTuitionCard'
 import { isMongoid } from '@/utils/mongoid'
 import { viDate } from '@/utils/format'
 import { exportTuitionNotices, exportTuitionOverview } from '@/utils/excel'
@@ -31,6 +33,12 @@ interface DueRow {
   periodTo: number
   periodLabel: string
   sessionsBilled: number
+  /** Giá/buổi THỰC của em này (giá lớp, hoặc học phí riêng nếu admin đặt). */
+  ratePerSession: number
+  /** Mô tả học phí riêng (rỗng = theo giá lớp) — ghi vào phiếu/tin nhắn/Excel. */
+  studentAdjustment: string
+  /** Số tiền nếu theo giá lớp — lưu vào phiếu để thấy chênh lệch. */
+  baseAmount: number
   computedAmount: number
   finalAmount: string
   adjustmentReason: string
@@ -67,7 +75,7 @@ function sessionAmount(d: Pick<SessionDetailRow, 'attendance'>, ratePerSession: 
  *  giáo viên đang dùng) — chỉ để DÁN RA GỬI TAY, không tự động gửi đi đâu cả
  *  (Zalo không có cách mở sẵn khung chat kèm tin nhắn như WhatsApp, nên chưa
  *  làm được nút "gửi thẳng"). */
-function buildZaloMessage(className: string, row: DueRow, rate: number): string {
+function buildZaloMessage(className: string, row: DueRow): string {
   // `|| row.computedAmount` (toán tử ||) coi 0 là falsy — nếu admin CỐ Ý
   // gõ 0đ (VD miễn phí 1 kỳ) thì bị thay nhầm bằng số tự tính, sai hẳn ý
   // admin. Phải kiểm tra "có phải số hợp lệ không" bằng Number.isFinite,
@@ -81,8 +89,9 @@ function buildZaloMessage(className: string, row: DueRow, rate: number): string 
     '',
     row.reportComment,
     '',
-    `💰 Học phí kỳ này: ${row.sessionsBilled} buổi × ${fmtVnd(rate)} = ${fmtVnd(amount)}`,
-    row.adjustmentReason ? `(${row.adjustmentReason})` : '',
+    `💰 Học phí kỳ này: ${row.sessionsBilled} buổi × ${fmtVnd(row.ratePerSession)} = ${fmtVnd(row.computedAmount)}`,
+    row.studentAdjustment ? `(${row.studentAdjustment})` : '',
+    amount !== row.computedAmount ? `Số tiền gửi: ${fmtVnd(amount)}${row.adjustmentReason ? ` — ${row.adjustmentReason}` : ''}` : '',
     '',
     'Cảm ơn quý phụ huynh đã đồng hành cùng con!',
   ].filter((line) => line !== '').join('\n')
@@ -137,6 +146,14 @@ export function TuitionReportScreen({ cls, update }: Props) {
   const [customTo, setCustomTo] = useState('')
   const [resequenceStudentId, setResequenceStudentId] = useState<string | null>(null)
   const [deletedPanelStudentId, setDeletedPanelStudentId] = useState<string | null>(null)
+  // Học phí RIÊNG từng học sinh (admin đặt — giảm em này/tăng em kia). Mọi chỗ
+  // tính tiền ở màn này dùng giá thực của TỪNG em (rateOf), không dùng thẳng
+  // giá lớp `rate`.
+  const [studentTuition, setStudentTuition] = useState<StudentTuitionRule[]>([])
+  const isAdmin = useAuthStore((s) => s.user?.role === 'admin')
+  const ruleOf = (studentId: string) => studentTuition.find((t) => t.studentId === studentId) ?? null
+  const rateOf = (studentId: string) => effectiveRateOf(rate ?? 0, ruleOf(studentId))
+  const noteOf = (studentId: string) => studentTuitionNote(rate ?? 0, ruleOf(studentId))
 
   useEffect(() => {
     if (!isMongoid(cls.id)) return
@@ -146,6 +163,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
       tuitionNoticeService.list(cls.id),
     ]).then(([apiCls, noticeList]) => {
       setRate(apiCls.tuitionPerSession ?? null)
+      setStudentTuition((apiCls.studentTuition ?? []).map((t) => ({ ...t, studentId: String(t.studentId) })))
       setNotices(noticeList)
     }).finally(() => setLoadingRate(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -161,12 +179,13 @@ export function TuitionReportScreen({ cls, update }: Props) {
       const stUnbilled = { ...st, sessions: unbilledSessionsOf(st) }
       duePeriodsOf(st, cls.perMonth, notices.filter((n) => n.studentId === st.id)).forEach((p) => {
         const sessionsBilled = sessionsBilledOf(stUnbilled, p.from, p.to)
-        const computedAmount = sessionsBilled * rate
+        const ratePerSession = rateOf(st.id)
+        const computedAmount = sessionsBilled * ratePerSession
         const s = statsOf(cls, stUnbilled.sessions.slice(p.from, p.to))
         rows.push({
           studentId: st.id, studentName: st.name,
           periodFrom: p.storeFrom, periodTo: p.storeTo, periodLabel: p.label,
-          sessionsBilled, computedAmount,
+          sessionsBilled, ratePerSession, studentAdjustment: noteOf(st.id), baseAmount: sessionsBilled * rate, computedAmount,
           finalAmount: String(computedAmount), adjustmentReason: '',
           reportComment: buildComment(st.name, s, r),
           sessionDetails: sessionDetailsOf(stUnbilled, p.from, p.to, r),
@@ -180,7 +199,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
     })
     setDueRows(rows)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rate, notices, cls])
+  }, [rate, notices, cls, studentTuition])
 
   // Học sinh CHƯA tới hạn (còn đang học dở kỳ) — vẫn hiện đầy đủ cả lớp
   // thay vì chỉ hiện em đã tới hạn, để thấy tiến độ ai cũng đang được theo
@@ -200,12 +219,12 @@ export function TuitionReportScreen({ cls, update }: Props) {
         // trống nữa, vì admin đã cập nhật đơn giá thì phải thấy số ngay. Đây
         // chỉ là TẠM TÍNH (chưa chốt/gửi) — khác với số đã "Chốt buổi" thật.
         const sessionsBilled = sessionsBilledOf(stUnbilled, from, to)
-        const estimatedAmount = sessionsBilled * (rate ?? 0)
+        const estimatedAmount = sessionsBilled * rateOf(st.id)
         return { studentId: st.id, studentName: st.name, progress, from, to, sessionsBilled, estimatedAmount }
       })
       .filter((x): x is { studentId: string; studentName: string; progress: { current: number; total: number }; from: number; to: number; sessionsBilled: number; estimatedAmount: number } => x != null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [cls, dueRows, manualRows, rate, notices],
+    [cls, dueRows, manualRows, rate, notices, studentTuition],
   )
 
   /** Admin bấm "Chốt buổi" cho 1 học sinh — ban đầu chỉ dùng cho học sinh ĐANG
@@ -228,7 +247,8 @@ export function TuitionReportScreen({ cls, update }: Props) {
     const srcSessions = nd.sessions ?? st.sessions
     const slice = srcSessions.slice(nd.from, nd.to)
     const sessionsBilled = sessionsBilledOf({ sessions: srcSessions }, nd.from, nd.to)
-    const computedAmount = sessionsBilled * rate
+    const ratePerSession = rateOf(st.id)
+    const computedAmount = sessionsBilled * ratePerSession
     const s = statsOf(cls, slice)
     // Vị trí LƯU vào phiếu: tính trên danh sách chưa thu của em đã có phiếu
     // mang dấu "đã thu" → cộng dồn sau phiếu cuối (như duePeriodsOf), không
@@ -239,7 +259,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
       studentId: st.id, studentName: st.name,
       periodFrom: nd.from + shift, periodTo: nd.to + shift,
       periodLabel: label ?? `Nghỉ ngang — ${sessionLabelOf(nd.from + 1, cls.perMonth, st.sessionOffset)}–${sessionLabelOf(nd.to, cls.perMonth, st.sessionOffset)}`,
-      sessionsBilled, computedAmount,
+      sessionsBilled, ratePerSession, studentAdjustment: noteOf(st.id), baseAmount: sessionsBilled * rate, computedAmount,
       finalAmount: String(computedAmount), adjustmentReason: '',
       reportComment: buildComment(st.name, s, r),
       sessionDetails: sessionDetailsOf({ sessions: srcSessions }, nd.from, nd.to, r),
@@ -350,11 +370,12 @@ export function TuitionReportScreen({ cls, update }: Props) {
     const from = fromNo - 1
     const to = toNo
     const sessionsBilled = sessionsBilledOf(st, from, to)
-    const amount = sessionsBilled * rate
+    const ratePerSession = rateOf(st.id)
+    const amount = sessionsBilled * ratePerSession
     const overlaps = overlapsOf(st.id, st.sessions.slice(from, to), from, to)
-    return { studentId: st.id, studentName: st.name, from, to, fromNo, toNo, sessionsBilled, amount, overlaps }
+    return { studentId: st.id, studentName: st.name, from, to, fromNo, toNo, sessionsBilled, ratePerSession, amount, overlaps }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cls, customStudentId, customFrom, customTo, rate, notices, dueRows, manualRows])
+  }, [cls, customStudentId, customFrom, customTo, rate, notices, dueRows, manualRows, studentTuition])
 
   function confirmCustomBill() {
     if (!customPreview || 'error' in customPreview || customPreview.overlaps.length > 0) return
@@ -395,15 +416,23 @@ export function TuitionReportScreen({ cls, update }: Props) {
       toast.error(`Kỳ này còn ${unsynced} buổi CHƯA lên server — mở Nhập điểm để máy đồng bộ xong (hoặc tải lại trang) rồi gửi lại.`, { persist: true })
       return
     }
+    // Học phí riêng của em này vừa đổi SAU khi khoản này được tính (VD khoản
+    // "Chốt buổi" tạo trước đó) → không gửi số tiền cũ.
+    if (row.ratePerSession !== rateOf(row.studentId)) {
+      toast.error(`Học phí của ${row.studentName} vừa thay đổi (${fmtVnd(row.ratePerSession)} → ${fmtVnd(rateOf(row.studentId))}/buổi) — tải lại trang để tính lại rồi gửi.`, { persist: true })
+      return
+    }
     patchRow(row, (r) => { r.saving = true })
     try {
       const created = await tuitionNoticeService.create({
         classId: cls.id, studentId: row.studentId,
         periodFrom: row.periodFrom, periodTo: row.periodTo, periodLabel: row.periodLabel,
-        sessionsBilled: row.sessionsBilled, ratePerSession: rate ?? 0,
+        sessionsBilled: row.sessionsBilled, ratePerSession: row.ratePerSession,
         computedAmount: row.computedAmount, finalAmount,
         adjustmentReason: row.adjustmentReason.trim() || undefined,
         reportComment: row.reportComment,
+        studentAdjustment: row.studentAdjustment || undefined,
+        baseAmount: row.baseAmount,
         sessionIds: row.sessionIds,
       })
       setNotices((prev) => [created, ...prev])
@@ -496,7 +525,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
   }
 
   async function copyMessage(row: DueRow) {
-    const ok = await copyToClipboard(buildZaloMessage(cls.name, row, rate ?? 0))
+    const ok = await copyToClipboard(buildZaloMessage(cls.name, row))
     if (ok) toast.success('Đã sao chép — dán vào Zalo/Messenger để gửi phụ huynh.')
     else toast.error('Không sao chép được — thử lại hoặc bấm giữ để tự chọn/sao chép.')
   }
@@ -509,7 +538,8 @@ export function TuitionReportScreen({ cls, update }: Props) {
         studentName: r.studentName,
         periodLabel: r.periodLabel,
         sessionsBilled: r.sessionsBilled,
-        ratePerSession: rate ?? 0,
+        ratePerSession: r.ratePerSession,
+        studentAdjustment: r.studentAdjustment || undefined,
         finalAmount: Number.isFinite(Number(r.finalAmount)) ? Number(r.finalAmount) : 0,
         adjustmentReason: r.adjustmentReason || undefined,
         reportComment: r.reportComment,
@@ -546,7 +576,8 @@ export function TuitionReportScreen({ cls, update }: Props) {
       periodLabel: row.periodLabel,
       sessionsBilled: String(row.sessionsBilled),
       finalAmount: fmtVnd(amount),
-      ratePerSession: rate ?? 0,
+      ratePerSession: row.ratePerSession,
+      studentAdjustment: row.studentAdjustment || undefined,
       adjustmentReason: row.adjustmentReason || undefined,
       reportComment: row.reportComment,
       sessionDetails: row.sessionDetails,
@@ -573,6 +604,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
           sessionsBilled: String(n.sessionsBilled),
           finalAmount: fmtVnd(n.finalAmount),
           ratePerSession: n.ratePerSession,
+          studentAdjustment: n.studentAdjustment,
           adjustmentReason: n.adjustmentReason,
           reportComment: n.reportComment,
           sessionDetails: st ? noticeDetailsOf(st, n) : [],
@@ -587,6 +619,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
           sessionsBilled: String(n.sessionsBilled),
           finalAmount: fmtVnd(n.finalAmount),
           ratePerSession: n.ratePerSession,
+          studentAdjustment: n.studentAdjustment,
           adjustmentReason: n.adjustmentReason,
           reportComment: n.reportComment,
           sessionDetails: st ? noticeDetailsOf(st, n) : [],
@@ -607,7 +640,8 @@ export function TuitionReportScreen({ cls, update }: Props) {
           // buổi đã học, không để trống — ghi rõ "(tạm tính)" vì CHƯA chốt/
           // gửi, khác hẳn số tiền đã xác nhận ở các trạng thái khác.
           finalAmount: `${fmtVnd(nd.estimatedAmount)} (tạm tính)`,
-          ratePerSession: rate ?? 0,
+          ratePerSession: rateOf(nd.studentId),
+          studentAdjustment: noteOf(nd.studentId) || undefined,
           adjustmentReason: undefined as string | undefined,
           reportComment: 'Chưa tới hạn — chưa có nhận xét kỳ này',
           sessionDetails: st ? sessionDetailsOf({ sessions: stUnbilled }, nd.from, nd.to, r) : [],
@@ -615,7 +649,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
       }),
     ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dueRows, manualRows, notices, notDueRows, cls])
+  }, [dueRows, manualRows, notices, notDueRows, cls, studentTuition])
 
   /** Thứ tự hiện bảng Tổng quan — "status" giữ nguyên thứ tự gốc (ai cần thu
    *  tiền lên trước), "student" gộp các kỳ của CÙNG 1 học sinh lại gần nhau,
@@ -727,12 +761,21 @@ export function TuitionReportScreen({ cls, update }: Props) {
         <div className="text-lg font-bold" style={{ color: C.ink }}>💰 Báo cáo học tập + Học phí — {cls.name}</div>
         <div className="text-sm" style={{ color: C.muted }}>
           Tự động xác định học sinh đã đủ mốc "cuối 8/12 buổi" chưa gửi báo cáo — tính sẵn số buổi tính phí
-          (chỉ tính buổi có mặt/muộn, không tính buổi nghỉ) × đơn giá {fmtVnd(rate)}/buổi. Bạn xem lại, sửa số
+          (chỉ tính buổi có mặt/muộn, không tính buổi nghỉ) × đơn giá {fmtVnd(rate)}/buổi{studentTuition.length ? ` (${studentTuition.length} em có học phí riêng — xem bên dưới)` : ''}. Bạn xem lại, sửa số
           tiền nếu có ngoại lệ, bấm "Sao chép nội dung" để dán vào Zalo gửi tay (Zalo chưa hỗ trợ gửi thẳng từ
           web), hoặc xuất Excel cả loạt (kèm sheet chi tiết TỪNG BUỔI — bài giao, tình hình) — xong thì đánh dấu
           đã gửi để không bị nhắc lại.
         </div>
       </Card>
+
+      <StudentTuitionCard
+        classId={cls.id}
+        classRate={rate}
+        students={cls.students.filter((s) => isMongoid(s.id)).map((s) => ({ id: s.id, name: s.name }))}
+        rules={studentTuition}
+        canEdit={isAdmin}
+        onChange={(next) => setStudentTuition(next)}
+      />
 
       <Card className="p-4 space-y-2">
         <button
@@ -790,7 +833,8 @@ export function TuitionReportScreen({ cls, update }: Props) {
             {customPreview && !('error' in customPreview) && (
               <div className="space-y-1.5">
                 <div className="rounded-lg p-2 text-sm" style={{ background: C.paper, color: C.ink }}>
-                  → {customPreview.sessionsBilled} buổi tính phí × {fmtVnd(rate)} = <b>{fmtVnd(customPreview.amount)}</b>
+                  → {customPreview.sessionsBilled} buổi tính phí × {fmtVnd(customPreview.ratePerSession)} = <b>{fmtVnd(customPreview.amount)}</b>
+                  {noteOf(customPreview.studentId) && <div className="text-xs" style={{ color: C.board2 }}>💲 {noteOf(customPreview.studentId)}</div>}
                 </div>
                 {customPreview.overlaps.map((o, i) => (
                   <div key={i} className="text-xs font-semibold" style={{ color: C.red }}>
@@ -1060,6 +1104,8 @@ export function TuitionReportScreen({ cls, update }: Props) {
                 </div>
                 <div className="text-right text-xs" style={{ color: C.muted }}>
                   Tự tính: {fmtVnd(row.computedAmount)}
+                  <div>{row.sessionsBilled} buổi × {fmtVnd(row.ratePerSession)}</div>
+                  {row.studentAdjustment && <div className="font-semibold" style={{ color: C.board2 }}>💲 {row.studentAdjustment}</div>}
                 </div>
               </div>
               <div>
@@ -1200,7 +1246,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
                 style={{ background: C.paper, border: `1px solid ${C.line}`, color: C.muted }}
               >
                 {r.studentName}: <b style={{ color: C.board2 }}>{r.progress!.current}/{r.progress!.total}</b> buổi
-                <span style={{ color: C.gold }}>(~{fmtVnd(r.estimatedAmount)} tạm tính)</span>
+                <span style={{ color: C.gold }}>(~{fmtVnd(r.estimatedAmount)} tạm tính{ruleOf(r.studentId) ? ' · 💲 học phí riêng' : ''})</span>
                 <button
                   className="rounded px-1.5 py-0.5 font-semibold"
                   style={{ color: C.gold, border: `1px solid ${C.gold}66` }}

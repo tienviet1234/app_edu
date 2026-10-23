@@ -16,6 +16,10 @@ export interface TuitionNotice {
   computedAmount: number
   finalAmount: number
   adjustmentReason?: string
+  /** Học phí riêng của em này lúc gửi (mô tả + lý do) — phiếu từ 23/10. */
+  studentAdjustment?: string
+  /** Số tiền nếu tính theo giá lớp — để thấy chênh lệch. */
+  baseAmount?: number
   reportComment: string
   sentAt: string
   sentBy: string
@@ -38,6 +42,7 @@ export const tuitionNoticeService = {
     sessionsBilled: number; ratePerSession: number
     computedAmount: number; finalAmount: number
     adjustmentReason?: string; reportComment: string
+    studentAdjustment?: string; baseAmount?: number
     /** Server tạo phiếu + đánh dấu "đã thu" đúng các buổi này trong 1 giao
      *  dịch, từ chối (409) nếu buổi chưa lên server / đã nằm trong phiếu khác. */
     sessionIds?: string[]

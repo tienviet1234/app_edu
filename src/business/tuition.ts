@@ -195,3 +195,35 @@ export function duePeriodsOf(
   }
   return out
 }
+/** Học phí RIÊNG 1 học sinh (admin đặt ở màn Học phí): giá riêng/buổi, hoặc
+ *  giảm/tăng % trên giá lớp. Server lưu ở Class.studentTuition. */
+export interface StudentTuitionRule {
+  studentId: string
+  mode: 'rate' | 'percent'
+  value: number
+  reason: string
+}
+
+/** Giá/buổi THỰC của 1 học sinh — làm tròn tới đồng, không âm. CÙNG công thức
+ *  với effectiveTuitionRate ở server (server/src/utils/dataRules.ts — báo cáo
+ *  doanh thu) — sửa 1 chỗ phải sửa cả 2 (cả 2 đều có test). Dùng giá/buổi (kể
+ *  cả kiểu %) để tiền TỪNG BUỔI × số buổi luôn khớp đúng tổng. */
+export function effectiveRateOf(classRate: number, rule?: Pick<StudentTuitionRule, 'mode' | 'value'> | null): number {
+  if (!rule) return classRate
+  if (rule.mode === 'rate') return Math.max(0, Math.round(rule.value))
+  if (rule.mode === 'percent') return Math.max(0, Math.round(classRate * (1 + rule.value / 100)))
+  return classRate
+}
+
+const vnd = (n: number) => `${n.toLocaleString('vi-VN')}đ`
+
+/** Mô tả học phí riêng để ghi vào phiếu / tin nhắn / Excel, VD "Giảm 10%
+ *  (75.000đ → 67.500đ/buổi) — anh em ruột". Không có học phí riêng → ''. */
+export function studentTuitionNote(classRate: number, rule?: StudentTuitionRule | null): string {
+  if (!rule) return ''
+  const eff = effectiveRateOf(classRate, rule)
+  const head = rule.mode === 'rate'
+    ? `Giá riêng ${vnd(eff)}/buổi (giá lớp ${vnd(classRate)})`
+    : `${rule.value < 0 ? 'Giảm' : 'Tăng'} ${Math.abs(rule.value)}% (${vnd(classRate)} → ${vnd(eff)}/buổi)`
+  return `${head} — ${rule.reason}`
+}

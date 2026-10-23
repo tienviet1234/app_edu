@@ -118,6 +118,8 @@ export interface BillingStudentRow {
   sessionsCount: number
   ratePerSession: number
   total: number
+  /** Có học phí riêng (giảm/tăng so với giá lớp) — mô tả kèm lý do. */
+  tuitionNote?: string
 }
 
 export interface BillingDayStudentRow {

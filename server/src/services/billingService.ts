@@ -3,6 +3,7 @@ import { Class } from '../models/Class.js'
 import { ClassSession } from '../models/ClassSession.js'
 import { Score } from '../models/Score.js'
 import { User } from '../models/User.js'
+import { effectiveTuitionRate } from '../utils/dataRules.js'
 
 export interface BillingDayStudentRow {
   studentId: string
@@ -59,6 +60,8 @@ export interface BillingReportResult {
   students: Array<{
     classId: string; className: string; studentId: string; studentName: string
     sessionsCount: number; ratePerSession: number; total: number
+    /** Có học phí riêng (giảm/tăng) — mô tả kèm lý do. */
+    tuitionNote?: string
   }>
   studentsTotal: number
   teachers: Array<{ teacherId: string; teacherName: string; total: number; byClass: BillingTeacherClassRow[] }>
@@ -90,7 +93,7 @@ export async function computeBillingReport(
   const classes = await Class.find(
     classFilter,
     {
-      name: 1, tuitionPerSession: 1, teacherPayPerSession: 1,
+      name: 1, tuitionPerSession: 1, studentTuition: 1, teacherPayPerSession: 1,
       teacherPayMode: 1, teacherPayPerStudentSession: 1, teacherId: 1, teacherName: 1,
     },
   ).lean()
@@ -104,7 +107,7 @@ export async function computeBillingReport(
       migratedAt: { $exists: false },
       ...(opts.teacherId ? { classId: { $in: classIds } } : {}),
     },
-    { classId: 1, studentId: 1, scheduledAt: 1, lessonNo: 1 },
+    { classId: 1, studentId: 1, scheduledAt: 1, lessonNo: 1, deletedAt: 1 },
   ).lean()
 
   const scores = await Score.find(
@@ -124,12 +127,17 @@ export async function computeBillingReport(
     const studentId = String(s.studentId)
     allUserIds.add(studentId)
 
-    const studentKey = `${classId}:${studentId}`
-    const days = studentDayMap.get(studentKey) ?? new Set<string>()
-    days.add(dateKey)
-    studentDayMap.set(studentKey, days)
-
     const attendance = attendanceBySessionId.get(String(s._id)) ?? 'present'
+    // Học phí: CHỈ buổi còn hiệu lực và không "nghỉ không phép" — khớp đúng cách
+    // màn Học phí thu tiền (sessionsBilledOf). Trước 23/10 đếm cả buổi đã xóa
+    // và buổi nghỉ không phép → doanh thu báo cáo cao hơn số thu thật.
+    if (!s.deletedAt && attendance !== 'absent') {
+      const studentKey = `${classId}:${studentId}`
+      const days = studentDayMap.get(studentKey) ?? new Set<string>()
+      days.add(dateKey)
+      studentDayMap.set(studentKey, days)
+    }
+
     const cdKey = `${classId}:${dateKey}`
     const dayMap = classDateMap.get(cdKey) ?? new Map<string, { attendance: string; lessonNo: number }>()
     dayMap.set(studentId, { attendance, lessonNo: s.lessonNo ?? 0 })
@@ -148,7 +156,9 @@ export async function computeBillingReport(
     .map(([key, days]) => {
       const [classId, studentId] = key.split(':')
       const cls = classMap.get(classId)
-      const ratePerSession = cls?.tuitionPerSession ?? 0
+      // Học phí riêng của em này (nếu admin đặt) — cùng công thức màn Học phí.
+      const rule = (cls?.studentTuition ?? []).find((t) => String(t.studentId) === studentId)
+      const ratePerSession = effectiveTuitionRate(cls?.tuitionPerSession ?? 0, rule)
       return {
         classId,
         className: cls?.name ?? '—',
@@ -157,6 +167,7 @@ export async function computeBillingReport(
         sessionsCount: days.size,
         ratePerSession,
         total: ratePerSession * days.size,
+        ...(rule ? { tuitionNote: `${rule.mode === 'rate' ? 'Giá riêng' : rule.value < 0 ? `Giảm ${-rule.value}%` : `Tăng ${rule.value}%`} — ${rule.reason}` } : {}),
       }
     })
     .sort((a, b) => a.className.localeCompare(b.className, 'vi') || a.studentName.localeCompare(b.studentName, 'vi'))

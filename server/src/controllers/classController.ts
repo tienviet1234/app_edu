@@ -8,6 +8,7 @@ import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit } from '../services/auditService.js'
 import { User } from '../models/User.js'
 import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
+import { checkStudentTuitionInput } from '../utils/dataRules.js'
 
 export async function listClasses(req: Request, res: Response): Promise<void> {
   const authReq = req as AuthRequest
@@ -27,7 +28,7 @@ export async function listClasses(req: Request, res: Response): Promise<void> {
     Class.find(filter).sort(sort).skip(skip).limit(limit).populate('teacherId', 'name email').populate('assistantTeacherIds', 'name email').populate('studentIds', 'name'),
     Class.countDocuments(filter),
   ])
-  ok(res, { items, total, page, totalPages: Math.max(1, Math.ceil(total / limit)) })
+  ok(res, { items: items.map((c) => withoutPrivateTuition(authReq, c)), total, page, totalPages: Math.max(1, Math.ceil(total / limit)) })
 }
 
 export async function createClass(req: Request, res: Response): Promise<void> {
@@ -43,6 +44,17 @@ export async function createClass(req: Request, res: Response): Promise<void> {
   created(res, cls)
 }
 
+/** Học phí riêng từng học sinh (giảm em này/tăng em kia) chỉ admin + giáo viên
+ *  của lớp được thấy — học sinh/phụ huynh/giáo viên lớp khác không được thấy
+ *  mức giảm của bé khác. */
+function withoutPrivateTuition(authReq: AuthRequest, cls: InstanceType<typeof Class>): Record<string, unknown> {
+  const obj = cls.toObject() as unknown as Record<string, unknown>
+  const teacherIds = [cls.teacherId, ...(cls.assistantTeacherIds ?? [])].map((t) => String((t as { _id?: unknown })?._id ?? t))
+  const allowed = authReq.user?.role === 'admin' || (authReq.user?.role === 'teacher' && teacherIds.includes(String(authReq.userId)))
+  if (!allowed) delete obj.studentTuition
+  return obj
+}
+
 export async function getClass(req: Request, res: Response): Promise<void> {
   const cls = await Class.findById(req.params.id)
     .populate('teacherId', 'name email')
@@ -53,7 +65,48 @@ export async function getClass(req: Request, res: Response): Promise<void> {
     notFound(res, 'Class not found.')
     return
   }
-  ok(res, cls)
+  ok(res, withoutPrivateTuition(req as AuthRequest, cls))
+}
+
+/** PUT /api/classes/:id/student-tuition/:studentId — admin đặt học phí RIÊNG cho
+ *  1 học sinh (giá riêng/buổi hoặc giảm/tăng %, bắt buộc lý do). Ghi nguyên tử
+ *  từng bước (thay mục cũ, hoặc thêm nếu chưa có) — qua historyPlugin nên bản
+ *  cũ được cất; nhật ký ghi rõ trước/sau. Phiếu ĐÃ gửi không đổi. */
+export async function setStudentTuition(req: Request, res: Response): Promise<void> {
+  const check = checkStudentTuitionInput(req.body)
+  if (!check.ok) { badRequest(res, check.message); return }
+  const studentId = String(req.params.studentId)
+  const cls = await Class.findById(req.params.id, 'studentIds studentTuition tuitionPerSession')
+  if (!cls) { notFound(res, 'Không tìm thấy lớp.'); return }
+  if (!cls.studentIds.some((id) => String(id) === studentId)) { badRequest(res, 'Học sinh không thuộc lớp này.'); return }
+  const before = (cls.studentTuition ?? []).find((x) => String(x.studentId) === studentId)
+  const entry = { studentId: new Types.ObjectId(studentId), ...check.rule, updatedBy: new Types.ObjectId((req as AuthRequest).userId), updatedAt: new Date() }
+  const r = await Class.updateOne({ _id: cls._id, 'studentTuition.studentId': entry.studentId }, { $set: { 'studentTuition.$': entry } })
+  if (r.matchedCount === 0) {
+    await Class.updateOne({ _id: cls._id, 'studentTuition.studentId': { $ne: entry.studentId } }, { $push: { studentTuition: entry } })
+  }
+  await writeAudit(req, {
+    action: 'class.studentTuition.set', resource: 'Class', resourceId: String(cls._id),
+    metadata: { studentId, classRate: cls.tuitionPerSession ?? null, before: before ? { mode: before.mode, value: before.value, reason: before.reason } : null, after: check.rule },
+  })
+  const fresh = await Class.findById(cls._id, 'studentTuition').lean()
+  ok(res, fresh?.studentTuition ?? [])
+}
+
+/** DELETE /api/classes/:id/student-tuition/:studentId — bỏ học phí riêng, quay về giá lớp. */
+export async function removeStudentTuition(req: Request, res: Response): Promise<void> {
+  const studentId = String(req.params.studentId)
+  const cls = await Class.findById(req.params.id, 'studentTuition')
+  if (!cls) { notFound(res, 'Không tìm thấy lớp.'); return }
+  const before = (cls.studentTuition ?? []).find((x) => String(x.studentId) === studentId)
+  if (!before) { ok(res, cls.studentTuition ?? []); return }
+  await Class.updateOne({ _id: cls._id }, { $pull: { studentTuition: { studentId: new Types.ObjectId(studentId) } } })
+  await writeAudit(req, {
+    action: 'class.studentTuition.remove', resource: 'Class', resourceId: String(cls._id),
+    metadata: { studentId, before: { mode: before.mode, value: before.value, reason: before.reason } },
+  })
+  const fresh = await Class.findById(cls._id, 'studentTuition').lean()
+  ok(res, fresh?.studentTuition ?? [])
 }
 
 export async function updateClass(req: Request, res: Response): Promise<void> {

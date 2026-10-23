@@ -179,6 +179,35 @@ export function resolveSessionCreator(role: string | undefined, userId: string, 
   return role === 'admin' && onBehalfOf ? onBehalfOf : userId
 }
 
+export interface StudentTuitionInput { mode: 'rate' | 'percent'; value: number; reason: string }
+
+/** Học phí RIÊNG 1 học sinh trong lớp (admin đặt — giảm em này, tăng em kia).
+ *  2 kiểu để tiền TỪNG BUỔI luôn khớp tổng: 'rate' = giá riêng/buổi (đồng,
+ *  số nguyên 0–100.000.000); 'percent' = giảm/tăng % trên giá lớp (−100…+100,
+ *  khác 0, tối đa 2 chữ số thập phân). Lý do BẮT BUỘC (hồ sơ tiền bạc). */
+export function checkStudentTuitionInput(body: unknown): { ok: true; rule: StudentTuitionInput } | { ok: false; message: string } {
+  const b = (body ?? {}) as Record<string, unknown>
+  const reason = typeof b.reason === 'string' ? b.reason.trim() : ''
+  const value = typeof b.value === 'number' ? b.value : Number.NaN
+  if (b.mode !== 'rate' && b.mode !== 'percent') return { ok: false, message: 'Chọn kiểu: giá riêng/buổi hoặc giảm/tăng %.' }
+  if (!Number.isFinite(value)) return { ok: false, message: 'Số tiền/phần trăm không hợp lệ.' }
+  if (b.mode === 'rate' && (!Number.isInteger(value) || value < 0 || value > 100_000_000)) return { ok: false, message: 'Giá riêng/buổi phải là số đồng nguyên từ 0 đến 100.000.000.' }
+  if (b.mode === 'percent' && (value === 0 || value < -100 || value > 100 || Math.round(value * 100) !== value * 100)) return { ok: false, message: 'Phần trăm phải từ −100 đến +100 (khác 0, tối đa 2 chữ số thập phân).' }
+  if (!reason) return { ok: false, message: 'Phải ghi lý do giảm/tăng học phí.' }
+  if (reason.length > 200) return { ok: false, message: 'Lý do tối đa 200 ký tự.' }
+  return { ok: true, rule: { mode: b.mode, value, reason } }
+}
+
+/** Giá/buổi THỰC của 1 học sinh: giá riêng, hoặc giá lớp ± %, làm tròn tới
+ *  đồng; không bao giờ âm. CÙNG công thức với effectiveRateOf ở frontend
+ *  (src/business/tuition.ts) — sửa 1 chỗ phải sửa cả 2 (cả 2 đều có test). */
+export function effectiveTuitionRate(classRate: number, rule?: { mode: string; value: number } | null): number {
+  if (!rule) return classRate
+  if (rule.mode === 'rate') return Math.max(0, Math.round(rule.value))
+  if (rule.mode === 'percent') return Math.max(0, Math.round(classRate * (1 + rule.value / 100)))
+  return classRate
+}
+
 export type NoticeSessionsCheck =
   | { ok: true }
   | { ok: false; code: 'NOT_FOUND' | 'WRONG_STUDENT' | 'DELETED' | 'ALREADY_BILLED'; sessionIds: string[] }

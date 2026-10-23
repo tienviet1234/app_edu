@@ -26,6 +26,7 @@ export const createTuitionNotice = asyncHandler(async (req: Request, res: Respon
   const {
     classId, studentId, periodFrom, periodTo, periodLabel,
     sessionsBilled, ratePerSession, computedAmount, finalAmount, adjustmentReason, reportComment,
+    studentAdjustment, baseAmount,
   } = req.body ?? {}
 
   if (!classId || !studentId || periodFrom == null || periodTo == null || !periodLabel) {
@@ -56,6 +57,8 @@ export const createTuitionNotice = asyncHandler(async (req: Request, res: Respon
     sessionsBilled, ratePerSession, computedAmount, finalAmount,
     adjustmentReason: adjustmentReason?.trim() || undefined,
     reportComment: typeof reportComment === 'string' ? reportComment.slice(0, 5000) : '',
+    studentAdjustment: typeof studentAdjustment === 'string' && studentAdjustment.trim() ? studentAdjustment.trim().slice(0, 300) : undefined,
+    baseAmount: typeof baseAmount === 'number' && Number.isFinite(baseAmount) && baseAmount >= 0 ? baseAmount : undefined,
     sentAt: new Date(),
     sentBy: authReq.userId,
   }

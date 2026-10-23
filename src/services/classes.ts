@@ -1,5 +1,6 @@
 import { api } from '@/utils/api'
 import type { ExtraComp } from '@/types'
+import type { StudentTuitionRule } from '@/business/tuition'
 
 export interface ApiClass {
   _id: string
@@ -35,6 +36,8 @@ export interface ApiClass {
   // Đơn giá tính học phí/lương — xem AdminBillingPage.tsx + ghi chú ở
   // server/src/models/Class.ts. Chỉ admin sửa được (qua endpoint update).
   tuitionPerSession?: number
+  /** Học phí RIÊNG từng học sinh — chỉ admin + giáo viên lớp nhận được. */
+  studentTuition?: StudentTuitionRule[]
   teacherPayPerSession?: number
 }
 
@@ -59,6 +62,15 @@ export const classService = {
 
   update: (id: string, body: Record<string, unknown>) =>
     api.patch<{ data: ApiClass }>(`/classes/${id}`, body).then((r) => r.data.data),
+
+  /** Admin đặt học phí riêng cho 1 học sinh (giá riêng/buổi hoặc giảm/tăng %,
+   *  bắt buộc lý do). Trả về danh sách học phí riêng mới của lớp. */
+  setStudentTuition: (classId: string, studentId: string, body: { mode: 'rate' | 'percent'; value: number; reason: string }) =>
+    api.put<{ data: StudentTuitionRule[] }>(`/classes/${classId}/student-tuition/${studentId}`, body).then((r) => r.data.data),
+
+  /** Bỏ học phí riêng — học sinh quay về giá lớp. */
+  removeStudentTuition: (classId: string, studentId: string) =>
+    api.delete<{ data: StudentTuitionRule[] }>(`/classes/${classId}/student-tuition/${studentId}`).then((r) => r.data.data),
 
   enrollStudents: (id: string, studentIds: string[]) =>
     api.post<{ data: ApiClass }>(`/classes/${id}/enroll`, { studentIds }).then((r) => r.data.data),

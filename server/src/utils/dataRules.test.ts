@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator } from './dataRules.js'
+import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator } from './dataRules.js'
 
 describe('isGradedScore / gradedTotal (buổi chỉ có ghi chú KHÔNG phải 0 điểm)', () => {
   it('buổi admin thêm bù chỉ có ghi chú (Trần Đan 12/09 "Con chưa hoàn thành video") → không tính vào điểm TB', () => {
@@ -197,5 +197,44 @@ describe('scoreFieldChanges / scoreRestoreSet (trang Lịch sử điểm của a
     const set = scoreRestoreSet({ _id: 'x', sessionId: 's', studentId: 'u', classId: 'c', recordedBy: 'r', scores: { mini: 8 }, total: 81 })
     expect(set).toEqual({ attendance: 'present', scores: { mini: 8 }, tags: {}, ticks: {}, choice: {}, parts: {}, skip: {}, ev: {}, note: '', total: 81 })
     expect(Object.keys(set)).not.toContain('sessionId')
+  })
+})
+describe('checkStudentTuitionInput (học phí riêng từng học sinh — hồ sơ tiền bạc)', () => {
+  it('giá riêng/buổi hợp lệ', () => {
+    expect(checkStudentTuitionInput({ mode: 'rate', value: 70000, reason: ' anh em ruột ' })).toEqual({ ok: true, rule: { mode: 'rate', value: 70000, reason: 'anh em ruột' } })
+    expect(checkStudentTuitionInput({ mode: 'rate', value: 0, reason: 'học bổng' }).ok).toBe(true)
+  })
+  it('giảm/tăng % hợp lệ (âm = giảm, dương = tăng, 2 chữ số thập phân)', () => {
+    expect(checkStudentTuitionInput({ mode: 'percent', value: -10, reason: 'giảm' }).ok).toBe(true)
+    expect(checkStudentTuitionInput({ mode: 'percent', value: 12.5, reason: 'tăng' }).ok).toBe(true)
+  })
+  it('từ chối: thiếu lý do, kiểu lạ, số không hợp lệ', () => {
+    expect(checkStudentTuitionInput({ mode: 'rate', value: 70000, reason: '  ' }).ok).toBe(false)
+    expect(checkStudentTuitionInput({ mode: 'amount', value: -50000, reason: 'x' }).ok).toBe(false)
+    expect(checkStudentTuitionInput({ mode: 'rate', value: '70000', reason: 'x' }).ok).toBe(false)
+    expect(checkStudentTuitionInput({ mode: 'rate', value: 70000.5, reason: 'x' }).ok).toBe(false)
+    expect(checkStudentTuitionInput({ mode: 'rate', value: -1, reason: 'x' }).ok).toBe(false)
+    expect(checkStudentTuitionInput({ mode: 'rate', value: Number.NaN, reason: 'x' }).ok).toBe(false)
+    expect(checkStudentTuitionInput({ mode: 'percent', value: 0, reason: 'x' }).ok).toBe(false)
+    expect(checkStudentTuitionInput({ mode: 'percent', value: -101, reason: 'x' }).ok).toBe(false)
+    expect(checkStudentTuitionInput({ mode: 'percent', value: 10.123, reason: 'x' }).ok).toBe(false)
+    expect(checkStudentTuitionInput({ mode: 'rate', value: 1, reason: 'x'.repeat(201) }).ok).toBe(false)
+    expect(checkStudentTuitionInput(null).ok).toBe(false)
+  })
+})
+describe('effectiveTuitionRate (giá/buổi thực của 1 học sinh — cùng công thức frontend)', () => {
+  it('không có học phí riêng → giá lớp', () => {
+    expect(effectiveTuitionRate(75000, null)).toBe(75000)
+    expect(effectiveTuitionRate(75000, undefined)).toBe(75000)
+  })
+  it('giá riêng/buổi → đúng giá riêng (không phụ thuộc giá lớp)', () => {
+    expect(effectiveTuitionRate(75000, { mode: 'rate', value: 70000 })).toBe(70000)
+    expect(effectiveTuitionRate(75000, { mode: 'rate', value: 0 })).toBe(0)
+  })
+  it('giảm/tăng % → làm tròn tới đồng, không âm', () => {
+    expect(effectiveTuitionRate(75000, { mode: 'percent', value: -10 })).toBe(67500)
+    expect(effectiveTuitionRate(75000, { mode: 'percent', value: 12.5 })).toBe(84375)
+    expect(effectiveTuitionRate(70001, { mode: 'percent', value: -33.33 })).toBe(46670)
+    expect(effectiveTuitionRate(75000, { mode: 'percent', value: -100 })).toBe(0)
   })
 })
