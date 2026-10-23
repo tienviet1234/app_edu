@@ -1131,15 +1131,6 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
           >
             {backfilling ? `☁ Đang đồng bộ ${backfillProgress.done}/${backfillProgress.total}...` : '☁ Đồng bộ điểm cũ'}
           </button>
-          <button
-            onClick={() => void backfillHomework()}
-            disabled={hwSyncing}
-            title="Đưa bài tập về nhà chỉ có trên máy này lên server (chỉ điền buổi server còn trống, không ghi đè)"
-            className="min-h-11 rounded-xl px-3 text-sm font-semibold"
-            style={{ background: C.paper, color: C.muted, border: `1px solid ${C.line}` }}
-          >
-            {hwSyncing ? '☁ Đang đồng bộ bài tập...' : '☁ Đồng bộ bài tập về nhà'}
-          </button>
           <div className="ml-auto flex items-center gap-3 text-sm" style={{ color: C.muted }}>
             {syncStatus === 'saving' && <span style={{ color: C.board2 }}>⟳ Đang lưu...</span>}
             {syncStatus === 'saved' && (
@@ -1516,6 +1507,16 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                     <span className="animate-bounce">👉</span> chưa ghi — nhớ ghi nhé!
                   </span>
                 )}
+                <button
+                  type="button"
+                  onClick={() => void backfillHomework()}
+                  disabled={hwSyncing}
+                  title="Đưa bài tập về nhà chỉ có trên máy này (cả lớp) lên server — chỉ điền buổi server còn trống, không ghi đè"
+                  className="ml-auto min-h-9 rounded-xl px-3 text-xs font-semibold normal-case hover:brightness-[0.93] disabled:opacity-50"
+                  style={{ background: C.paper, color: C.muted, border: `1px solid ${C.line}` }}
+                >
+                  {hwSyncing ? '☁ Đang đồng bộ...' : '☁ Đồng bộ bài tập về nhà'}
+                </button>
               </div>
               <input
                 value={session?.homework ?? ''}
