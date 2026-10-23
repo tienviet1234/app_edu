@@ -20,7 +20,7 @@ const CHECK_MS = 30_000
 const MIN_GAP_MS = 60_000
 const FIRST_DELAY_MS = 5_000
 
-function deviceId(): string {
+export function deviceId(): string {
   try {
     let id = localStorage.getItem(DEVICE_KEY)
     if (!id) {
@@ -35,7 +35,7 @@ function deviceId(): string {
 
 // Hash rẻ (FNV-1a 32-bit) chỉ để biết "đã đổi gì chưa" giữa các lần gửi —
 // server tự kiểm tra lại bằng sha256, nên trùng hash hiếm hoi cũng không hại.
-function quickHash(s: string): string {
+export function quickHash(s: string): string {
   let h = 0x811c9dc5
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i)

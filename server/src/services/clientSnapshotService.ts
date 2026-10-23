@@ -43,10 +43,21 @@ export async function saveClientSnapshot(input: {
 }
 
 export async function listBackups() {
-  const [dbBackups, snapshots] = await Promise.all([
+  const [dbBackups, all] = await Promise.all([
     listR2Keys('backups/').catch(() => [] as Array<{ key: string; lastModified?: Date }>),
-    ClientSnapshot.find({}, '-contentHash').sort({ createdAt: -1 }).limit(300).populate('userId', 'name email role').lean(),
+    ClientSnapshot.find({}, '-contentHash').sort({ createdAt: -1 }).populate('userId', 'name email role').lean(),
   ])
+  // Mỗi máy luôn có mặt (kèm tối đa PER_DEVICE bản gần nhất). Trước đây lấy 300
+  // bản mới nhất CHUNG mọi máy — máy gửi dày (1 phút/lần) chiếm hết chỗ, máy ít
+  // mở và bản sao lưu gửi lên để khôi phục biến khỏi trang Sao lưu / "Dữ liệu kẹt".
+  const PER_DEVICE = 30
+  const perDevice = new Map<string, number>()
+  const snapshots = all.filter((s) => {
+    const k = `${String((s.userId as { _id?: unknown } | null)?._id ?? s.userId)}|${s.deviceId}`
+    const n = perDevice.get(k) ?? 0
+    perDevice.set(k, n + 1)
+    return n < PER_DEVICE
+  })
   return {
     dbBackups: dbBackups.sort((a, b) => b.key.localeCompare(a.key)).map((b) => ({ key: b.key, lastModified: b.lastModified })),
     snapshots,

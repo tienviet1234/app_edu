@@ -5,6 +5,7 @@ import { makeStorage, storageKeyFor } from '@/utils/storage'
 import { seed, normalize } from '@/business/seed'
 import { toast } from '@/store/toastStore'
 import { rescueOtherTabSessions } from '@/business/sync'
+import { backupBeforeReplace } from '@/utils/localBackup'
 
 interface AppStore {
   data: AppData | null
@@ -203,8 +204,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
       try {
         const j = normalize(JSON.parse(fr.result as string))
         if (!j.classes.length) throw new Error('empty')
-        if (!confirm(`Nhập ${j.classes.length} lớp từ file sao lưu? Dữ liệu hiện tại sẽ được thay thế.`)) return
+        if (!confirm(`Nhập ${j.classes.length} lớp từ file sao lưu? Dữ liệu hiện tại sẽ được thay thế (máy giữ lại 1 bản sao lưu trước khi thay — xem "🛟 Bản sao lưu trên máy").`)) return
         const { userId } = get()
+        backupBeforeReplace(userId, 'trước khi nhập file')
         set({ data: j, currentClassIndex: 0, saving: 'Đã nhập dữ liệu' })
         persist(j, userId, set, true)
       } catch {
@@ -216,6 +218,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   resetData() {
     const { userId } = get()
+    // Trước đây xóa là mất hẳn, kể cả phần chưa lên server.
+    backupBeforeReplace(userId, 'trước khi xóa toàn bộ')
     const empty = { classes: [] }
     set({ data: empty, currentClassIndex: 0, activeTab: 'classes' })
     setLastTab(userId, 'classes')

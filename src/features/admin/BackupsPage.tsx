@@ -131,7 +131,7 @@ export function BackupsPage() {
         <div>
           <div className="font-bold" style={{ color: C.ink }}>Bản chụp từ máy giáo viên</div>
           <div className="text-sm" style={{ color: C.muted }}>
-            Mỗi máy tự gửi 5 phút/lần khi có thay đổi. Khôi phục: tải file về → đăng nhập ĐÚNG tài khoản đó → "Nhập file sao lưu".
+            Mỗi máy tự gửi khi có thay đổi (tối đa 1 phút/lần). Máy còn tự giữ bản sao lưu ngay trên máy (không cần mạng) — giáo viên mở "🛟 Bản sao lưu trên máy" ở cuối trang → "Gửi lên để khôi phục", rồi dùng "Dữ liệu kẹt" ở trên để điền phần server còn thiếu. Nạp thẳng: tải file về → đăng nhập ĐÚNG tài khoản đó → "Nhập lại từ file" (thay toàn bộ dữ liệu máy đó).
           </div>
         </div>
         {!isLoading && devices.length === 0 && (

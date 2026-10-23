@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   pruneGoneFromServer, resolvePlausibleNo, syncStudentsFromServer, adoptServerSession, pendingSessionsOf, markSessionSaved,
   markConflict, resolveConflict, collectOrphans, appendOrphans, sameDateClash, detachDeletedSession,
-  orphanForLocalDelete, rescueOtherTabSessions, maxesToBackfill, takeServerCopy,
+  orphanForLocalDelete, rescueOtherTabSessions, maxesToBackfill, takeServerCopy, countUnsaved,
   type ServerSessionForSync, type ServerScoreForSync,
 } from './sync'
 import { emptyEntry, normalize } from './seed'
@@ -610,6 +610,25 @@ describe('serverCopy / takeServerCopy (máy giữ dữ liệu cũ KHÁC server �
     const st2 = { sessions: [sess({ serverCopy: { entry: server } })] }
     detachDeletedSession(st2, SV1, 'tmp-x')
     expect(st2.sessions[0].serverCopy).toBeUndefined()
+  })
+})
+
+describe('countUnsaved (danh sách bản sao lưu trên máy)', () => {
+  it('đếm buổi chưa lên server: sửa dở + buổi tạm có dữ liệu + kho giữ lại (trừ bản cũ đã thay bằng bản server)', () => {
+    const scored = { ...emptyEntry(), scores: { mini: 8 } }
+    const d = {
+      classes: [{ id: 'c', name: 'Lớp 3', students: [{ id: STU, name: 'Phú', sessions: [
+        sess({ id: SV1, synced: true, entry: scored }), // đã lên server
+        sess({ id: SV2, dirty: true, entry: scored }), // sửa chưa lên
+        sess({ id: 'tmp-1', entry: scored }), // buổi tạm có điểm
+        sess({ id: 'tmp-2', entry: emptyEntry() }), // buổi tạm trống — không tính
+      ] }] }],
+      orphans: [
+        { classId: 'c', className: 'Lớp 3', studentId: STU, studentName: 'Phú', reason: 'deletedLocal', removedAt: 'x', sessions: [sess({ id: 'tmp-3', entry: scored })] },
+        { classId: 'c', className: 'Lớp 3', studentId: STU, studentName: 'Phú', reason: 'replacedByServer', removedAt: 'x', sessions: [sess({ id: 'kept-1', entry: scored })] },
+      ] as OrphanRecord[],
+    }
+    expect(countUnsaved(d)).toEqual({ sessions: 4, unsaved: 3 })
   })
 })
 

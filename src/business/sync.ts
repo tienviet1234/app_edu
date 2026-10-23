@@ -559,6 +559,20 @@ export function appendOrphans(existing: OrphanRecord[] | undefined, incoming: Or
   return out
 }
 
+/** Đếm trong 1 bản dữ liệu máy: tổng số buổi, và số buổi có dữ liệu CHƯA lên
+ *  server (gồm kho giữ lại, trừ bản cũ đã được thay bằng bản server) — hiện ở
+ *  danh sách bản sao lưu trên máy để biết bản nào đáng khôi phục. */
+export function countUnsaved(d: Pick<LocalData, 'classes' | 'orphans'>): { sessions: number; unsaved: number } {
+  let sessions = 0
+  let unsaved = 0
+  for (const c of d.classes) for (const st of c.students) for (const s of st.sessions) {
+    sessions++
+    if (hasUnsavedData(s)) unsaved++
+  }
+  for (const o of d.orphans ?? []) if (o.reason !== 'replacedByServer') unsaved += o.sessions.length
+  return { sessions, unsaved }
+}
+
 /** Các buổi máy này đã sửa mà server chưa xác nhận (hoặc chưa từng lên
  *  server) — việc của bộ tự lưu nền ở Nhập điểm. */
 export function pendingSessionsOf(students: Array<{ id: string; sessions: Session[] }>): Array<{ studentId: string; sessionId: string }> {

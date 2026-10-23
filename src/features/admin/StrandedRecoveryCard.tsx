@@ -37,6 +37,14 @@ const KIND_LABEL: Record<JobKind, string> = {
 
 const viDate = (iso: string) => iso.split('-').reverse().join('/')
 
+/** Bản sao lưu trên máy được giáo viên chủ động gửi lên ("🛟 Bản sao lưu trên
+ *  máy" → "Gửi lên để khôi phục") mang deviceId `<máy>-bk<thời điểm chụp>`. */
+function deviceLabel(deviceId: string, sentAt: string): string {
+  const m = /^(.*)-bk(\d+)$/.exec(deviceId)
+  if (m) return ` · máy ${m[1].slice(-6)} · 🛟 bản sao lưu trên máy chụp lúc ${new Date(Number(m[2])).toLocaleString('vi-VN')} (gửi lên ${new Date(sentAt).toLocaleString('vi-VN')})`
+  return ` · máy ${deviceId.slice(-6)} · bản chụp ${new Date(sentAt).toLocaleString('vi-VN')}`
+}
+
 /** Bản chụp chưa qua normalize (giữ đủ field rubric của lớp) nhưng bảo đảm
  *  entry đủ khóa — dùng cấu trúc của normalize cho học sinh/buổi. */
 function toClasses(raw: unknown) {
@@ -182,7 +190,7 @@ export function StrandedRecoveryCard({ snapshots }: { snapshots: ClientSnapshotM
           <div key={key} className="rounded-xl p-3 space-y-2" style={{ border: `1px solid ${C.line}` }}>
             <div className="text-sm font-semibold" style={{ color: C.ink }}>
               {s.snapshot.userId?.name ?? 'Tài khoản đã xóa'}
-              <span className="font-normal" style={{ color: C.muted }}> · máy {s.snapshot.deviceId.slice(-6)} · bản chụp {new Date(s.snapshot.createdAt).toLocaleString('vi-VN')}</span>
+              <span className="font-normal" style={{ color: C.muted }}>{deviceLabel(s.snapshot.deviceId, s.snapshot.createdAt)}</span>
             </div>
             <div className="text-sm" style={{ color: C.muted }}>
               {s.items.length} buổi có dữ liệu · {byKind('already').length} đã có trên server

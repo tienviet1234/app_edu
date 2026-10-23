@@ -27,6 +27,7 @@ const ACTION_LABELS: Record<string, string> = {
   'score.upsert.rejected': '⚠ Server TỪ CHỐI lưu điểm (nội dung vẫn giữ trong nhật ký)',
   'session.create.rejected': '⚠ Server TỪ CHỐI tạo buổi (nội dung vẫn giữ trong nhật ký)',
   'session.deleteLocal': 'Xóa buổi chưa lên server (đã chuyển vào kho giữ lại)',
+  'backup.localSent': 'Gửi bản sao lưu trên máy lên server để khôi phục',
   'session.takeServer': 'Lấy bản server cho buổi dữ liệu cũ trên máy (bản cũ vào kho giữ lại)',
   'score.restore': 'Khôi phục điểm bị đè',
   'report.export.student': 'Xuất báo cáo học sinh',

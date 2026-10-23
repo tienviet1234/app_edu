@@ -13,6 +13,8 @@ import { BottomNav } from '@/components/molecules/BottomNav'
 import { useAppStore } from '@/store/appStore'
 import { useAuthStore } from '@/store/authStore'
 import { startClientSnapshotLoop } from '@/utils/clientSnapshot'
+import { startLocalBackupLoop } from '@/utils/localBackup'
+import { LocalBackupsModal } from '@/features/backup/LocalBackupsModal'
 import { useQueryClient } from '@tanstack/react-query'
 import { useClasses, useClassStudents, useSessions, useClassScores, usePwaInstall, useTuitionUnpaidCount, STUDENT_KEYS } from '@/hooks'
 import { isMongoid } from '@/utils/mongoid'
@@ -363,6 +365,7 @@ export default function App() {
   const fileRef = useRef<HTMLInputElement>(null)
   const { canInstall, install } = usePwaInstall()
   const [profileOpen, setProfileOpen] = useState(false)
+  const [showLocalBackups, setShowLocalBackups] = useState(false)
   // Nhảy từ "Thống kê buổi" sang "Nhập điểm" đúng học sinh + đúng buổi để sửa
   // điểm — giáo viên và admin đều thao tác được, không giới hạn riêng ai.
   const [entryJumpTarget, setEntryJumpTarget] = useState<{ studentId: string; no: number } | null>(null)
@@ -643,12 +646,15 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!data, user?.id])
 
-  // Bản chụp toàn bộ dữ liệu máy này gửi lên server (5 phút/lần khi có đổi +
-  // khi rời tab) — lưới an toàn kể cả với dữ liệu chưa lên server được. Xem
-  // utils/clientSnapshot.ts.
+  // Bản chụp toàn bộ dữ liệu máy này gửi lên server (có đổi thì gửi, tối đa
+  // 1 phút/lần + khi rời tab) — lưới an toàn kể cả với dữ liệu chưa lên server
+  // được (utils/clientSnapshot.ts). Kèm bản sao lưu NGAY TRÊN MÁY, không cần
+  // mạng (utils/localBackup.ts) — còn khi mất mạng/server lỗi.
   useEffect(() => {
     if (!user || (user.role !== 'teacher' && user.role !== 'admin')) return
-    return startClientSnapshotLoop(user.id)
+    const stopSnapshots = startClientSnapshotLoop(user.id)
+    const stopLocal = startLocalBackupLoop(user.id)
+    return () => { stopSnapshots(); stopLocal() }
   }, [user?.id, user?.role])
 
   if (!data) {
@@ -868,6 +874,9 @@ export default function App() {
             Dữ liệu lưu tự động trên thiết bị của bạn. Nên xuất file sao lưu cuối mỗi tháng.
           </span>
           <Btn onClick={exportData}>Xuất file sao lưu</Btn>
+          {user && (user.role === 'teacher' || user.role === 'admin') && (
+            <Btn onClick={() => setShowLocalBackups(true)}>🛟 Bản sao lưu trên máy</Btn>
+          )}
           <Btn
             onClick={async () => {
               const { exportFullBackupXlsx } = await import('@/utils/excel')
@@ -890,13 +899,14 @@ export default function App() {
           />
           <button
             onClick={() => {
-              if (confirm('Xóa toàn bộ dữ liệu và bắt đầu lại?')) resetData()
+              if (confirm('Xóa toàn bộ dữ liệu trên máy này và bắt đầu lại? (Máy giữ lại 1 bản sao lưu trước khi xóa — xem "🛟 Bản sao lưu trên máy".)')) resetData()
             }}
             style={{ color: C.red }}
           >
             Xóa toàn bộ
           </button>
         </div>
+        {showLocalBackups && user && <LocalBackupsModal userId={user.id} onClose={() => setShowLocalBackups(false)} />}
         </main>
       </div>
 
