@@ -1,7 +1,10 @@
 import type { Request, Response } from 'express'
-import { Types } from 'mongoose'
+import mongoose, { Types } from 'mongoose'
 import { TuitionNotice } from '../models/TuitionNotice.js'
 import { Class } from '../models/Class.js'
+import { ClassSession } from '../models/ClassSession.js'
+import { checkNoticeSessions } from '../utils/dataRules.js'
+import { writeRejectedAudit } from '../services/auditService.js'
 import { ok, created, badRequest, forbidden, notFound } from '../utils/response.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
 import type { AuthRequest } from '../middleware/auth.js'
@@ -48,16 +51,64 @@ export const createTuitionNotice = asyncHandler(async (req: Request, res: Respon
     return
   }
 
+  const fields = {
+    classId, studentId, periodFrom, periodTo, periodLabel,
+    sessionsBilled, ratePerSession, computedAmount, finalAmount,
+    adjustmentReason: adjustmentReason?.trim() || undefined,
+    reportComment: typeof reportComment === 'string' ? reportComment.slice(0, 5000) : '',
+    sentAt: new Date(),
+    sentBy: authReq.userId,
+  }
+  const { sessionIds } = req.body ?? {}
+
   try {
-    const notice = await TuitionNotice.create({
-      classId, studentId, periodFrom, periodTo, periodLabel,
-      sessionsBilled, ratePerSession, computedAmount, finalAmount,
-      adjustmentReason: adjustmentReason?.trim() || undefined,
-      reportComment: typeof reportComment === 'string' ? reportComment.slice(0, 5000) : '',
-      sentAt: new Date(),
-      sentBy: authReq.userId,
-    })
-    created(res, notice)
+    if (sessionIds === undefined) {
+      // Máy chưa cập nhật bản mới — giữ cách cũ (máy tự đánh dấu từng buổi).
+      created(res, await TuitionNotice.create(fields))
+      return
+    }
+    if (!Array.isArray(sessionIds) || !sessionIds.length || sessionIds.length > 100 || !sessionIds.every((id) => typeof id === 'string' && Types.ObjectId.isValid(id))) {
+      badRequest(res, 'Danh sách buổi của phiếu không hợp lệ.')
+      return
+    }
+    const ids = [...new Set(sessionIds as string[])]
+    // Tạo phiếu + đánh dấu "đã thu" đúng các buổi đó TRONG 1 GIAO DỊCH: hoặc đủ
+    // cả 2, hoặc không có gì. Trước đây máy tạo phiếu rồi tự đánh dấu từng buổi
+    // — buổi còn nằm trên máy bị bỏ qua im lặng, kỳ sau thu lại.
+    const s = await mongoose.startSession()
+    let result: { notice: unknown; marked: number } | null = null
+    let rejected: Exclude<ReturnType<typeof checkNoticeSessions>, { ok: true }> | null = null
+    try {
+      await s.withTransaction(async () => {
+        rejected = null
+        const sessions = await ClassSession.find({ _id: { $in: ids } }, 'studentId classId deletedAt').session(s).lean()
+        const prior = await TuitionNotice.find({ studentId, sessionIds: { $in: ids } }, 'sessionIds').session(s).lean()
+        const check = checkNoticeSessions({
+          studentId: String(studentId), classId: String(classId), requested: ids, sessions,
+          alreadyNoticed: prior.flatMap((p) => p.sessionIds ?? []),
+        })
+        if (!check.ok) { rejected = check; return }
+        const [notice] = await TuitionNotice.create([{ ...fields, sessionIds: ids }], { session: s })
+        const upd = await ClassSession.updateMany({ _id: { $in: ids } }, { $set: { billed: true } }, { session: s })
+        result = { notice, marked: upd.matchedCount }
+      })
+    } finally {
+      await s.endSession()
+    }
+    if (rejected) {
+      const r = rejected as Exclude<ReturnType<typeof checkNoticeSessions>, { ok: true }>
+      const msg = {
+        NOT_FOUND: 'Có buổi trong kỳ này CHƯA lên server — đợi máy đồng bộ xong (hoặc mở lại trang) rồi gửi lại.',
+        WRONG_STUDENT: 'Có buổi không thuộc học sinh/lớp này.',
+        DELETED: 'Có buổi trong kỳ này đã bị xóa — tải lại trang rồi gửi lại.',
+        ALREADY_BILLED: 'Có buổi trong kỳ này ĐÃ nằm trong 1 phiếu học phí khác — không gửi trùng.',
+      }[r.code]
+      writeRejectedAudit(req, 'tuitionNotice.create.rejected', 'TuitionNotice', { code: r.code, classId, studentId, periodLabel, sessionIds: r.sessionIds, finalAmount })
+      res.status(409).json({ success: false, code: r.code, message: msg, data: { sessionIds: r.sessionIds } })
+      return
+    }
+    const { notice, marked } = result!
+    created(res, { ...(notice as { toObject(): Record<string, unknown> }).toObject(), markedSessionIds: ids, markedCount: marked })
   } catch (err) {
     if (err instanceof Error && 'code' in err && (err as { code?: number }).code === 11000) {
       badRequest(res, 'Kỳ này của học sinh này đã được đánh dấu gửi rồi — không thể gửi trùng.')
@@ -145,6 +196,23 @@ export const deleteTuitionNotice = asyncHandler(async (req: Request, res: Respon
     forbidden(res, 'Bạn không dạy lớp này.')
     return
   }
-  await notice.deleteOne()
+  // Phiếu có danh sách buổi → gỡ dấu "đã thu" đúng các buổi đó cùng lúc xóa
+  // phiếu. Trước đây xóa phiếu ghi nhầm mà buổi vẫn mang dấu "đã thu" → không
+  // bao giờ được tính tiền lại. Phiếu cũ (không có danh sách) giữ như trước.
+  const ids = notice.sessionIds ?? []
+  if (!ids.length) {
+    await notice.deleteOne()
+    res.status(204).end()
+    return
+  }
+  const s = await mongoose.startSession()
+  try {
+    await s.withTransaction(async () => {
+      await TuitionNotice.deleteOne({ _id: notice._id }, { session: s })
+      await ClassSession.updateMany({ _id: { $in: ids } }, { $set: { billed: false } }, { session: s })
+    })
+  } finally {
+    await s.endSession()
+  }
   res.status(204).end()
 })

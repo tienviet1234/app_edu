@@ -18,6 +18,9 @@ export interface ITuitionNotice extends Document {
   periodFrom: number
   periodTo: number
   periodLabel: string
+  /** Đúng các buổi phiếu này thu (phiếu từ 23/10 trở đi). Phiếu cũ không có —
+   *  khi đó chỉ còn periodFrom/periodTo (vị trí buổi lúc gửi). */
+  sessionIds?: Types.ObjectId[]
   sessionsBilled: number
   ratePerSession: number
   computedAmount: number
@@ -44,6 +47,7 @@ const TuitionNoticeSchema = new Schema<ITuitionNotice>(
     periodFrom: { type: Number, required: true },
     periodTo:   { type: Number, required: true },
     periodLabel: { type: String, required: true, trim: true, maxlength: 100 },
+    sessionIds: { type: [{ type: Schema.Types.ObjectId, ref: 'ClassSession' }], default: undefined },
     sessionsBilled:  { type: Number, required: true, min: 0 },
     ratePerSession:  { type: Number, required: true, min: 0 },
     computedAmount:  { type: Number, required: true, min: 0 },
@@ -61,6 +65,7 @@ const TuitionNoticeSchema = new Schema<ITuitionNotice>(
 
 // Mỗi học sinh chỉ có 1 bản ghi "đã gửi" cho ĐÚNG 1 kỳ — tránh gửi/tính trùng.
 TuitionNoticeSchema.index({ classId: 1, studentId: 1, periodFrom: 1, periodTo: 1 }, { unique: true })
+TuitionNoticeSchema.index({ studentId: 1, sessionIds: 1 })
 
 // Cất bản cũ trước mỗi lần sửa/xóa — xem historyPlugin.
 TuitionNoticeSchema.plugin(historyPlugin, { coll: 'tuitionnotices' })

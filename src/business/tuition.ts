@@ -1,4 +1,5 @@
 import type { Session, Student } from '@/types'
+import { isMongoid } from '@/utils/mongoid'
 
 /** Loại BỎ các buổi ĐÃ TÍNH TIỀN (`session.billed === true`) ra khỏi danh
  *  sách — dùng TRƯỚC KHI đưa vào `billingPeriodsOf`/`currentProgressOf`/
@@ -118,4 +119,79 @@ export function currentProgressOf(
   const current = (offset + n) % blockSize
   if (current === 0) return null // vừa đúng 1 kỳ (đã có trong billingPeriodsOf)
   return { current, total: blockSize }
+}
+
+/** Phiếu học phí đã gửi (đủ field để biết nó đã thu những buổi nào). */
+export interface NoticeLike {
+  periodFrom: number
+  periodTo: number
+  /** Đúng các buổi phiếu đã thu — phiếu từ 23/10 trở đi mới có. */
+  sessionIds?: string[]
+}
+
+export interface DuePeriod {
+  /** Vị trí trong danh sách buổi CHƯA thu (để lấy chi tiết buổi / tính tiền). */
+  from: number
+  to: number
+  label: string
+  sessionIds: string[]
+  /** periodFrom/periodTo LƯU vào phiếu mới — cộng dồn sau các phiếu trước
+   *  (kỳ 2 = 8–16), không trùng khóa (lớp, học sinh, từ, đến) của phiếu cũ. */
+  storeFrom: number
+  storeTo: number
+  /** Số buổi trong kỳ CHƯA lên server — phải đợi đồng bộ xong mới gửi phiếu. */
+  unsynced: number
+}
+
+/** `sessionOffset` dùng cho danh sách buổi CHƯA thu. Offset (buổi đã học trước
+ *  khi vào app) chỉ làm NGẮN kỳ ĐẦU TIÊN — sau khi đã gửi phiếu, danh sách chưa
+ *  thu bắt đầu ở vị trí phiếu cuối (lastTo) nên phần dư là (offset + lastTo) %
+ *  khối (thường = 0 → các kỳ sau đủ khối). Trước đây dùng nguyên offset cho mọi
+ *  kỳ → kỳ nào cũng bị cắt ngắn. Em chưa có buổi nào mang dấu "đã thu" → danh
+ *  sách chưa thu = toàn bộ buổi → giữ nguyên offset. */
+export function unbilledOffsetOf(
+  student: Pick<Student, 'sessions' | 'sessionOffset'>, perMonth: number, notices: NoticeLike[],
+): number | undefined {
+  if (!student.sessions.some((s) => s.billed)) return student.sessionOffset
+  const lastTo = notices.reduce((m, n) => Math.max(m, n.periodTo), 0)
+  return ((student.sessionOffset ?? 0) + lastTo) % (perMonth === 8 ? 8 : 12)
+}
+
+/** Các kỳ ĐẾN HẠN gửi phiếu học phí của 1 học sinh.
+ *
+ *  Trước đây coi 1 kỳ là "đã gửi" nếu có phiếu trùng VỊ TRÍ (from–to) trong
+ *  danh sách buổi chưa thu — nhưng sau khi gửi kỳ 1, các buổi đã thu bị loại
+ *  ra nên kỳ 2 lại bắt đầu từ 0: trùng vị trí phiếu kỳ 1 → kỳ 2 bị coi là đã
+ *  gửi, học sinh biến khỏi màn Học phí đúng lúc đủ kỳ, kỳ đó không bao giờ
+ *  được thu (46 học sinh sắp gặp, phát hiện 23/10). Giờ:
+ *   - học sinh đã có buổi mang dấu "đã thu": kỳ đã gửi nhận ra bằng BUỔI THẬT
+ *     (dấu billed + sessionIds của phiếu), không so vị trí;
+ *   - học sinh chỉ có phiếu kiểu cũ (gửi trước khi có dấu "đã thu", không buổi
+ *     nào mang dấu): giữ cách so vị trí như trước — danh sách chưa thu khi đó
+ *     chính là toàn bộ buổi nên vị trí vẫn đúng. */
+export function duePeriodsOf(
+  student: Pick<Student, 'sessions' | 'sessionOffset'>,
+  perMonth: number,
+  notices: NoticeLike[],
+): DuePeriod[] {
+  const unbilled = unbilledSessionsOf(student)
+  const legacy = !student.sessions.some((s) => s.billed)
+  const noticed = new Set(notices.flatMap((n) => n.sessionIds ?? []))
+  const lastTo = notices.reduce((m, n) => Math.max(m, n.periodTo), 0)
+  const sessionOffset = unbilledOffsetOf(student, perMonth, notices)
+  const out: DuePeriod[] = []
+  for (const p of billingPeriodsOf({ ...student, sessionOffset, sessions: unbilled }, perMonth)) {
+    const slice = unbilled.slice(p.from, p.to)
+    const ids = slice.map((s) => s.id)
+    // Buổi đã nằm trong 1 phiếu (dù dấu "đã thu" bị thiếu) → không gửi lại.
+    if (ids.some((id) => noticed.has(id))) continue
+    if (legacy && notices.some((n) => !n.sessionIds?.length && n.periodFrom === p.from && n.periodTo === p.to)) continue
+    const storeFrom = legacy ? p.from : lastTo + p.from
+    out.push({
+      from: p.from, to: p.to, label: p.label, sessionIds: ids,
+      storeFrom, storeTo: storeFrom + (p.to - p.from),
+      unsynced: slice.filter((s) => !isMongoid(s.id)).length,
+    })
+  }
+  return out
 }

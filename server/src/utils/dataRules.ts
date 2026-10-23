@@ -150,3 +150,37 @@ export function rejectedWriteMetadata(code: string, body: Record<string, unknown
 export function resolveSessionCreator(role: string | undefined, userId: string, onBehalfOf?: string): string {
   return role === 'admin' && onBehalfOf ? onBehalfOf : userId
 }
+
+export type NoticeSessionsCheck =
+  | { ok: true }
+  | { ok: false; code: 'NOT_FOUND' | 'WRONG_STUDENT' | 'DELETED' | 'ALREADY_BILLED'; sessionIds: string[] }
+
+/** Phiếu học phí kèm danh sách buổi nó thu — server kiểm tra trước khi tạo
+ *  phiếu + đánh dấu "đã thu" trong cùng 1 giao dịch. Từ chối nếu buổi không
+ *  tồn tại / không phải của học sinh-lớp này / đã xóa / ĐÃ nằm trong 1 phiếu
+ *  khác (thu trùng tiền). Trước đây máy tự đánh dấu từng buổi sau khi tạo
+ *  phiếu: buổi còn nằm trên máy (chưa lên server) bị bỏ qua im lặng → kỳ sau
+ *  thu lại (sự cố thật: Lớp 7 phiếu 16/10, Vương Thắng 12/09, Tuấn 17/09). */
+export function checkNoticeSessions(input: {
+  studentId: string
+  classId: string
+  requested: string[]
+  sessions: Array<{ _id: IdLike; studentId?: IdLike; classId?: IdLike; deletedAt?: Date | null }>
+  /** sessionIds của các phiếu ĐÃ CÓ của học sinh này. */
+  alreadyNoticed: IdLike[]
+}): NoticeSessionsCheck {
+  const byId = new Map(input.sessions.map((s) => [String(s._id), s]))
+  const missing = input.requested.filter((id) => !byId.has(id))
+  if (missing.length) return { ok: false, code: 'NOT_FOUND', sessionIds: missing }
+  const wrong = input.requested.filter((id) => {
+    const s = byId.get(id)!
+    return String(s.studentId) !== input.studentId || String(s.classId) !== input.classId
+  })
+  if (wrong.length) return { ok: false, code: 'WRONG_STUDENT', sessionIds: wrong }
+  const deleted = input.requested.filter((id) => byId.get(id)!.deletedAt)
+  if (deleted.length) return { ok: false, code: 'DELETED', sessionIds: deleted }
+  const noticed = new Set(input.alreadyNoticed.map(String))
+  const dup = input.requested.filter((id) => noticed.has(id))
+  if (dup.length) return { ok: false, code: 'ALREADY_BILLED', sessionIds: dup }
+  return { ok: true }
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator } from './dataRules.js'
+import { checkNoticeSessions, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator } from './dataRules.js'
 
 describe('isGradedScore / gradedTotal (buổi chỉ có ghi chú KHÔNG phải 0 điểm)', () => {
   it('buổi admin thêm bù chỉ có ghi chú (Trần Đan 12/09 "Con chưa hoàn thành video") → không tính vào điểm TB', () => {
@@ -154,5 +154,27 @@ describe('resolveSessionCreator', () => {
   })
   it('không chỉ định → chính người gọi', () => {
     expect(resolveSessionCreator('admin', 'admin-id')).toBe('admin-id')
+  })
+})
+
+describe('checkNoticeSessions (phiếu học phí kèm danh sách buổi — chặn thu trùng)', () => {
+  const S = 's'.repeat(24), C = 'c'.repeat(24), OTHER = 'o'.repeat(24)
+  const sess = (id: string, over: Record<string, unknown> = {}) => ({ _id: id, studentId: S, classId: C, deletedAt: null, ...over })
+  const base = { studentId: S, classId: C, requested: ['a', 'b'], sessions: [sess('a'), sess('b')], alreadyNoticed: [] as string[] }
+  it('buổi hợp lệ, chưa nằm trong phiếu nào → cho tạo', () => {
+    expect(checkNoticeSessions(base)).toEqual({ ok: true })
+  })
+  it('buổi đã nằm trong phiếu khác → từ chối (thu trùng tiền)', () => {
+    expect(checkNoticeSessions({ ...base, alreadyNoticed: ['b'] })).toEqual({ ok: false, code: 'ALREADY_BILLED', sessionIds: ['b'] })
+  })
+  it('buổi không có trên server (còn nằm trên máy) → từ chối — sự cố Lớp 7 phiếu 16/10', () => {
+    expect(checkNoticeSessions({ ...base, sessions: [sess('a')] })).toEqual({ ok: false, code: 'NOT_FOUND', sessionIds: ['b'] })
+  })
+  it('buổi của học sinh khác / lớp khác → từ chối', () => {
+    expect(checkNoticeSessions({ ...base, sessions: [sess('a'), sess('b', { studentId: OTHER })] }).ok).toBe(false)
+    expect(checkNoticeSessions({ ...base, sessions: [sess('a'), sess('b', { classId: OTHER })] })).toMatchObject({ code: 'WRONG_STUDENT' })
+  })
+  it('buổi đã xóa → từ chối', () => {
+    expect(checkNoticeSessions({ ...base, sessions: [sess('a'), sess('b', { deletedAt: new Date() })] })).toMatchObject({ code: 'DELETED', sessionIds: ['b'] })
   })
 })

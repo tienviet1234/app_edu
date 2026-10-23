@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { billingPeriodsOf, sessionsBilledOf, currentProgressOf, periodPositionOf, sessionLabelOf, unbilledSessionsOf } from './tuition'
+import { billingPeriodsOf, sessionsBilledOf, currentProgressOf, periodPositionOf, sessionLabelOf, unbilledSessionsOf, duePeriodsOf } from './tuition'
 import { emptyEntry } from './seed'
 import type { AttendanceKey, Session, Student } from '@/types'
 
@@ -178,5 +178,63 @@ describe('unbilledSessionsOf', () => {
     expect(unbilled).toEqual([])
     expect(billingPeriodsOf({ ...st, sessions: unbilled }, 8)).toEqual([])
     expect(currentProgressOf({ ...st, sessions: unbilled }, 8)).toBeNull()
+  })
+})
+
+describe('duePeriodsOf (kỳ đến hạn gửi phiếu — nhận ra kỳ đã gửi bằng BUỔI THẬT)', () => {
+  const oid = (n: number) => n.toString(16).padStart(24, '0')
+  const mk = (count: number, billedUpTo = 0, start = 1): Session[] =>
+    Array.from({ length: count }, (_, i) => ({ id: oid(start + i), no: start + i, date: '2026-10-01', entry: { ...emptyEntry(), attendance: 'present' }, ...(i < billedUpTo ? { billed: true } : {}) }))
+  const ids = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => oid(from + i + 1))
+
+  it('chưa có phiếu nào, đủ 8 buổi → đến hạn kỳ 1, lưu vị trí 0–8', () => {
+    expect(duePeriodsOf({ sessions: mk(8) }, 8, [])).toEqual([
+      { from: 0, to: 8, label: 'Buổi 1–8', sessionIds: ids(0, 8), storeFrom: 0, storeTo: 8, unsynced: 0 },
+    ])
+  })
+
+  it('LỖI A: đã gửi kỳ 1 (8 buổi mang dấu đã thu) + đủ 8 buổi mới → kỳ 2 PHẢI đến hạn, lưu 8–16 (không trùng phiếu 0–8)', () => {
+    const due = duePeriodsOf({ sessions: mk(16, 8) }, 8, [{ periodFrom: 0, periodTo: 8 }])
+    expect(due).toHaveLength(1)
+    expect(due[0]).toMatchObject({ from: 0, to: 8, storeFrom: 8, storeTo: 16, sessionIds: ids(8, 16) })
+  })
+
+  it('lớp 12 buổi (Lớp 7): phiếu 0–12 đã gửi + đủ 12 buổi mới → kỳ 2 lưu 12–24', () => {
+    const due = duePeriodsOf({ sessions: mk(24, 12) }, 12, [{ periodFrom: 0, periodTo: 12 }])
+    expect(due.map((d) => [d.storeFrom, d.storeTo])).toEqual([[12, 24]])
+  })
+
+  it('đã gửi kỳ 1, mới có 7 buổi mới → chưa đến hạn', () => {
+    expect(duePeriodsOf({ sessions: mk(15, 8) }, 8, [{ periodFrom: 0, periodTo: 8 }])).toEqual([])
+  })
+
+  it('phiếu kiểu CŨ (không buổi nào mang dấu đã thu): giữ cách so vị trí — 10 buổi, phiếu 0–8 → chưa có kỳ đến hạn', () => {
+    expect(duePeriodsOf({ sessions: mk(10) }, 8, [{ periodFrom: 0, periodTo: 8 }])).toEqual([])
+  })
+
+  it('phiếu kiểu CŨ + đủ 16 buổi → kỳ 2 (vị trí 8–16) đến hạn, KHÔNG gửi lại kỳ 1', () => {
+    const due = duePeriodsOf({ sessions: mk(16) }, 8, [{ periodFrom: 0, periodTo: 8 }])
+    expect(due).toEqual([{ from: 8, to: 16, label: 'Tháng 2 (Buổi 1–8)', sessionIds: ids(8, 16), storeFrom: 8, storeTo: 16, unsynced: 0 }])
+  })
+
+  it('LỖI B: phiếu có danh sách buổi nhưng 1 buổi bị thiếu dấu đã thu → KHÔNG đưa buổi đó vào kỳ mới (chống thu trùng)', () => {
+    const sessions = mk(16, 8)
+    sessions[0].billed = undefined // buổi 1 mất dấu
+    const notices = [{ periodFrom: 0, periodTo: 8, sessionIds: ids(0, 8) }]
+    // danh sách chưa thu = buổi 1 + 8 buổi mới → kỳ đầu chứa buổi 1 (đã nằm trong phiếu) → bỏ qua
+    expect(duePeriodsOf({ sessions }, 8, notices)).toEqual([])
+  })
+
+  it('kỳ có buổi CHƯA lên server → báo số buổi để chặn gửi', () => {
+    const sessions = mk(8)
+    sessions[3] = { ...sessions[3], id: 'tmp-abc' }
+    expect(duePeriodsOf({ sessions }, 8, [])[0].unsynced).toBe(1)
+  })
+
+  it('học sinh chuyển vào giữa chừng (sessionOffset=3): kỳ đầu chỉ 5 buổi, kỳ sau cộng dồn đúng', () => {
+    expect(duePeriodsOf({ sessions: mk(5), sessionOffset: 3 }, 8, [])[0]).toMatchObject({ from: 0, to: 5, storeFrom: 0, storeTo: 5 })
+    const due2 = duePeriodsOf({ sessions: mk(13, 5), sessionOffset: 3 }, 8, [{ periodFrom: 0, periodTo: 5, sessionIds: ids(0, 5) }])
+    expect(due2).toHaveLength(1)
+    expect(due2[0]).toMatchObject({ storeFrom: 5, storeTo: 13 })
   })
 })

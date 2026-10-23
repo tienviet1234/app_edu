@@ -9,6 +9,8 @@ export interface TuitionNotice {
   periodFrom: number
   periodTo: number
   periodLabel: string
+  /** Đúng các buổi phiếu này thu — phiếu từ 23/10 trở đi mới có. */
+  sessionIds?: string[]
   sessionsBilled: number
   ratePerSession: number
   computedAmount: number
@@ -36,7 +38,10 @@ export const tuitionNoticeService = {
     sessionsBilled: number; ratePerSession: number
     computedAmount: number; finalAmount: number
     adjustmentReason?: string; reportComment: string
-  }): Promise<TuitionNotice> =>
+    /** Server tạo phiếu + đánh dấu "đã thu" đúng các buổi này trong 1 giao
+     *  dịch, từ chối (409) nếu buổi chưa lên server / đã nằm trong phiếu khác. */
+    sessionIds?: string[]
+  }): Promise<TuitionNotice & { markedSessionIds?: string[] }> =>
     api.post('/tuition-notices', payload).then((r) => r.data.data),
 
   /** Xóa hồ sơ ghi nhầm (VD đánh dấu sai học sinh). */
