@@ -152,6 +152,23 @@ export async function updateSession(req: Request, res: Response): Promise<void> 
     forbidden(res, 'You can only update sessions in your own classes.')
     return
   }
+  // Điền "Bài tập về nhà" CHỈ KHI server còn trống (nút "Đồng bộ bài tập về
+  // nhà" — trước 21/10 bài tập không được gửi lên cho buổi đã có, chỉ nằm trên
+  // máy) — không bao giờ ghi đè bài tập đã có, không đổi gì khác.
+  if (req.body.notesIfAbsent === true) {
+    const notes = typeof req.body.notes === 'string' ? req.body.notes : ''
+    if (!notes.trim()) {
+      badRequest(res, 'Thiếu bài tập về nhà để điền.')
+      return
+    }
+    const r = await ClassSession.updateOne(
+      { _id: existing._id, $or: [{ notes: { $exists: false } }, { notes: null }, { notes: { $regex: /^\s*$/ } }] },
+      { $set: { notes } },
+    )
+    if (r.modifiedCount === 1) await writeAudit(req, { action: 'session.notesFill', resource: 'ClassSession', resourceId: String(existing._id), metadata: { notes: notes.slice(0, 300) } })
+    ok(res, { applied: r.modifiedCount === 1 })
+    return
+  }
   // Điền "Số câu" CHỈ KHI server còn trống (máy giáo viên tự đẩy số câu cũ
   // chỉ nằm trên máy lên) — không bao giờ ghi đè số câu đã có, không đổi gì khác.
   if (req.body.maxesIfAbsent === true) {

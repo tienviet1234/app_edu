@@ -69,7 +69,7 @@ export const sessionService = {
   get: (id: string) =>
     api.get<{ data: ApiSession }>(`/sessions/${id}`).then((r) => r.data.data),
 
-  update: (id: string, body: { title?: string; lessonNo?: number; scheduledAt?: string; durationMinutes?: number; notes?: string; billed?: boolean; maxes?: Record<string, number>; maxesIfAbsent?: boolean }) =>
+  update: (id: string, body: { title?: string; lessonNo?: number; scheduledAt?: string; durationMinutes?: number; notes?: string; billed?: boolean; maxes?: Record<string, number>; maxesIfAbsent?: boolean; notesIfAbsent?: boolean }) =>
     api.patch<{ data: ApiSession }>(`/sessions/${id}`, body).then((r) => r.data.data),
 
   remove: (id: string) =>

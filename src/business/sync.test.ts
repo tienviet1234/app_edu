@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   pruneGoneFromServer, resolvePlausibleNo, syncStudentsFromServer, adoptServerSession, pendingSessionsOf, markSessionSaved,
   markConflict, resolveConflict, collectOrphans, appendOrphans, sameDateClash, detachDeletedSession,
-  orphanForLocalDelete, rescueOtherTabSessions, maxesToBackfill, takeServerCopy, countUnsaved,
+  orphanForLocalDelete, rescueOtherTabSessions, maxesToBackfill, takeServerCopy, countUnsaved, homeworkToBackfill,
   type ServerSessionForSync, type ServerScoreForSync,
 } from './sync'
 import { emptyEntry, normalize } from './seed'
@@ -161,6 +161,19 @@ describe('syncStudentsFromServer', () => {
   it('dữ liệu cũ: bài tập về nhà theo server (hành vi cũ giữ nguyên — admin sửa bài tập thì máy giáo viên thấy)', () => {
     const { sessions } = run([sess({ homework: 'cũ' })], [serverSess({ notes: 'Unit 5' })])
     expect(sessions[0].homework).toBe('Unit 5')
+  })
+
+  it('dữ liệu cũ: server TRỐNG bài tập mà máy có → GIỮ bản máy (máy Mac cô Hoài Thương 20/10 mất 4 bài tập Lớp 10)', () => {
+    const { sessions } = run([sess({ homework: 'GẤP ĐÔI BTVN VÀ BTVN NGHE' })], [serverSess({ notes: '' })])
+    expect(sessions[0].homework).toBe('GẤP ĐÔI BTVN VÀ BTVN NGHE')
+    expect(sessions[0].synced).toBeUndefined() // chưa khớp server → nút đồng bộ sẽ đẩy lên
+    const r2 = run([sess({ homework: 'Unit 3' })], [serverSess({ notes: undefined })])
+    expect(r2.sessions[0].homework).toBe('Unit 3')
+  })
+
+  it('buổi đã khớp server (synced) → bài tập luôn theo server, kể cả khi server xóa trống (admin cố ý xóa)', () => {
+    const { sessions } = run([sess({ synced: true, homework: 'cũ' })], [serverSess({ notes: '' })])
+    expect(sessions[0].homework).toBe('')
   })
 
   it('dữ liệu cũ còn trống → điền từ server (hành vi cũ giữ nguyên)', () => {
@@ -610,6 +623,26 @@ describe('serverCopy / takeServerCopy (máy giữ dữ liệu cũ KHÁC server �
     const st2 = { sessions: [sess({ serverCopy: { entry: server } })] }
     detachDeletedSession(st2, SV1, 'tmp-x')
     expect(st2.sessions[0].serverCopy).toBeUndefined()
+  })
+})
+
+describe('homeworkToBackfill (nút "Đồng bộ bài tập về nhà")', () => {
+  const st = (sessions: Session[]) => [{ sessions }]
+  it('máy có bài tập, server trống → đẩy lên', () => {
+    const r = homeworkToBackfill(st([sess({ id: SV1, homework: 'Unit 3 trang 12' })]), [{ _id: SV1, notes: '' }])
+    expect(r).toEqual({ jobs: [{ sessionId: SV1, notes: 'Unit 3 trang 12' }], notOnServer: 0 })
+  })
+  it('server ĐÃ có bài tập → không đẩy (không ghi đè)', () => {
+    expect(homeworkToBackfill(st([sess({ id: SV1, homework: 'máy' })]), [{ _id: SV1, notes: 'server' }]).jobs).toEqual([])
+  })
+  it('buổi đang sửa dở (dirty) → bỏ qua, lần lưu tới tự gửi', () => {
+    expect(homeworkToBackfill(st([sess({ id: SV1, dirty: true, homework: 'x' })]), [{ _id: SV1, notes: '' }]).jobs).toEqual([])
+  })
+  it('buổi CHƯA lên server → không tạo buổi mới (lệch học phí), chỉ đếm để báo', () => {
+    expect(homeworkToBackfill(st([sess({ id: 'tmp-1', homework: 'x' })]), [])).toEqual({ jobs: [], notOnServer: 1 })
+  })
+  it('máy không có bài tập / chỉ có khoảng trắng / server không có buổi này → bỏ qua', () => {
+    expect(homeworkToBackfill(st([sess({ id: SV1, homework: '  ' }), sess({ id: SV2, homework: 'y' })]), [{ _id: SV1, notes: '' }]).jobs).toEqual([])
   })
 })
 

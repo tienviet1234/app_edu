@@ -11,7 +11,7 @@ import { periodPositionOf, sessionLabelOf } from '@/business/tuition'
 import { emptyEntry } from '@/business/seed'
 import {
   resolvePlausibleNo, pendingSessionsOf, adoptServerSession, markSessionSaved, markConflict, resolveConflict, detachDeletedSession,
-  toSessionEntry, sameDateClash, takeServerCopy, appendOrphans, type ServerScoreForSync,
+  toSessionEntry, sameDateClash, takeServerCopy, appendOrphans, homeworkToBackfill, type ServerScoreForSync,
 } from '@/business/sync'
 import { useAppStore } from '@/store/appStore'
 import { useAuthStore } from '@/store/authStore'
@@ -179,6 +179,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   }, [])
   const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [backfilling, setBackfilling] = useState(false)
+  const [hwSyncing, setHwSyncing] = useState(false)
   const [backfillProgress, setBackfillProgress] = useState({ done: 0, total: 0 })
   const [showSummary, setShowSummary] = useState(false)
   const [showImport, setShowImport] = useState(false)
@@ -550,6 +551,42 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
     document.addEventListener('visibilitychange', flush)
     return () => document.removeEventListener('visibilitychange', flush)
   }, [])
+
+  // Đẩy "Bài tập về nhà" chỉ nằm trên máy này lên server — CHỈ điền buổi server
+  // còn trống (notesIfAbsent), không ghi đè bài tập đã có, không tạo buổi mới
+  // (homeworkToBackfill). Trước 21/10 bài tập không được gửi lên cho buổi đã có.
+  async function backfillHomework() {
+    if (hwSyncing || !isMongoid(cls.id)) return
+    setHwSyncing(true)
+    try {
+      const server = await sessionService.listAll({ classId: cls.id })
+      const { jobs, notOnServer } = homeworkToBackfill(cls.students, server.map((s) => ({ _id: s._id, notes: s.notes })))
+      const later = notOnServer ? ` ${notOnServer} bài tập nằm ở buổi chưa lên server — sẽ tự lên khi buổi đó được lưu.` : ''
+      if (!jobs.length) {
+        toast.info(`Bài tập về nhà trên máy này đã có đủ trên server.${later}`)
+        return
+      }
+      if (!confirm(`Đưa ${jobs.length} bài tập về nhà đang chỉ có trên máy này lên server?\n\nChỉ điền những buổi server còn TRỐNG bài tập — không ghi đè bài tập đã có.`)) return
+      let filled = 0, kept = 0, failed = 0
+      for (const j of jobs) {
+        try {
+          const res = await sessionService.update(j.sessionId, { notes: j.notes, notesIfAbsent: true }) as unknown as { applied?: boolean }
+          if (res.applied) filled++
+          else kept++
+        } catch {
+          failed++
+        }
+      }
+      logActivity('session.notesBackfill', { className: cls.name, filled, kept, failed }, 'ClassSession')
+      const keptMsg = kept ? `, ${kept} buổi server vừa có bài tập khác (giữ nguyên bản server)` : ''
+      if (failed) toast.error(`Đồng bộ bài tập: ${filled} bài tập lên server${keptMsg}, ${failed} lỗi — thử lại sau.${later}`, { persist: true })
+      else toast.success(`✓ Đồng bộ bài tập: ${filled} bài tập lên server${keptMsg}.${later}`)
+    } catch {
+      toast.error('Chưa tải được danh sách buổi từ server — kiểm tra mạng rồi thử lại.')
+    } finally {
+      setHwSyncing(false)
+    }
+  }
 
   // Gom điểm đã nhập trước đây (còn kẹt trên máy này, chưa từng lên được
   // server do lỗi kiểu dữ liệu đã sửa) và đẩy lên server, 1 lần.
@@ -1093,6 +1130,15 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
             style={{ background: C.paper, color: C.muted, border: `1px solid ${C.line}` }}
           >
             {backfilling ? `☁ Đang đồng bộ ${backfillProgress.done}/${backfillProgress.total}...` : '☁ Đồng bộ điểm cũ'}
+          </button>
+          <button
+            onClick={() => void backfillHomework()}
+            disabled={hwSyncing}
+            title="Đưa bài tập về nhà chỉ có trên máy này lên server (chỉ điền buổi server còn trống, không ghi đè)"
+            className="min-h-11 rounded-xl px-3 text-sm font-semibold"
+            style={{ background: C.paper, color: C.muted, border: `1px solid ${C.line}` }}
+          >
+            {hwSyncing ? '☁ Đang đồng bộ bài tập...' : '☁ Đồng bộ bài tập về nhà'}
           </button>
           <div className="ml-auto flex items-center gap-3 text-sm" style={{ color: C.muted }}>
             {syncStatus === 'saving' && <span style={{ color: C.board2 }}>⟳ Đang lưu...</span>}

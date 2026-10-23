@@ -209,10 +209,13 @@ export function syncStudentsFromServer(
       local.entry = serverEntry
       changed = true
     }
-    // Bài tập về nhà: giữ hành vi cũ — server thắng (luôn được gửi kèm mỗi
-    // lần lưu điểm nên server là bản chuẩn); máy đang sửa dở đã được chặn ở
-    // nhánh dirty phía trên.
-    if ((local.homework ?? '') !== serverHomework) { local.homework = serverHomework; changed = true }
+    // Bài tập về nhà: server thắng khi server CÓ nội dung (admin sửa bài tập thì
+    // máy giáo viên thấy). Server TRỐNG mà máy có → GIỮ bản máy: trước 21/10 bài
+    // tập không bao giờ được gửi lên cho buổi đã có, nên đó là bài tập chỉ nằm
+    // trên máy — trước đây bị xóa trắng (máy Mac cô Hoài Thương 20/10 mất 4 bài
+    // tập Lớp 10 ngày 15/09). Đẩy lên bằng "Đồng bộ bài tập về nhà" (homeworkToBackfill).
+    const keepLocalHomework = !serverHomework.trim() && !!local.homework?.trim()
+    if (!keepLocalHomework && (local.homework ?? '') !== serverHomework) { local.homework = serverHomework; changed = true }
     if (as.maxes && !local.maxes) { local.maxes = as.maxes; changed = true }
     const contentMatches = (serverEntry ? sameEntry(local.entry, serverEntry) : isBlankEntry(local.entry))
       && (local.homework ?? '') === serverHomework
@@ -545,6 +548,31 @@ export function maxesToBackfill(
     }
   }
   return out
+}
+
+/** "Bài tập về nhà" máy này có mà server còn TRỐNG → cần điền lên (nút "Đồng
+ *  bộ bài tập về nhà"). Trước 21/10 bài tập không bao giờ được gửi lên cho
+ *  buổi đã có trên server. Bỏ qua buổi đang sửa dở (dirty — lần lưu tới tự gửi)
+ *  và buổi CHƯA lên server (đẩy lên = tạo buổi mới, mặc định "có mặt" → lệch
+ *  học phí; buổi đó tự lên khi được lưu). Server chỉ điền khi đang trống
+ *  (`notesIfAbsent`), không ghi đè bài tập đã có. */
+export function homeworkToBackfill(
+  students: Array<{ sessions: Session[] }>,
+  serverSessions: Array<{ _id: string; notes?: string | null }>,
+): { jobs: Array<{ sessionId: string; notes: string }>; notOnServer: number } {
+  const serverEmpty = new Set(serverSessions.filter((s) => !s.notes?.trim()).map((s) => s._id))
+  const jobs: Array<{ sessionId: string; notes: string }> = []
+  let notOnServer = 0
+  for (const st of students) {
+    for (const s of st.sessions) {
+      const hw = s.homework?.trim()
+      if (!hw) continue
+      if (!isMongoid(s.id)) { notOnServer++; continue }
+      if (s.dirty || !serverEmpty.has(s.id)) continue
+      jobs.push({ sessionId: s.id, notes: s.homework! })
+    }
+  }
+  return { jobs, notOnServer }
 }
 
 /** Thêm bản ghi vào kho giữ lại, KHÔNG trùng (cùng lớp + học sinh thì gộp,

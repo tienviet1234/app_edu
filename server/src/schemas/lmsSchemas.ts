@@ -112,6 +112,8 @@ export const sessionUpdateSchema = sessionBodySchema.partial().omit({ centerId: 
   // nằm trên máy) — CHỈ điền khi server đang trống, không ghi đè. Thiếu dòng
   // này Zod âm thầm xóa field (gotcha CLAUDE.md) → thành ghi đè thường.
   maxesIfAbsent: z.boolean().optional(),
+  // Như trên cho "Bài tập về nhà" (nút "Đồng bộ bài tập về nhà").
+  notesIfAbsent: z.boolean().optional(),
 })
 
 // Đổi số buổi HÀNG LOẠT trong 1 giao dịch atomic — xem
