@@ -4,7 +4,7 @@ import { C } from '@/constants/colors'
 import { getClassRubric } from '@/constants/rubrics'
 import { statsOf } from '@/business/stats'
 import { buildComment, sessionDetailsOf, type SessionDetailRow } from '@/business/report'
-import { sessionsBilledOf, currentProgressOf, periodPositionOf, sessionLabelOf, unbilledSessionsOf, duePeriodsOf, unbilledOffsetOf, effectiveRateOf, studentTuitionNote, duplicateDatesIn, type StudentTuitionRule } from '@/business/tuition'
+import { sessionsBilledOf, currentProgressOf, periodPositionOf, sessionLabelOf, unbilledSessionsOf, duePeriodsOf, unbilledOffsetOf, effectiveRateOf, studentTuitionNote, periodDuplicateDates, type StudentTuitionRule } from '@/business/tuition'
 import { useAuthStore } from '@/store/authStore'
 import { StudentTuitionCard } from './StudentTuitionCard'
 import { isMongoid } from '@/utils/mongoid'
@@ -193,7 +193,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
           sessionDetails: sessionDetailsOf(stUnbilled, p.from, p.to, r),
           sessionIds: p.sessionIds,
           unsynced: p.unsynced,
-          duplicateDates: duplicateDatesIn(stUnbilled.sessions.slice(p.from, p.to)),
+          duplicateDates: periodDuplicateDates(stUnbilled.sessions.slice(p.from, p.to), st.sessions),
           showDetails: false,
           saving: false,
           kind: 'auto',
@@ -268,7 +268,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
       sessionDetails: sessionDetailsOf({ sessions: srcSessions }, nd.from, nd.to, r),
       sessionIds: slice.map((x) => x.id),
       unsynced: slice.filter((x) => !isMongoid(x.id)).length,
-      duplicateDates: duplicateDatesIn(slice),
+      duplicateDates: periodDuplicateDates(slice, st.sessions),
       showDetails: false, saving: false, kind: 'manual',
     }])
   }

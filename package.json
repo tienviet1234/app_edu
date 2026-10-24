@@ -11,7 +11,8 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "verify": "node scripts/prepush.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.5.7",

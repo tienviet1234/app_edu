@@ -241,3 +241,65 @@ export function checkNoticeSessions(input: {
   if (dup.length) return { ok: false, code: 'ALREADY_BILLED', sessionIds: dup }
   return { ok: true }
 }
+
+export type DuplicateFixOp =
+  | { kind: 'delete'; id: string; wasBilled: boolean }
+  | { kind: 'bill'; id: string }
+  | { kind: 'renumber'; id: string; from: number; to: number }
+  | { kind: 'notes'; id: string; value: string }
+
+/** Kế hoạch dọn 1 cặp buổi TRÙNG NGÀY của 1 học sinh (bỏ `dropId`, giữ
+ *  `keepId`) — từ chối thay vì đoán khi dữ liệu không đúng như lúc duyệt.
+ *  Quy tắc (rà soát 24/10):
+ *   - bản bỏ đang mang dấu "đã thu" → dấu chuyển sang bản giữ (cùng 1 buổi đã
+ *     nằm trong phiếu; chỉ xóa thì bản giữ thành "chưa thu", bị thu lần 2);
+ *   - `extraBillId`: phiếu kiểu cũ đã đếm CẢ 2 bản → buổi CHƯA THU SỚM NHẤT kế
+ *     tiếp nằm trong số tiền đã thu (giữ đúng số buổi đã trả, như lần sửa 23/10);
+ *   - số buổi mang dấu "đã thu" sau khi sửa PHẢI bằng tổng số buổi trên phiếu;
+ *   - bản bỏ không được nằm trong danh sách buổi của phiếu nào (phiếu mới);
+ *   - đánh lại số 1..n theo ngày cho các buổi còn lại, chỉ khi số trước ngày
+ *     trùng đã liền nhau (lệch từ trước → không tự đánh, báo để xem tay). */
+export function planDuplicateFix(input: {
+  /** Buổi CÒN HIỆU LỰC của học sinh-lớp, đã sắp theo ngày rồi số buổi. */
+  live: Array<{ id: string; lessonNo: number; date: string; billed?: boolean; notes?: string }>
+  date: string
+  keepId: string
+  dropId: string
+  /** Tổng `sessionsBilled` các phiếu của học sinh-lớp; null = chưa có phiếu. */
+  paidSessions: number | null
+  noticedIds: string[]
+  extraBillId?: string
+  copyNotes?: boolean
+}): { ok: true; ops: DuplicateFixOp[] } | { ok: false; reason: string } {
+  const onDate = input.live.filter((s) => s.date === input.date)
+  const keep = onDate.find((s) => s.id === input.keepId)
+  const drop = onDate.find((s) => s.id === input.dropId)
+  if (onDate.length !== 2 || !keep || !drop) return { ok: false, reason: `ngày ${input.date} có ${onDate.length} buổi, không khớp đúng cặp giữ/bỏ` }
+  if (input.noticedIds.includes(drop.id)) return { ok: false, reason: 'bản bỏ nằm trong danh sách buổi của 1 phiếu học phí' }
+  const ops: DuplicateFixOp[] = [{ kind: 'delete', id: drop.id, wasBilled: !!drop.billed }]
+  const billed = new Set(input.live.filter((s) => s.billed && s.id !== drop.id).map((s) => s.id))
+  if (drop.billed) {
+    if (keep.billed) return { ok: false, reason: 'cả 2 bản đều đã thu — không tự chuyển dấu' }
+    ops.push({ kind: 'bill', id: keep.id })
+    billed.add(keep.id)
+  }
+  const rest = input.live.filter((s) => s.id !== drop.id)
+  if (input.extraBillId) {
+    const firstUnbilled = rest.find((s) => !billed.has(s.id))
+    if (!firstUnbilled || firstUnbilled.id !== input.extraBillId) return { ok: false, reason: 'buổi tính bù không phải buổi chưa thu sớm nhất' }
+    ops.push({ kind: 'bill', id: firstUnbilled.id })
+    billed.add(firstUnbilled.id)
+  }
+  if (input.paidSessions != null && billed.size !== input.paidSessions) {
+    return { ok: false, reason: `sau khi sửa có ${billed.size} buổi mang dấu đã thu ≠ ${input.paidSessions} buổi trên phiếu` }
+  }
+  if (input.copyNotes) {
+    if ((keep.notes ?? '').trim()) return { ok: false, reason: 'bản giữ đã có bài tập về nhà — không chép đè' }
+    if (!(drop.notes ?? '').trim()) return { ok: false, reason: 'bản bỏ không có bài tập về nhà để chép' }
+    ops.push({ kind: 'notes', id: keep.id, value: drop.notes! })
+  }
+  const firstBad = rest.findIndex((s, i) => s.lessonNo !== i + 1)
+  if (firstBad >= 0 && rest[firstBad].date < input.date) return { ok: false, reason: `số buổi đã lệch từ trước (${rest[firstBad].date} là Buổi ${rest[firstBad].lessonNo})` }
+  rest.forEach((s, i) => { if (s.lessonNo !== i + 1) ops.push({ kind: 'renumber', id: s.id, from: s.lessonNo, to: i + 1 }) })
+  return { ok: true, ops }
+}

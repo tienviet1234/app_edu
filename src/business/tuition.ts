@@ -237,3 +237,19 @@ export function duplicateDatesIn(sessions: Array<Pick<Session, 'date'>>): string
   for (const s of sessions) seen.set(s.date, (seen.get(s.date) ?? 0) + 1)
   return [...seen.entries()].filter(([, n]) => n > 1).map(([d]) => d).sort()
 }
+
+/** Ngày của các buổi TRONG KỲ mà em này có từ 2 buổi trở lên — so với TẤT CẢ
+ *  buổi của em (`allSessions`, kể cả buổi ĐÃ THU ở phiếu trước), không chỉ
+ *  trong kỳ. Chỉ xét trong kỳ (duplicateDatesIn) bỏ lọt cặp 1 bản đã thu + 1
+ *  bản chưa thu: bản chưa thu rơi vào kỳ sau → cùng 1 buổi thu 2 lần (rà soát
+ *  24/10: Kim Ngân 17/10, Tường Yên 16/10, Gia Nhi/Kim Nhã 14/10, Gia Linh 12/09). */
+export function periodDuplicateDates(
+  period: Array<Pick<Session, 'id' | 'date'>>,
+  allSessions: Array<Pick<Session, 'id' | 'date'>>,
+): string[] {
+  const byId = new Map(allSessions.map((s) => [s.id, s]))
+  for (const s of period) byId.set(s.id, s)
+  const count = new Map<string, number>()
+  for (const s of byId.values()) count.set(s.date, (count.get(s.date) ?? 0) + 1)
+  return [...new Set(period.map((s) => s.date).filter((d) => (count.get(d) ?? 0) > 1))].sort()
+}

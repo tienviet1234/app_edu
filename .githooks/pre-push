@@ -1,0 +1,5 @@
+#!/bin/sh
+# Mandatory checks before every push (admin rule, 24/10/2026). Any failure refuses the push.
+# Activate once per clone: git config core.hooksPath .githooks
+# Never bypass with `git push --no-verify`.
+exec node "$(git rev-parse --show-toplevel)/scripts/prepush.mjs"

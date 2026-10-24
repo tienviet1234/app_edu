@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { billingPeriodsOf, sessionsBilledOf, currentProgressOf, periodPositionOf, sessionLabelOf, unbilledSessionsOf, duePeriodsOf, effectiveRateOf, studentTuitionNote, duplicateDatesIn } from './tuition'
+import { billingPeriodsOf, sessionsBilledOf, currentProgressOf, periodPositionOf, sessionLabelOf, unbilledSessionsOf, duePeriodsOf, effectiveRateOf, studentTuitionNote, duplicateDatesIn, periodDuplicateDates } from './tuition'
 import { emptyEntry } from './seed'
 import type { AttendanceKey, Session, Student } from '@/types'
 
@@ -266,5 +266,55 @@ describe('duplicateDatesIn (chặn thu tiền dư khi kỳ có 2 buổi cùng ng
   })
   it('nhiều ngày trùng → liệt kê đủ, theo thứ tự', () => {
     expect(duplicateDatesIn([{ date: '2026-10-14' }, { date: '2026-09-26' }, { date: '2026-10-14' }, { date: '2026-09-26' }])).toEqual(['2026-09-26', '2026-10-14'])
+  })
+})
+
+describe('periodDuplicateDates (trùng ngày với CẢ buổi đã thu ở phiếu trước)', () => {
+  const oid = (n: number) => n.toString(16).padStart(24, '0')
+  const at = (n: number, date: string, billed = false): Session => ({ id: oid(n), no: n, date, entry: { ...emptyEntry(), attendance: 'present' }, ...(billed ? { billed: true } : {}) })
+  // Đúng dữ liệu thật Lớp 2 Tường Yên (rà soát 24/10): phiếu 20/10 thu 8 buổi
+  // nhưng chỉ 7 buổi mang dấu — bản 16/10 thứ 2 chưa thu, rơi vào kỳ sau.
+  const tuongYen = (): Session[] => [
+    at(1, '2026-09-25', true), at(2, '2026-09-30', true), at(3, '2026-10-02', true), at(4, '2026-10-07', true),
+    at(5, '2026-10-09', true), at(6, '2026-10-14', true), at(7, '2026-10-16', true), at(8, '2026-10-16'),
+    at(9, '2026-10-21'), at(10, '2026-10-23'), at(11, '2026-10-28'), at(12, '2026-10-30'),
+    at(13, '2026-11-04'), at(14, '2026-11-06'), at(15, '2026-11-11'),
+  ]
+  const notices = [{ periodFrom: 0, periodTo: 8 }]
+
+  it('LỌT cũ: chỉ xét trong kỳ (duplicateDatesIn) thì kỳ sau chứa 16/10 mà không bị chặn', () => {
+    const st = { sessions: tuongYen() }
+    const due = duePeriodsOf(st, 8, notices)
+    expect(due).toHaveLength(1)
+    const period = unbilledSessionsOf(st).slice(due[0].from, due[0].to)
+    expect(period.map((s) => s.date)).toContain('2026-10-16')
+    expect(duplicateDatesIn(period)).toEqual([])
+    // Chốt chặn mới bắt được.
+    expect(periodDuplicateDates(period, st.sessions)).toEqual(['2026-10-16'])
+  })
+
+  it('sau khi dọn (bỏ bản 16/10 cũ, dấu "đã thu" chuyển sang bản giữ + 21/10 bù): không còn trùng, kỳ sau bắt đầu từ 23/10', () => {
+    const fixed = tuongYen().filter((s) => s.no !== 7).map((s) => (s.no === 8 || s.no === 9 ? { ...s, billed: true } : s))
+    const st = { sessions: fixed }
+    expect(st.sessions.filter((s) => s.billed)).toHaveLength(8) // = 8 buổi trên phiếu
+    const unbilled = unbilledSessionsOf(st)
+    expect(unbilled[0].date).toBe('2026-10-23')
+    expect(duePeriodsOf(st, 8, notices)).toEqual([]) // mới 6 buổi chưa thu → chưa đến hạn
+    expect(periodDuplicateDates(unbilled, st.sessions)).toEqual([])
+  })
+
+  it('không trùng → rỗng; trùng NGOÀI kỳ (cả 2 bản đã thu) → không chặn kỳ này', () => {
+    const all = [at(1, '2026-09-26', true), at(2, '2026-09-26', true), at(3, '2026-10-03'), at(4, '2026-10-04')]
+    expect(periodDuplicateDates([all[2], all[3]], all)).toEqual([])
+  })
+
+  it('2 bản cùng nằm trong kỳ vẫn bắt được (như duplicateDatesIn), mỗi ngày báo 1 lần', () => {
+    const all = [at(1, '2026-10-14'), at(2, '2026-10-14'), at(3, '2026-10-16')]
+    expect(periodDuplicateDates(all, all)).toEqual(['2026-10-14'])
+  })
+
+  it('kỳ "Chốt buổi" truyền danh sách đã lọc khác mảng gốc: không đếm 1 buổi 2 lần vì cùng id', () => {
+    const all = [at(1, '2026-10-14'), at(2, '2026-10-16')]
+    expect(periodDuplicateDates([{ ...all[0] }, { ...all[1] }], all)).toEqual([])
   })
 })

@@ -1,5 +1,77 @@
 import { describe, it, expect } from 'vitest'
-import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator } from './dataRules.js'
+import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix } from './dataRules.js'
+
+describe('planDuplicateFix (dọn cặp buổi trùng ngày — rà soát 24/10)', () => {
+  type L = { id: string; lessonNo: number; date: string; billed?: boolean; notes?: string }
+  const s = (id: string, lessonNo: number, date: string, billed = false, notes = ''): L => ({ id, lessonNo, date, billed, notes })
+  // Dữ liệu thật Lớp 2 Tường Yên: phiếu 20/10 thu 8 buổi, chỉ 7 mang dấu.
+  const tuongYen = () => [
+    s('a1', 1, '2026-09-25', true), s('a2', 2, '2026-09-30', true), s('a3', 3, '2026-10-02', true), s('a4', 4, '2026-10-07', true),
+    s('a5', 5, '2026-10-09', true), s('a6', 6, '2026-10-14', true), s('old', 7, '2026-10-16', true), s('new', 8, '2026-10-16'),
+    s('n21', 9, '2026-10-21'), s('n23', 10, '2026-10-23'),
+  ]
+
+  it('Tường Yên: bỏ bản cũ đã thu → dấu sang bản giữ + tính bù 21/10, khớp 8 buổi trên phiếu, đánh lại số liền', () => {
+    const r = planDuplicateFix({ live: tuongYen(), date: '2026-10-16', keepId: 'new', dropId: 'old', paidSessions: 8, noticedIds: [], extraBillId: 'n21' })
+    expect(r).toEqual({ ok: true, ops: [
+      { kind: 'delete', id: 'old', wasBilled: true },
+      { kind: 'bill', id: 'new' },
+      { kind: 'bill', id: 'n21' },
+      { kind: 'renumber', id: 'new', from: 8, to: 7 },
+      { kind: 'renumber', id: 'n21', from: 9, to: 8 },
+      { kind: 'renumber', id: 'n23', from: 10, to: 9 },
+    ] })
+  })
+
+  it('không tính bù thì số buổi đã thu (7) lệch phiếu (8) → TỪ CHỐI, không đoán', () => {
+    const r = planDuplicateFix({ live: tuongYen(), date: '2026-10-16', keepId: 'new', dropId: 'old', paidSessions: 8, noticedIds: [] })
+    expect(r.ok).toBe(false)
+  })
+
+  it('buổi tính bù phải là buổi chưa thu SỚM NHẤT (chọn 23/10 bỏ qua 21/10 → từ chối)', () => {
+    expect(planDuplicateFix({ live: tuongYen(), date: '2026-10-16', keepId: 'new', dropId: 'old', paidSessions: 8, noticedIds: [], extraBillId: 'n23' }).ok).toBe(false)
+  })
+
+  it('bản bỏ chưa thu, chưa có phiếu: chỉ xóa + đánh lại số, không đụng dấu đã thu', () => {
+    const live = [s('x1', 1, '2026-10-02'), s('admin', 2, '2026-10-14'), s('teacher', 3, '2026-10-14'), s('x4', 4, '2026-10-16')]
+    const r = planDuplicateFix({ live, date: '2026-10-14', keepId: 'teacher', dropId: 'admin', paidSessions: null, noticedIds: [] })
+    expect(r).toEqual({ ok: true, ops: [
+      { kind: 'delete', id: 'admin', wasBilled: false },
+      { kind: 'renumber', id: 'teacher', from: 3, to: 2 },
+      { kind: 'renumber', id: 'x4', from: 4, to: 3 },
+    ] })
+  })
+
+  it('chép bài tập về nhà khi bản giữ trống (Bảo Uyên); bản giữ đã có thì TỪ CHỐI, không chép đè', () => {
+    const live = [s('drop', 1, '2026-10-14', false, 'Unit 3 lesson 3'), s('keep', 2, '2026-10-14')]
+    const r = planDuplicateFix({ live, date: '2026-10-14', keepId: 'keep', dropId: 'drop', paidSessions: null, noticedIds: [], copyNotes: true })
+    expect(r.ok && r.ops).toContainEqual({ kind: 'notes', id: 'keep', value: 'Unit 3 lesson 3' })
+    live[1].notes = 'đã có'
+    expect(planDuplicateFix({ live, date: '2026-10-14', keepId: 'keep', dropId: 'drop', paidSessions: null, noticedIds: [], copyNotes: true }).ok).toBe(false)
+  })
+
+  it('dữ liệu đã đổi so với lúc duyệt (còn 1 buổi / 3 buổi / sai id) → TỪ CHỐI', () => {
+    const base = [s('a', 1, '2026-10-14'), s('b', 2, '2026-10-14')]
+    expect(planDuplicateFix({ live: [base[0]], date: '2026-10-14', keepId: 'a', dropId: 'b', paidSessions: null, noticedIds: [] }).ok).toBe(false)
+    expect(planDuplicateFix({ live: [...base, s('c', 3, '2026-10-14')], date: '2026-10-14', keepId: 'a', dropId: 'b', paidSessions: null, noticedIds: [] }).ok).toBe(false)
+    expect(planDuplicateFix({ live: base, date: '2026-10-14', keepId: 'a', dropId: 'zzz', paidSessions: null, noticedIds: [] }).ok).toBe(false)
+  })
+
+  it('bản bỏ nằm trong danh sách buổi của phiếu mới → TỪ CHỐI', () => {
+    const live = [s('a', 1, '2026-10-14', true), s('b', 2, '2026-10-14')]
+    expect(planDuplicateFix({ live, date: '2026-10-14', keepId: 'b', dropId: 'a', paidSessions: 1, noticedIds: ['a'] }).ok).toBe(false)
+  })
+
+  it('cả 2 bản đều đã thu (Ngọc Minh Lớp 9) → TỪ CHỐI, phải người quyết', () => {
+    const live = [s('a', 1, '2026-09-26', true), s('b', 2, '2026-09-26', true)]
+    expect(planDuplicateFix({ live, date: '2026-09-26', keepId: 'a', dropId: 'b', paidSessions: 2, noticedIds: [] }).ok).toBe(false)
+  })
+
+  it('số buổi đã lệch TRƯỚC ngày trùng → TỪ CHỐI (không tự đánh lại cả dãy)', () => {
+    const live = [s('a', 1, '2026-10-01'), s('b', 5, '2026-10-03'), s('c', 6, '2026-10-14'), s('d', 7, '2026-10-14')]
+    expect(planDuplicateFix({ live, date: '2026-10-14', keepId: 'c', dropId: 'd', paidSessions: null, noticedIds: [] }).ok).toBe(false)
+  })
+})
 
 describe('isGradedScore / gradedTotal (buổi chỉ có ghi chú KHÔNG phải 0 điểm)', () => {
   it('buổi admin thêm bù chỉ có ghi chú (Trần Đan 12/09 "Con chưa hoàn thành video") → không tính vào điểm TB', () => {
