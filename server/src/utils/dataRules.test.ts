@@ -1,5 +1,25 @@
 import { describe, it, expect } from 'vitest'
-import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix } from './dataRules.js'
+import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession } from './dataRules.js'
+
+describe('navClicksWithoutSession (bấm chuyển em mà không có gì được lưu)', () => {
+  const click = (studentName: string, sessionNo: number, date = '2026-10-29') => ({ className: 'Lớp 7', studentName, date, sessionNo })
+  const sessions = [{ className: 'Lớp 7', studentName: 'Minh Nhân', date: '2026-10-29' }, { className: 'Lớp 7', studentName: 'Vương Thắng', date: '2026-10-29' }]
+
+  it('ca thật Lớp 7: em không có buổi đúng ngày bị báo, dù cùng lượt có em khác được lưu', () => {
+    const r = navClicksWithoutSession([click('Thiên Vương', 0), click('Minh Nhân', 15), click('Tuấn', 0)], sessions)
+    expect(r.map((x) => x.studentName)).toEqual(['Thiên Vương', 'Tuấn'])
+  })
+  it('lúc bấm chưa có buổi nhưng sau đó đã nhập bù → không báo nữa', () => {
+    expect(navClicksWithoutSession([click('Vương Thắng', 0)], sessions)).toEqual([])
+  })
+  it('bấm lúc đang có buổi (sessionNo > 0) → không báo; cùng ngày cùng em chỉ báo 1 lần', () => {
+    expect(navClicksWithoutSession([click('A', 3)], [])).toEqual([])
+    expect(navClicksWithoutSession([click('A', 0), click('A', 0)], [])).toHaveLength(1)
+  })
+  it('có buổi ở LỚP KHÁC hoặc NGÀY KHÁC thì vẫn báo', () => {
+    expect(navClicksWithoutSession([click('A', 0)], [{ className: 'Lớp 8', studentName: 'A', date: '2026-10-29' }, { className: 'Lớp 7', studentName: 'A', date: '2026-10-27' }])).toHaveLength(1)
+  })
+})
 
 describe('planDuplicateFix (dọn cặp buổi trùng ngày — rà soát 24/10)', () => {
   type L = { id: string; lessonNo: number; date: string; billed?: boolean; notes?: string }

@@ -1,10 +1,30 @@
 /// <reference lib="webworker" />
-import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching'
+import { cleanupOutdatedCaches, matchPrecache, precacheAndRoute } from 'workbox-precaching'
+import { NavigationRoute, registerRoute } from 'workbox-routing'
 
 declare let self: ServiceWorkerGlobalScope & typeof globalThis
 
 cleanupOutdatedCaches()
 precacheAndRoute(self.__WB_MANIFEST)
+
+// Mở/tải lại app ở MỌI đường dẫn (/app, /admin...) khi mất mạng: thử mạng trước
+// (có mạng vẫn y như cũ), không được hoặc quá 6 giây thì dùng trang đã lưu sẵn.
+// Trước đây chỉ "/" có trong kho nên F5 ở /app lúc mất mạng ra trang lỗi của
+// trình duyệt — giáo viên tưởng mất hết buổi vừa nhập. (Ghi chú: navigateFallback
+// trong vite.config.ts KHÔNG có tác dụng với injectManifest.)
+// Hết giờ thì HỦY hẳn lệnh tải: lệnh còn treo giữ service worker cũ bận, bản mới
+// nằm chờ không kích hoạt được.
+registerRoute(new NavigationRoute(async ({ request }) => {
+  const abort = new AbortController()
+  const timer = setTimeout(() => abort.abort(), 6000)
+  try {
+    return await fetch(request, { signal: abort.signal })
+  } catch {
+    return (await matchPrecache('/index.html')) ?? Response.error()
+  } finally {
+    clearTimeout(timer)
+  }
+}))
 
 // Bản mới phải TỰ kích hoạt ngay khi cài xong. Ở chế độ 'autoUpdate' với
 // injectManifest, vite-plugin-pwa KHÔNG gửi lệnh SKIP_WAITING — trước đây chỉ

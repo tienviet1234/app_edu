@@ -242,6 +242,25 @@ export function checkNoticeSessions(input: {
   return { ok: true }
 }
 
+/** Lần bấm chuyển em (`score.entry`) khi em CHƯA có buổi (`sessionNo` 0), mà tới
+ *  giờ em đó vẫn không có buổi đúng ngày bấm — dấu hiệu tưởng đã điểm danh nhưng
+ *  không có gì được lưu (sự cố thật Lớp 7: 29/10 thiếu 8 em, 03/11 thiếu 10 em).
+ *  Đối chiếu theo TỪNG EM: cách cũ "tài khoản có lưu gì đó trong 2 phút" che mất
+ *  các em này vì trong cùng lượt bấm có em khác được lưu. */
+export function navClicksWithoutSession<T extends { className: string; studentName: string; date: string; sessionNo?: number }>(
+  clicks: T[],
+  sessions: Array<{ className: string; studentName: string; date: string }>,
+): T[] {
+  const has = new Set(sessions.map((s) => `${s.className}|${s.studentName}|${s.date}`))
+  const seen = new Set<string>()
+  return clicks.filter((c) => {
+    const key = `${c.className}|${c.studentName}|${c.date}`
+    if (c.sessionNo !== 0 || has.has(key) || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 export type DuplicateFixOp =
   | { kind: 'delete'; id: string; wasBilled: boolean }
   | { kind: 'bill'; id: string }

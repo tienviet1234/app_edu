@@ -1,50 +1,23 @@
 import { useState } from 'react'
-import { classService } from '@/services/classes'
-import { sessionService } from '@/services/sessions'
-import { findMissingSessions, type MissingReport } from '@/business/missingSessions'
+import { scanMissingSessions, type MissingClassResult } from '@/services/missingSessions'
 import { toast } from '@/store/toastStore'
-import { todayISO } from '@/utils/format'
 import { C } from '@/constants/colors'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 
 const dm = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`
 
-interface ClassResult {
-  name: string
-  names: Map<string, string>
-  report: MissingReport
-}
-
 /** Kiểm tra buổi THIẾU của từng học sinh so với lịch học của cả lớp — phát
  *  hiện sớm dữ liệu mất/lạc/chưa nhập (sự cố thật: Lớp 3/4/5 mất 17/10 ở
  *  nhiều em, Lớp 10 cả lớp không có buổi nào sau 10/10). Chỉ đọc. */
 export function MissingSessionsCard() {
   const [running, setRunning] = useState(false)
-  const [results, setResults] = useState<ClassResult[] | null>(null)
+  const [results, setResults] = useState<MissingClassResult[] | null>(null)
 
   const scan = async () => {
     setRunning(true)
     try {
-      const { items } = await classService.list({ status: 'active', limit: '100' })
-      const out: ClassResult[] = []
-      const today = todayISO()
-      for (const cls of items) {
-        const [students, sessions] = await Promise.all([
-          classService.getStudents(cls._id),
-          sessionService.listAll({ classId: cls._id }),
-        ])
-        if (!students.length) continue
-        const report = findMissingSessions(
-          students.map((s) => s._id),
-          sessions.filter((s) => s.studentId).map((s) => ({ studentId: s.studentId!, date: s.scheduledAt.slice(0, 10) })),
-          today,
-        )
-        if (report.noOneDays.length || report.byStudent.length) {
-          out.push({ name: cls.name, names: new Map(students.map((s) => [s._id, s.name])), report })
-        }
-      }
-      setResults(out.sort((a, b) => a.name.localeCompare(b.name, 'vi', { numeric: true })))
+      setResults(await scanMissingSessions())
     } catch (err) {
       const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message
       toast.error(`Quét thất bại${msg ? `: ${msg}` : ''}`, { persist: true })

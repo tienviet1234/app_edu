@@ -11,7 +11,7 @@ import { periodPositionOf, sessionLabelOf } from '@/business/tuition'
 import { emptyEntry } from '@/business/seed'
 import {
   resolvePlausibleNo, pendingSessionsOf, adoptServerSession, markSessionSaved, markConflict, resolveConflict, detachDeletedSession,
-  toSessionEntry, sameDateClash, takeServerCopy, appendOrphans, homeworkToBackfill, type ServerScoreForSync,
+  toSessionEntry, sameDateClash, navChoiceOf, unsentCountOf, takeServerCopy, appendOrphans, homeworkToBackfill, type ServerScoreForSync,
 } from '@/business/sync'
 import { useAppStore } from '@/store/appStore'
 import { useAuthStore } from '@/store/authStore'
@@ -177,7 +177,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
     if (initialTarget) onConsumeInitialTarget?.()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error' | 'offline'>('idle')
   const [backfilling, setBackfilling] = useState(false)
   const [hwSyncing, setHwSyncing] = useState(false)
   const [backfillProgress, setBackfillProgress] = useState({ done: 0, total: 0 })
@@ -250,6 +250,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   const e = session?.entry ?? emptyEntry()
   // Buổi mới định tạo trùng ngày với 1 buổi khác của em này → chặn nhập.
   const clash = st ? sameDateClash(st, selectedNo, effectiveDate) : null
+  const navChoice = navChoiceOf(st ?? { sessions: [] }, selectedNo, effectiveDate)
   const lastClashToastRef = useRef(0)
 
   function handleDateChange(newDate: string) {
@@ -491,7 +492,12 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
       const firstFailure = !failedAtRef.current.has(sessionLocalId)
       failedAtRef.current.set(sessionLocalId, Date.now())
       setTimeout(() => setRetryTick((t) => t + 1), RETRY_MS)
-      if (!opts.silent || firstFailure) {
+      // Mất mạng: dữ liệu vẫn an toàn trên máy, có mạng lại tự gửi — nói đúng như
+      // vậy, không báo lỗi đỏ khiến giáo viên tưởng mất điểm (thanh trên cùng đã báo).
+      if (!resp) {
+        setSyncStatus('offline')
+        if (!opts.silent) toast.info(`${label} của ${student.name} đã lưu trên máy — sẽ tự gửi lên khi có mạng.`)
+      } else if (!opts.silent || firstFailure) {
         toast.error(
           msg
             ? `Không lưu được Buổi ${target.no} của ${student.name} — ${msg}`
@@ -552,6 +558,16 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
     }
     document.addEventListener('visibilitychange', flush)
     return () => document.removeEventListener('visibilitychange', flush)
+  }, [])
+
+  // Vừa có mạng lại → gửi ngay các buổi đang chờ, không đợi hết 1 phút thử lại.
+  useEffect(() => {
+    function onOnline() {
+      failedAtRef.current.clear()
+      setRetryTick((t) => t + 1)
+    }
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
   }, [])
 
   // Đẩy "Bài tập về nhà" chỉ nằm trên máy này lên server — CHỈ điền buổi server
@@ -935,8 +951,14 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
       {clash && st && (
         <Card className="p-3 text-sm font-semibold" >
           <span style={{ color: C.red }}>
-            ⚠ {st.name} đã có {sessionLabelOf(clash.no, cls.perMonth, st.sessionOffset)} ngày {viDate(clash.date)} rồi — {sessionLabelOf(selectedNo, cls.perMonth, st.sessionOffset)} (buổi mới) không được trùng ngày. Đổi ngày ở ô ngày bên dưới cho đúng ngày học của buổi mới, hoặc chọn đúng buổi ngày {viDate(clash.date)} để sửa.
+            ⚠ {st.name} đã có {sessionLabelOf(clash.no, cls.perMonth, st.sessionOffset)} ngày {viDate(clash.date)} rồi — {sessionLabelOf(selectedNo, cls.perMonth, st.sessionOffset)} (buổi mới) không được trùng ngày, nên bấm điểm lúc này sẽ không có tác dụng.
           </span>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Btn size="sm" onClick={() => { void syncScore(st.id); setSelectedNo(clash.no); setDraftDate(todayISO()) }}>
+              Mở {sessionLabelOf(clash.no, cls.perMonth, st.sessionOffset)} ngày {viDate(clash.date)}
+            </Btn>
+            <Btn size="sm" onClick={() => setEditingWhen(true)}>Đổi ngày buổi mới</Btn>
+          </div>
         </Card>
       )}
       <Card className="p-3">
@@ -1139,6 +1161,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
               <span className="animate-slide-down" style={{ color: C.emerald }}>✓ Đã lưu</span>
             )}
             {syncStatus === 'error' && <span style={{ color: C.red }}>⚠ Lỗi lưu</span>}
+            {syncStatus === 'offline' && <span style={{ color: C.board2 }}>📴 Đã lưu trên máy, chờ mạng</span>}
             <span>Đã nhập <b style={{ color: C.ink }}>{done}</b>/{cls.students.length}</span>
           </div>
         </div>
@@ -1269,6 +1292,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
             const active = i === cur
             const inGroup = groupSelected.has(s.id)
             const missing = t === null && ss?.entry.attendance !== 'excused'
+            const unsent = unsentCountOf(s)
 
             return (
               <button
@@ -1314,6 +1338,15 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                     className="absolute -top-1 -right-1 h-2 w-2 rounded-full"
                     style={{ background: '#F59E0B' }}
                   />
+                )}
+                {unsent > 0 && (
+                  <span
+                    title={`${unsent} buổi của ${s.name} đã lưu trên máy này, chưa lên server — sẽ tự gửi khi có mạng`}
+                    className="absolute -top-2 -left-1 rounded-full px-1 text-[10px] font-bold leading-4"
+                    style={{ background: C.board2, color: '#fff' }}
+                  >
+                    ☁✗{unsent}
+                  </span>
                 )}
               </button>
             )
@@ -1707,7 +1740,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
         >
           <Card className="w-full max-w-sm p-5" onClick={(x) => x.stopPropagation()}>
             <div className="mb-3 text-sm font-bold uppercase tracking-wide" style={{ color: C.muted }}>
-              Xác nhận trước khi lưu
+              {navChoice.kind === 'hasSession' ? 'Xác nhận trước khi lưu' : 'Em này chưa có buổi này'}
             </div>
             <div className="space-y-1.5 text-sm">
               <div className="flex justify-between">
@@ -1724,7 +1757,9 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
               </div>
               <div className="flex justify-between">
                 <span style={{ color: C.muted }}>Điểm danh</span>
-                <b style={{ color: C.ink }}>{ATTEND.find((a) => a.key === e.attendance)?.label ?? '—'}</b>
+                <b style={{ color: navChoice.kind === 'hasSession' ? C.ink : C.red }}>
+                  {navChoice.kind === 'hasSession' ? (ATTEND.find((a) => a.key === e.attendance)?.label ?? '—') : 'Chưa ghi gì'}
+                </b>
               </div>
               <div className="flex justify-between">
                 <span style={{ color: C.muted }}>Tổng điểm</span>
@@ -1749,12 +1784,41 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
               </div>
             )}
 
-            <div className="mt-4 flex gap-2">
-              <Btn className="flex-1" onClick={cancelNav}>← Sửa lại</Btn>
-              <Btn kind="gold" className="flex-1" onClick={confirmNav} disabled={!!orderConflict && !orderWarningAcked}>
-                ✓ Xác nhận
-              </Btn>
-            </div>
+            {navChoice.kind === 'noSession' && (
+              <div className="mt-3 rounded-xl p-3 text-xs" style={{ background: C.gold + '1F', border: `1px solid ${C.gold}66`, color: C.ink }}>
+                Chưa có gì được lưu cho {st.name} ngày {viDate(effectiveDate)}. Em có mặt thì bấm <b>Ghi đi học đúng giờ</b>. Chỉ xem qua hoặc chưa điểm danh thì bấm <b>Bỏ qua</b> — sẽ không có buổi nào được tạo.
+              </div>
+            )}
+            {navChoice.kind === 'clash' && (
+              <div className="mt-3 rounded-xl p-3 text-xs" style={{ background: C.red + '14', border: `1px solid ${C.red}66`, color: C.ink }}>
+                Ngày {viDate(effectiveDate)} em này đã có {sessionLabelOf(navChoice.clash.no, cls.perMonth, st.sessionOffset)}, nên không tạo thêm buổi cùng ngày. Bấm <b>Sửa lại</b> để đổi ngày hoặc mở đúng buổi đó.
+              </div>
+            )}
+
+            {navChoice.kind === 'hasSession' ? (
+              <div className="mt-4 flex gap-2">
+                <Btn className="flex-1" onClick={cancelNav}>← Sửa lại</Btn>
+                <Btn kind="gold" className="flex-1" onClick={confirmNav} disabled={!!orderConflict && !orderWarningAcked}>
+                  ✓ Xác nhận
+                </Btn>
+              </div>
+            ) : (
+              <div className="mt-4 flex flex-col gap-2">
+                {navChoice.kind === 'noSession' && (
+                  <Btn
+                    kind="gold"
+                    disabled={!!orderConflict && !orderWarningAcked}
+                    onClick={() => { mut((en) => { en.attendance = 'present' }); confirmNav() }}
+                  >
+                    ✓ Ghi đi học đúng giờ
+                  </Btn>
+                )}
+                <div className="flex gap-2">
+                  <Btn className="flex-1" onClick={cancelNav}>← Sửa lại</Btn>
+                  <Btn className="flex-1" onClick={confirmNav}>Bỏ qua, chưa điểm danh</Btn>
+                </div>
+              </div>
+            )}
           </Card>
         </div>
       )}

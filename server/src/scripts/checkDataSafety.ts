@@ -3,6 +3,7 @@
 // Run: npx tsx src/scripts/checkDataSafety.ts [hours=24]
 import mongoose from 'mongoose'
 import { connectDB } from '../config/db.js'
+import { navClicksWithoutSession } from '../utils/dataRules.js'
 
 const HOURS = Number(process.argv[2] ?? 24)
 const vn = (d: Date | string | number) => new Date(new Date(d).getTime() + 7 * 3600e3).toISOString().slice(0, 16).replace('T', ' ')
@@ -24,17 +25,27 @@ async function main() {
   const logs = await db.collection('auditlogs').find({ createdAt: { $gt: since } }).toArray()
   const by = (a: string) => logs.filter((l) => l.action === a)
   const entries = by('score.entry')
-  const saves = logs.filter((l) => l.action === 'score.upsert' || l.action === 'score.upsert.rejected')
   const actors = [...new Set(logs.filter((l) => l.actorId && /^score\.|^session\./.test(l.action)).map((l) => String(l.actorId)))]
   if (!actors.length) console.log('  (chưa có ai nhập điểm trong khoảng này)')
   for (const a of actors) {
     const mine = (x: { [k: string]: unknown }) => String(x.actorId) === a
     const e = entries.filter(mine)
-    const unpaired = e.filter((x) => !saves.some((s) => mine(s) && Math.abs(s.createdAt.getTime() - x.createdAt.getTime()) < 120e3))
     const versions = [...new Set(logs.filter((l) => mine(l) && l.appVersion).map((l) => l.appVersion as string))]
-    console.log(`  ${nameOf(a)}: ${by('score.upsert').filter(mine).length} lần lưu điểm, ${by('session.create').filter(mine).length} buổi mới, ${e.length} lần bấm chuyển em/buổi · bản app ${versions.join(', ') || 'cũ (chưa gửi số phiên bản)'}` +
-      (unpaired.length ? ` — ${unpaired.length} lần bấm không thấy lần lưu đi kèm (có thể chỉ xem, không sửa)` : ''))
+    console.log(`  ${nameOf(a)}: ${by('score.upsert').filter(mine).length} lần lưu điểm, ${by('session.create').filter(mine).length} buổi mới, ${e.length} lần bấm chuyển em/buổi · bản app ${versions.join(', ') || 'cũ (chưa gửi số phiên bản)'}`)
   }
+  // Bấm chuyển em khi em chưa có buổi, tới giờ vẫn không có buổi đúng ngày bấm.
+  const classDocs = await db.collection('classes').find({}, { projection: { name: 1 } }).toArray()
+  const liveForNav = await db.collection('classsessions').find({ deletedAt: { $exists: false }, studentId: { $exists: true }, scheduledAt: { $gt: new Date(since.getTime() - 86400e3) } }, { projection: { classId: 1, studentId: 1, scheduledAt: 1 } }).toArray()
+  const navMissed = navClicksWithoutSession(
+    entries.map((x) => ({ className: String(x.metadata?.className ?? ''), studentName: String(x.metadata?.studentName ?? ''), date: vnDay(x.createdAt), sessionNo: x.metadata?.sessionNo as number | undefined, actorId: x.actorId })),
+    liveForNav.map((s) => ({ className: classDocs.find((c) => String(c._id) === String(s.classId))?.name ?? '', studentName: nameOf(s.studentId), date: vnDay(s.scheduledAt) })),
+  )
+  if (navMissed.length) {
+    const groups = new Map<string, string[]>()
+    for (const c of navMissed) { const k = `${c.date} ${c.className} (${nameOf(c.actorId)})`; groups.set(k, [...(groups.get(k) ?? []), c.studentName]) }
+    warn(`${navMissed.length} lần bấm chuyển em mà em CHƯA có buổi, tới giờ vẫn không có buổi đúng ngày bấm (có thể tưởng đã điểm danh):`)
+    for (const [k, names] of groups) console.log(`      ${k}: ${names.join(', ')}`)
+  } else ok('Không có lần bấm chuyển em nào bỏ sót buổi')
   const rejected = logs.filter((l) => /\.rejected$/.test(l.action))
   if (rejected.length) {
     warn(`${rejected.length} lần server TỪ CHỐI lưu (nội dung vẫn còn trong nhật ký):`)

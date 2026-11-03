@@ -20,8 +20,10 @@ import { useClasses, useClassStudents, useSessions, useClassScores, usePwaInstal
 import { isMongoid } from '@/utils/mongoid'
 import {
   pruneGoneFromServer, syncStudentsFromServer, adoptServerSession, markSessionSaved, markConflict, detachDeletedSession, toSessionEntry, maxesToBackfill,
-  collectOrphans, appendOrphans, type ServerScoreForSync,
+  collectOrphans, appendOrphans, unsentSessionCount, type ServerScoreForSync,
 } from '@/business/sync'
+import { useOnlineStatus } from '@/hooks/useOnlineStatus'
+import { MissingSessionsBanner } from '@/features/admin/MissingSessionsBanner'
 import { getClassRubric } from '@/constants/rubrics'
 import { rescaleComp, sessionScore } from '@/business/scoring'
 import { autoLevel } from '@/constants/rubrics'
@@ -626,10 +628,17 @@ export default function App() {
   // không phụ thuộc `data` — tránh gọi lại mỗi khi gõ điểm làm `data` đổi
   // liên tục). Đồng bộ HỌC SINH trước — điểm của 1 buổi chỉ đồng bộ được
   // khi chính học sinh đó đã có id thật trên server.
+  // Mở app lúc mất mạng: chờ có mạng + xác thực lại xong mới chạy (trước đây gửi
+  // ngay → báo lỗi, rồi KHÔNG thử lại lần nào trong phiên). Mất mạng rồi có lại
+  // thì chạy lại — chỉ điền phần server thiếu (ifAbsent), không ghi đè.
   const autoSyncedForRef = useRef<string | undefined>(undefined)
+  const online = useOnlineStatus()
+  const sessionOffline = useAuthStore((s) => s.sessionOffline)
+  const reachable = online && !sessionOffline
   useEffect(() => {
     if (!data || !user) return
     if (user.role !== 'teacher' && user.role !== 'admin') return
+    if (!reachable) { autoSyncedForRef.current = undefined; return }
     if (autoSyncedForRef.current === user.id) return
     autoSyncedForRef.current = user.id
     void (async () => {
@@ -648,7 +657,7 @@ export default function App() {
       }
     })()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [!!data, user?.id])
+  }, [!!data, user?.id, reachable])
 
   // Bản chụp toàn bộ dữ liệu máy này gửi lên server (có đổi thì gửi, tối đa
   // 1 phút/lần + khi rời tab) — lưới an toàn kể cả với dữ liệu chưa lên server
@@ -802,6 +811,13 @@ export default function App() {
           )}
         </div>
       </header>
+
+      {!reachable && (
+        <div className="px-4 py-2 text-sm font-semibold" style={{ background: C.board2 + '1F', borderBottom: `1px solid ${C.board2}55`, color: C.ink }}>
+          📴 Đang mất mạng — {unsentSessionCount(data.classes) > 0 ? `${unsentSessionCount(data.classes)} buổi đã lưu trên máy, sẽ tự gửi lên khi có mạng.` : 'điểm nhập lúc này sẽ lưu trên máy và tự gửi lên khi có mạng.'} Cứ nhập tiếp được. Đừng đăng xuất hoặc xóa dữ liệu trình duyệt.
+        </div>
+      )}
+      {user?.role === 'admin' && reachable && <MissingSessionsBanner />}
 
       {canInstall && (
         <div

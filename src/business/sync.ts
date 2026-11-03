@@ -449,6 +449,33 @@ export function sameDateClash(student: { sessions: Session[] }, no: number, date
   return student.sessions.find((s) => s.date === date) ?? null
 }
 
+export type NavChoice =
+  | { kind: 'hasSession' }
+  | { kind: 'noSession' }
+  | { kind: 'clash'; clash: Session }
+
+/** Bấm chuyển em khi đang xem buổi `no`: em này ĐÃ có buổi đó chưa? Phiếu trống
+ *  vẫn tô sẵn "Đi học đúng giờ" nhưng buổi chưa tồn tại — trước đây hộp xác nhận
+ *  vẫn ghi "Điểm danh: Đi học đúng giờ", bấm Xác nhận KHÔNG lưu gì, không báo gì
+ *  (sự cố thật: Lớp 7 ngày 29/10 thiếu 8/11 em, 03/11 thiếu 10/11 em). Chưa có
+ *  buổi thì phải để người dùng chọn: không được tự tạo, vì buổi mới mặc định "có
+ *  mặt" sẽ tính học phí — chỉ xem qua cũng sinh buổi. */
+export function navChoiceOf(student: { sessions: Session[] }, no: number, date: string): NavChoice {
+  if (student.sessions.some((s) => s.no === no)) return { kind: 'hasSession' }
+  const clash = sameDateClash(student, no, date)
+  return clash ? { kind: 'clash', clash } : { kind: 'noSession' }
+}
+
+/** Số buổi trên máy CHƯA lên server (id tạm, hoặc đã sửa mà server chưa xác
+ *  nhận) — hiện cho giáo viên biết dữ liệu vẫn còn trên máy, sẽ tự gửi. */
+export function unsentCountOf(student: { sessions: Session[] }): number {
+  return student.sessions.filter((s) => s.dirty === true || !isMongoid(s.id)).length
+}
+
+export function unsentSessionCount(classes: Array<{ students: Array<{ sessions: Session[] }> }>): number {
+  return classes.reduce((n, c) => n + c.students.reduce((m, st) => m + unsentCountOf(st), 0), 0)
+}
+
 /** Xóa 1 buổi khỏi máy (màn Sửa số buổi / Thống kê buổi / Lớp học): buổi còn
  *  dữ liệu CHƯA lên server thì trả về bản ghi kho giữ lại (`deletedLocal`) để
  *  lưu trước khi xóa — trước đây chỉ màn Sửa số buổi làm vậy, 2 màn kia xóa

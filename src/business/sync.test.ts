@@ -3,10 +3,47 @@ import {
   pruneGoneFromServer, resolvePlausibleNo, syncStudentsFromServer, adoptServerSession, pendingSessionsOf, markSessionSaved,
   markConflict, resolveConflict, collectOrphans, appendOrphans, sameDateClash, detachDeletedSession,
   orphanForLocalDelete, rescueOtherTabSessions, maxesToBackfill, takeServerCopy, countUnsaved, homeworkToBackfill,
+  navChoiceOf, unsentCountOf, unsentSessionCount,
   type ServerSessionForSync, type ServerScoreForSync,
 } from './sync'
 import { emptyEntry, normalize } from './seed'
 import type { OrphanRecord, Session } from '@/types'
+
+describe('navChoiceOf (bấm chuyển em khi em chưa có buổi — sự cố Lớp 7 ngày 29/10)', () => {
+  const oid = (n: number) => n.toString(16).padStart(24, '0')
+  const at = (n: number, date: string): Session => ({ id: oid(n), no: n, date, entry: emptyEntry() })
+  const st = { sessions: [at(19, '2026-10-20'), at(20, '2026-10-22')] }
+
+  it('đã có buổi đang xem → lưu như thường', () => {
+    expect(navChoiceOf(st, 20, '2026-10-22')).toEqual({ kind: 'hasSession' })
+  })
+  it('buổi chưa tồn tại → phải hỏi, không được báo như đã điểm danh', () => {
+    expect(navChoiceOf(st, 21, '2026-10-29')).toEqual({ kind: 'noSession' })
+  })
+  it('buổi chưa tồn tại mà ngày đó em đã có buổi khác → không cho ghi (không tạo trùng ngày)', () => {
+    expect(navChoiceOf(st, 21, '2026-10-22')).toEqual({ kind: 'clash', clash: st.sessions[1] })
+  })
+  it('em chưa có buổi nào', () => {
+    expect(navChoiceOf({ sessions: [] }, 1, '2026-10-29')).toEqual({ kind: 'noSession' })
+  })
+})
+
+describe('unsentCountOf / unsentSessionCount (báo buổi chưa lên server)', () => {
+  const oid = (n: number) => n.toString(16).padStart(24, '0')
+  const at = (id: string, extra: Partial<Session> = {}): Session => ({ id, no: 1, date: '2026-10-29', entry: emptyEntry(), ...extra })
+
+  it('đếm buổi id tạm + buổi đã sửa chưa gửi; buổi đã khớp server không tính', () => {
+    expect(unsentCountOf({ sessions: [at(oid(1), { synced: true }), at('tmp-a'), at(oid(2), { dirty: true })] })).toBe(2)
+  })
+  it('cộng cả mọi lớp, mọi em', () => {
+    const classes = [
+      { students: [{ sessions: [at('tmp-a')] }, { sessions: [at(oid(1))] }] },
+      { students: [{ sessions: [at(oid(2), { dirty: true }), at('tmp-b')] }] },
+    ]
+    expect(unsentSessionCount(classes)).toBe(3)
+    expect(unsentSessionCount([])).toBe(0)
+  })
+})
 
 describe('normalize (mở app)', () => {
   it('GIỮ cờ billed/dirty/synced/maxes — trước đây bỏ mất billed mỗi lần mở app (buổi đã thu tiền bị đếm lại)', () => {

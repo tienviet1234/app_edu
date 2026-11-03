@@ -1,7 +1,47 @@
 import { describe, it, expect } from 'vitest'
-import { findMissingSessions } from './missingSessions'
+import { findMissingSessions, recentMissingDays } from './missingSessions'
 
 const many = (ids: string[], dates: string[]) => ids.flatMap((studentId) => dates.map((date) => ({ studentId, date })))
+
+describe('recentMissingDays (cảnh báo admin ngay khi mở app)', () => {
+  // Lớp 7 thật: học thứ 3/5/7, ngày 29/10 chỉ 3/11 em có buổi.
+  const ids = Array.from({ length: 11 }, (_, i) => `s${i}`)
+  const REGULAR = ['2026-10-13', '2026-10-15', '2026-10-17', '2026-10-20', '2026-10-22', '2026-10-24', '2026-10-27']
+  const sessions = [...many(ids, REGULAR), ...many(['s0', 's1', 's2'], ['2026-10-29']), ...many(ids, ['2026-10-31'])]
+  const report = findMissingSessions(ids, sessions, '2026-11-03')
+
+  it('ca thật Lớp 7: báo 29/10 thiếu đúng 8 em dù 3/11 em có buổi', () => {
+    const days = recentMissingDays(report, '2026-11-03')
+    const d = days.find((x) => x.date === '2026-10-29')
+    expect(d?.studentIds).toHaveLength(8)
+    expect(d?.wholeClass).toBe(false)
+    expect(d?.studentIds).not.toContain('s0')
+  })
+
+  it('không báo HÔM NAY (lớp có thể chưa học / chưa nhập xong), báo hôm qua', () => {
+    const r = findMissingSessions(ids, many(ids, REGULAR), '2026-10-29')
+    expect(recentMissingDays(r, '2026-10-29').map((d) => d.date)).not.toContain('2026-10-29')
+    const next = findMissingSessions(ids, many(ids, REGULAR), '2026-10-30')
+    expect(recentMissingDays(next, '2026-10-30').map((d) => d.date)).toContain('2026-10-29')
+  })
+
+  it('cả lớp không có buổi đúng lịch → đánh dấu wholeClass', () => {
+    const r = findMissingSessions(ids, many(ids, REGULAR), '2026-10-30')
+    expect(recentMissingDays(r, '2026-10-30').find((d) => d.date === '2026-10-29')).toMatchObject({ wholeClass: true })
+  })
+
+  it('ngày cũ hơn khoảng cảnh báo không hiện; ngày admin đã ẩn (lớp nghỉ) không hiện', () => {
+    const later = findMissingSessions(ids, sessions, '2026-12-01')
+    expect(recentMissingDays(later, '2026-12-01', 14).map((d) => d.date)).not.toContain('2026-10-29')
+    expect(recentMissingDays(report, '2026-11-03', 14, new Set(['2026-10-29'])).map((d) => d.date)).not.toContain('2026-10-29')
+  })
+
+  it('mới nhất trước; không thiếu gì → rỗng', () => {
+    const r = { classDays: [], noOneDays: ['2026-10-20'], byStudent: [{ studentId: 'a', missing: ['2026-10-22', '2026-10-20'], noSessions: false }] }
+    expect(recentMissingDays(r, '2026-10-25').map((d) => d.date)).toEqual(['2026-10-22', '2026-10-20'])
+    expect(recentMissingDays({ classDays: [], noOneDays: [], byStudent: [] }, '2026-10-25')).toEqual([])
+  })
+})
 
 describe('findMissingSessions', () => {
   // Lớp học thứ 7 + chủ nhật (như Lớp 3/4/5)
