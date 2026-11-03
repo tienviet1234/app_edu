@@ -23,7 +23,6 @@ import {
   collectOrphans, appendOrphans, unsentSessionCount, type ServerScoreForSync,
 } from '@/business/sync'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
-import { MissingSessionsBanner } from '@/features/admin/MissingSessionsBanner'
 import { getClassRubric } from '@/constants/rubrics'
 import { rescaleComp, sessionScore } from '@/business/scoring'
 import { autoLevel } from '@/constants/rubrics'
@@ -817,7 +816,6 @@ export default function App() {
           📴 Đang mất mạng — {unsentSessionCount(data.classes) > 0 ? `${unsentSessionCount(data.classes)} buổi đã lưu trên máy, sẽ tự gửi lên khi có mạng.` : 'điểm nhập lúc này sẽ lưu trên máy và tự gửi lên khi có mạng.'} Cứ nhập tiếp được. Đừng đăng xuất hoặc xóa dữ liệu trình duyệt.
         </div>
       )}
-      {user?.role === 'admin' && reachable && <MissingSessionsBanner />}
 
       {canInstall && (
         <div

@@ -65,27 +65,3 @@ export function findMissingSessions(
   }).filter((r) => r.noSessions || r.missing.length)
   return { classDays, noOneDays, byStudent }
 }
-
-export interface RecentMissingDay {
-  date: string
-  studentIds: string[]
-  /** Đúng lịch học mà CẢ LỚP không có buổi nào (lớp nghỉ, hoặc chưa nhập). */
-  wholeClass: boolean
-}
-
-/** Ngày thiếu buổi GẦN ĐÂY để cảnh báo admin ngay khi mở app, mới nhất trước.
- *  Bỏ hôm nay (lớp có thể chưa học/chưa nhập xong) và ngày admin đã ẩn (lớp nghỉ).
- *  Công cụ "Kiểm tra buổi thiếu" phải tự mở mới thấy — Lớp 7 thiếu 29/10 từ
- *  29/10 mà tới 03/11 mới có người biết. */
-export function recentMissingDays(report: MissingReport, today: string, days = 14, dismissed: ReadonlySet<string> = new Set()): RecentMissingDay[] {
-  const from = toDate(toTime(today) - days * DAY)
-  const inRange = (d: string) => d >= from && d < today && !dismissed.has(d)
-  const byDate = new Map<string, string[]>()
-  for (const d of report.noOneDays) if (inRange(d)) byDate.set(d, [])
-  for (const s of report.byStudent) {
-    for (const d of s.missing) if (inRange(d)) byDate.set(d, [...(byDate.get(d) ?? []), s.studentId])
-  }
-  return [...byDate.entries()]
-    .sort(([a], [b]) => b.localeCompare(a))
-    .map(([date, studentIds]) => ({ date, studentIds, wholeClass: report.noOneDays.includes(date) }))
-}
