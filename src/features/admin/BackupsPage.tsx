@@ -27,13 +27,45 @@ function deviceLabel(ua?: string): string {
   return br ? `${os} · ${br}` : os
 }
 
+/** Mã máy để đối chiếu với nhật ký/`checkDataSafety`. Bản giáo viên chủ động gửi
+ *  từ "🛟 Bản sao lưu trên máy" mang deviceId `<máy>-bk<thời điểm chụp>`. */
+function deviceCode(deviceId: string): string {
+  const backup = /^(.*)-bk\d+$/.exec(deviceId)
+  return backup ? `máy ${backup[1].slice(0, 8)} · bản gửi từ máy` : `máy ${deviceId.slice(0, 8)}`
+}
+
 interface DeviceGroup { key: string; latest: ClientSnapshotMeta; history: ClientSnapshotMeta[] }
+
+type ToolKey = 'missing' | 'stranded' | 'history' | 'files'
+
+// Xếp theo TÌNH HUỐNG admin đang gặp, không theo cách hệ thống lưu dữ liệu.
+const TOOLS: Array<{ key: ToolKey; label: string; when: string }> = [
+  { key: 'missing', label: 'Kiểm tra buổi thiếu', when: 'Nghi có em hoặc cả lớp thiếu ngày học' },
+  { key: 'stranded', label: 'Dữ liệu kẹt trên máy', when: 'Giáo viên đã nhập mà server chưa có' },
+  { key: 'history', label: 'Lịch sử điểm', when: 'Điểm bị sửa sai, cần lấy lại bản cũ' },
+  { key: 'files', label: 'File sao lưu', when: 'Tải về hoặc tạo bản sao lưu' },
+]
+const TOOL_STORAGE_KEY = 'lms:backupsTool'
+
+function loadTool(): ToolKey {
+  try {
+    const saved = localStorage.getItem(TOOL_STORAGE_KEY)
+    return TOOLS.find((t) => t.key === saved)?.key ?? 'missing'
+  } catch {
+    return 'missing'
+  }
+}
 
 export function BackupsPage() {
   const qc = useQueryClient()
   const [running, setRunning] = useState(false)
   const [downloading, setDownloading] = useState<string | null>(null)
   const [openDevice, setOpenDevice] = useState<string | null>(null)
+  const [tool, setTool] = useState<ToolKey>(loadTool)
+  const chooseTool = (key: ToolKey) => {
+    setTool(key)
+    try { localStorage.setItem(TOOL_STORAGE_KEY, key) } catch { /* chỉ là tiện ích nhớ thẻ đang mở */ }
+  }
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['admin', 'backups'],
@@ -82,15 +114,46 @@ export function BackupsPage() {
   const dbBackups = data?.dbBackups ?? []
   const latestDb = dbBackups[0]
   const dbStale = !latestDb?.lastModified || Date.now() - new Date(latestDb.lastModified).getTime() > 36 * 3600 * 1000
+  const unsentDevices = devices.filter((d) => d.latest.unsyncedSessionCount > 0).length
+  const alertOf = (key: ToolKey): string | null => {
+    if (key === 'stranded' && unsentDevices > 0) return `${unsentDevices} máy còn buổi chưa gửi`
+    if (key === 'files' && !isLoading && dbStale) return 'Sao lưu database bị trễ'
+    return null
+  }
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-black" style={{ color: C.ink }}>Sao lưu & khôi phục</h1>
-        <p className="text-sm mt-0.5" style={{ color: C.muted }}>
-          2 lớp bảo vệ: sao lưu toàn bộ database mỗi ngày, và bản chụp dữ liệu trên TỪNG máy giáo viên (kể cả phần chưa lên server được).
-        </p>
+        <p className="text-sm mt-0.5" style={{ color: C.muted }}>Bạn đang cần làm gì?</p>
       </div>
+
+      <nav aria-label="Công cụ sao lưu và khôi phục" className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+        {TOOLS.map((t) => {
+          const active = tool === t.key
+          const alert = alertOf(t.key)
+          return (
+            <button
+              key={t.key}
+              type="button"
+              aria-current={active ? 'true' : undefined}
+              onClick={() => chooseTool(t.key)}
+              className="flex flex-col items-start justify-start rounded-xl p-3 text-left transition-all hover:brightness-[0.97] active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-2"
+              style={{
+                background: active ? C.board : '#fff',
+                border: `1px solid ${active ? C.board : C.line}`,
+                outlineColor: C.board2,
+              }}
+            >
+              <span className="block text-sm font-bold" style={{ color: active ? '#fff' : C.ink }}>{t.label}</span>
+              <span className="mt-0.5 block text-xs leading-snug" style={{ color: active ? 'rgb(255 255 255 / 0.8)' : C.muted }}>{t.when}</span>
+              {alert && (
+                <span className="mt-1.5 block text-xs font-bold" style={{ color: active ? '#fff' : C.red }}>{alert}</span>
+              )}
+            </button>
+          )
+        })}
+      </nav>
 
       {error && (
         <Card className="p-4 text-sm" >
@@ -98,11 +161,17 @@ export function BackupsPage() {
         </Card>
       )}
 
+      {/* Giữ cả 4 công cụ luôn được dựng (chỉ ẩn) — đổi thẻ không mất kết quả đang quét. */}
+      <div hidden={tool !== 'missing'}><MissingSessionsCard /></div>
+      <div hidden={tool !== 'stranded'}><StrandedRecoveryCard snapshots={data?.snapshots ?? []} /></div>
+      <div hidden={tool !== 'history'}><ChangeHistoryCard /></div>
+
+      <div hidden={tool !== 'files'} className="space-y-4">
       {/* Database */}
       <Card className="p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <div className="font-bold" style={{ color: C.ink }}>Sao lưu database (hằng ngày, 2h sáng)</div>
+            <div className="font-bold" style={{ color: C.ink }}>Sao lưu database (2 lần mỗi ngày)</div>
             <div className="text-sm" style={{ color: dbStale ? C.red : C.muted }}>
               {isLoading ? 'Đang tải...' : latestDb
                 ? `Bản mới nhất: ${viTime(latestDb.lastModified)}${dbStale ? ' — đã hơn 36 giờ, lịch tự động có thể không chạy!' : ''}`
@@ -112,9 +181,9 @@ export function BackupsPage() {
           <Btn kind="solid" loading={running} onClick={runNow}>Sao lưu ngay</Btn>
         </div>
         {dbBackups.length > 0 && (
-          <div className="divide-y" style={{ borderColor: C.line }}>
-            {dbBackups.slice(0, 10).map((b) => (
-              <div key={b.key} className="flex items-center justify-between gap-2 py-2 text-sm">
+          <div>
+            {dbBackups.slice(0, 10).map((b, i) => (
+              <div key={b.key} className="flex items-center justify-between gap-2 py-2 text-sm" style={i ? { borderTop: `1px solid ${C.line}` } : undefined}>
                 <span style={{ color: C.ink }}>{viTime(b.lastModified)}</span>
                 <Btn size="sm" loading={downloading === b.key} onClick={() => download(b.key)}>Tải về</Btn>
               </div>
@@ -123,19 +192,16 @@ export function BackupsPage() {
         )}
       </Card>
 
-      <StrandedRecoveryCard snapshots={data?.snapshots ?? []} />
-
-      <ChangeHistoryCard />
-
-      <MissingSessionsCard />
-
       {/* Devices */}
       <Card className="p-4 space-y-3">
         <div>
           <div className="font-bold" style={{ color: C.ink }}>Bản chụp từ máy giáo viên</div>
-          <div className="text-sm" style={{ color: C.muted }}>
-            Mỗi máy tự gửi khi có thay đổi (tối đa 1 phút/lần). Máy còn tự giữ bản sao lưu ngay trên máy (không cần mạng) — giáo viên mở "🛟 Bản sao lưu trên máy" ở cuối trang → "Gửi lên để khôi phục", rồi dùng "Dữ liệu kẹt" ở trên để điền phần server còn thiếu. Nạp thẳng: tải file về → đăng nhập ĐÚNG tài khoản đó → "Nhập lại từ file" (thay toàn bộ dữ liệu máy đó).
-          </div>
+          <div className="text-sm" style={{ color: C.muted }}>Mỗi máy tự gửi khi có thay đổi và có mạng, tối đa 1 phút/lần.</div>
+          <details className="mt-1 text-sm" style={{ color: C.muted }}>
+            <summary className="cursor-pointer font-semibold" style={{ color: C.board2 }}>Cách khôi phục từ bản chụp</summary>
+            <p className="mt-1">Máy còn tự giữ bản sao lưu ngay trên máy (không cần mạng): giáo viên mở "🛟 Bản sao lưu trên máy" ở cuối trang → "Gửi lên để khôi phục", rồi dùng thẻ "Dữ liệu kẹt trên máy" để điền phần server còn thiếu.</p>
+            <p className="mt-1">Nạp thẳng: tải file về → đăng nhập ĐÚNG tài khoản đó → "Nhập lại từ file" (thay toàn bộ dữ liệu máy đó).</p>
+          </details>
         </div>
         {!isLoading && devices.length === 0 && (
           <div className="text-sm" style={{ color: C.muted }}>Chưa có máy nào gửi bản chụp (giáo viên cần mở app sau bản cập nhật này).</div>
@@ -145,7 +211,7 @@ export function BackupsPage() {
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="text-sm">
                 <div className="font-semibold" style={{ color: C.ink }}>
-                  {latest.userId?.name ?? 'Tài khoản đã xóa'} <span style={{ color: C.muted }}>· {deviceLabel(latest.userAgent)}</span>
+                  {latest.userId?.name ?? 'Tài khoản đã xóa'} <span style={{ color: C.muted }}>· {deviceLabel(latest.userAgent)} · {deviceCode(latest.deviceId)}</span>
                 </div>
                 <div style={{ color: C.muted }}>
                   {viTime(latest.createdAt)} · {latest.classCount} lớp · {latest.sessionCount} buổi · {kb(latest.sizeBytes)}
@@ -166,9 +232,9 @@ export function BackupsPage() {
               </div>
             </div>
             {openDevice === key && (
-              <div className="divide-y text-sm" style={{ borderColor: C.line }}>
-                {history.slice(1).map((s) => (
-                  <div key={s._id} className="flex items-center justify-between gap-2 py-1.5">
+              <div className="text-sm">
+                {history.slice(1).map((s, i) => (
+                  <div key={s._id} className="flex items-center justify-between gap-2 py-1.5" style={i ? { borderTop: `1px solid ${C.line}` } : undefined}>
                     <span style={{ color: C.ink }}>
                       {viTime(s.createdAt)} · {s.sessionCount} buổi
                       {s.unsyncedSessionCount > 0 && <span style={{ color: C.red }}> · {s.unsyncedSessionCount} chưa lên server</span>}
@@ -181,6 +247,7 @@ export function BackupsPage() {
           </div>
         ))}
       </Card>
+      </div>
     </div>
   )
 }
