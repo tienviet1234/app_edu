@@ -2,7 +2,7 @@ import type { Request, Response } from 'express'
 import type { AuthRequest } from '../middleware/auth.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
 import { ok, badRequest, notFound } from '../utils/response.js'
-import { saveClientSnapshot, listBackups, presignBackupKey, readSnapshotContent } from '../services/clientSnapshotService.js'
+import { saveClientSnapshot, listBackups, presignBackupKey, readSnapshotContent, searchSnapshots } from '../services/clientSnapshotService.js'
 import { runDatabaseBackup } from '../services/backupService.js'
 import { writeAudit, writeRejectedAudit, appVersionOf } from '../services/auditService.js'
 
@@ -54,6 +54,20 @@ export const getSnapshotContent = asyncHandler(async (req: Request, res: Respons
     return
   }
   await writeAudit(req, { action: 'backup.readSnapshot', resource: 'ClientSnapshot', resourceId: String(req.params.id) })
+  ok(res, result)
+})
+
+/** GET /api/admin/backups/snapshot-sessions?classId=&date= — các phiên bản buổi của
+ *  1 lớp + 1 ngày trong MỌI bản chụp còn giữ, kể cả dữ liệu đã biến khỏi máy. */
+export const searchSnapshotSessions = asyncHandler(async (req: Request, res: Response) => {
+  const classId = typeof req.query.classId === 'string' ? req.query.classId : ''
+  const date = typeof req.query.date === 'string' ? req.query.date : ''
+  if (!/^[a-f0-9]{24}$/i.test(classId) || !/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) {
+    badRequest(res, 'Cần classId và date (YYYY-MM-DD).')
+    return
+  }
+  const result = await searchSnapshots(classId, date)
+  await writeAudit(req, { action: 'backup.searchSnapshots', resource: 'ClientSnapshot', metadata: { classId, date, scanned: result.scanned, failed: result.failed, versions: result.versions.length } })
   ok(res, result)
 })
 

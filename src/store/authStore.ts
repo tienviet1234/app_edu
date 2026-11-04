@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { api, refreshSession, setAccessToken } from '@/utils/api'
+import { api, endSession, refreshSession, setAccessToken } from '@/utils/api'
 import { queryClient } from '@/lib/queryClient'
 import { canKeepOfflineSession, classifyAuthFailure } from '@/business/authOffline'
 import type {
@@ -70,7 +70,10 @@ export const useAuthStore = create<AuthStore>((set) => ({
     } catch (err) {
       setAccessToken(null)
       const kept = classifyAuthFailure(err) === 'unreachable' ? rememberedUser() : null
-      if (classifyAuthFailure(err) === 'rejected') rememberUser(null)
+      if (classifyAuthFailure(err) === 'rejected') {
+        endSession()
+        rememberUser(null)
+      }
       set({ user: kept, sessionOffline: !!kept, isInitialized: true, isLoading: false })
     }
   },
@@ -112,7 +115,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
     } catch {
       // Best effort logout.
     }
-    setAccessToken(null)
+    endSession()
     rememberUser(null)
     set({ user: null, sessionOffline: false, error: null })
     // Xóa sạch cache React Query — không có full page reload khi đăng xuất,
@@ -177,7 +180,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
 
 if (typeof window !== 'undefined') {
   window.addEventListener('auth:logout', () => {
-    setAccessToken(null)
+    endSession()
     rememberUser(null)
     useAuthStore.setState({ user: null, sessionOffline: false })
     queryClient.clear()

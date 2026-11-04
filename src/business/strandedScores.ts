@@ -1,4 +1,4 @@
-import type { ClassData, SessionEntry } from '@/types'
+import type { ClassData, Session, SessionEntry } from '@/types'
 import { getClassRubric } from '@/constants/rubrics'
 import { rescaleComp, sessionScore } from '@/business/scoring'
 import { isMongoid } from '@/utils/mongoid'
@@ -61,6 +61,19 @@ export function collectScoreJobs(classes: ClassData[]): ScoreJob[] {
     }
   }
   return jobs
+}
+
+/** Việc đồng bộ nền được gom 1 lần lúc mở app rồi gửi tuần tự, có thể kéo dài
+ *  vài phút (mỗi buổi 1 yêu cầu). Tới lượt gửi mà buổi trên máy đã đổi thì bản
+ *  trong việc đã CŨ: gửi đi sẽ thành xung đột giả, hoặc đè bài tập mới nhập bằng
+ *  bản cũ. Bỏ qua — buổi vẫn `dirty` thì Nhập điểm hoặc lần mở app sau gửi bản mới. */
+export function jobIsCurrent(job: ScoreJob, latest: Session | null | undefined): boolean {
+  if (!latest || latest.conflict) return false
+  return (latest.dirty === true) === job.dirty
+    && latest.baseUpdatedAt === job.baseUpdatedAt
+    && (latest.homework ?? '') === job.homework
+    && JSON.stringify(latest.maxes ?? null) === JSON.stringify(job.maxes ?? null)
+    && sameEntry(latest.entry, job.entry)
 }
 
 /** Học sinh còn id tạm (chưa lên server) nhưng có buổi đã chấm — công cụ
@@ -152,6 +165,45 @@ export interface ClassifiedJob extends ScoreJob {
   targetSessionId?: string
   serverTotal?: number
   serverAttendance?: string
+}
+
+export const RECOVERABLE_KINDS: JobKind[] = ['create', 'fill', 'fillExisting']
+
+export type DayRowStatus = 'recoverable' | 'onServer' | 'deleted' | 'none'
+
+export interface DayRow<T> {
+  studentId: string
+  studentName: string
+  status: DayRowStatus
+  /** Bản khác nhau tìm được; bỏ bản đã có y hệt trên server. */
+  versions: T[]
+}
+
+/** Kết luận TỪNG EM cho 1 lớp + 1 ngày sau khi tìm trong mọi bản chụp, kể cả em
+ *  không tìm thấy ở đâu (`none`: đã đọc hết mà không có — phải nhập lại). Bản
+ *  giống hệt nhau (khác máy) được gộp, nguồn cộng dồn. Em không còn trong lớp vẫn
+ *  được liệt kê để không giấu dữ liệu tìm được. */
+export function dayRecoveryRows<T extends ClassifiedJob & { sources: unknown[] }>(
+  roster: Array<{ id: string; name: string }>,
+  jobs: T[],
+  scoredOnServer: ReadonlySet<string>,
+): Array<DayRow<T>> {
+  const others = jobs.filter((j) => !roster.some((r) => r.id === j.studentId))
+  const everyone = [...roster, ...[...new Map(others.map((j) => [j.studentId, { id: j.studentId, name: j.studentName }])).values()]]
+  return everyone.map(({ id, name }) => {
+    const versions: T[] = []
+    for (const j of jobs) {
+      if (j.studentId !== id || j.kind === 'already') continue
+      const same = versions.find((v) => sameEntry(v.entry, j.entry) && v.homework === j.homework)
+      if (same) same.sources = [...same.sources, ...j.sources]
+      else versions.push({ ...j })
+    }
+    const status: DayRowStatus = scoredOnServer.has(id) ? 'onServer'
+      : versions.some((v) => RECOVERABLE_KINDS.includes(v.kind)) ? 'recoverable'
+      : versions.some((v) => v.kind === 'deletedOnServer') ? 'deleted'
+      : 'none'
+    return { studentId: id, studentName: name, status, versions }
+  })
 }
 
 const sameScore = (job: ScoreJob, sc: ServerScoreLite) => sameEntry(job.entry, sc)

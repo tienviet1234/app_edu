@@ -2,10 +2,11 @@ import { useMemo, useState } from 'react'
 import type { AppData, OrphanRecord } from '@/types'
 import { normalize } from '@/business/seed'
 import {
-  classifyScoreJobs, collectScoreJobs, countUnsyncedStudentsWithData, sameEntry,
+  classifyScoreJobs, collectScoreJobs, countUnsyncedStudentsWithData,
   type ClassifiedJob, type JobKind, type ServerScoreLite, type ServerSessionLite,
 } from '@/business/strandedScores'
 import { backupService, type ClientSnapshotMeta } from '@/services/backups'
+import { pushRecoveredJob, snapshotClasses } from '@/services/recovery'
 import { sessionService } from '@/services/sessions'
 import { scoreService } from '@/services/scores'
 import { classService } from '@/services/classes'
@@ -45,13 +46,6 @@ function deviceLabel(deviceId: string, sentAt: string): string {
   return ` · máy ${deviceId.slice(-6)} · bản chụp ${new Date(sentAt).toLocaleString('vi-VN')}`
 }
 
-/** Bản chụp chưa qua normalize (giữ đủ field rubric của lớp) nhưng bảo đảm
- *  entry đủ khóa — dùng cấu trúc của normalize cho học sinh/buổi. */
-function toClasses(raw: unknown) {
-  const rawClasses = ((raw as { classes?: unknown[] })?.classes ?? []) as Record<string, unknown>[]
-  return normalize(raw).classes.map((nc, i) => ({ ...(rawClasses[i] as object), ...nc }) as AppData['classes'][number])
-}
-
 /** Quét bản chụp MỚI NHẤT của từng máy, đối chiếu với server, đẩy hộ lên
  *  những gì server CHƯA có — không cần chờ giáo viên mở lại đúng máy đó.
  *  Không bao giờ ghi đè điểm đã có, không hồi sinh buổi đã xóa, không đụng
@@ -80,7 +74,7 @@ export function StrandedRecoveryCard({ snapshots }: { snapshots: ClientSnapshotM
       const contents: Array<{ snapshot: ClientSnapshotMeta; classes: AppData['classes']; orphans: OrphanRecord[] }> = []
       for (const snap of latestPerDevice) {
         const { data } = await backupService.snapshotContent(snap._id)
-        contents.push({ snapshot: snap, classes: toClasses(data), orphans: normalize(data).orphans ?? [] })
+        contents.push({ snapshot: snap, classes: snapshotClasses(data), orphans: normalize(data).orphans ?? [] })
       }
       // Tải dữ liệu server 1 lần cho mỗi lớp xuất hiện trong các bản chụp.
       const classIds = [...new Set(contents.flatMap((c) => collectScoreJobs(c.classes).map((j) => j.classId)))]
@@ -125,29 +119,8 @@ export function StrandedRecoveryCard({ snapshots }: { snapshots: ClientSnapshotM
     const todo = next.flatMap((s) => s.items.filter((i) => ACTIONABLE.includes(i.kind) && !i.result).map((i) => ({ scan: s, item: i })))
     setProgress({ done: 0, total: todo.length })
     for (const { scan: s, item } of todo) {
-      const owner = s.snapshot.userId
-      const body = { classId: item.classId, studentId: item.studentId, ...item.entry, total: item.total, ifAbsent: true as const }
       try {
-        let sessionId = item.targetSessionId
-        if (item.kind === 'create') {
-          try {
-            const created = await sessionService.create({
-              classId: item.classId, studentId: item.studentId, title: `Buổi ${item.no}`, lessonNo: item.no,
-              scheduledAt: `${item.date}T00:00:00.000Z`, notes: item.homework || undefined, placeByDate: true,
-              ...(item.maxes ? { maxes: item.maxes } : {}),
-              ...(owner?.role === 'teacher' ? { onBehalfOf: owner._id } : {}),
-            })
-            sessionId = created._id
-          } catch (err) {
-            // Máy khác vừa đẩy cùng buổi này lên (VD 2 máy cùng giáo viên) →
-            // điền vào buổi server đã có, vẫn chỉ khi buổi đó chưa có điểm.
-            const resp = (err as { response?: { status?: number; data?: { code?: string; data?: { existingId?: string } } } }).response
-            if (resp?.status !== 409 || resp.data?.code !== 'SAME_DATE' || !resp.data.data?.existingId) throw err
-            sessionId = resp.data.data.existingId
-          }
-        }
-        const res = await scoreService.upsert({ ...body, sessionId: sessionId! })
-        item.result = res.deleted ? 'deleted' : !res.skipped ? 'done' : sameEntry(item.entry, res) ? 'already' : 'conflict'
+        item.result = await pushRecoveredJob(item, s.snapshot.userId)
       } catch (err) {
         item.result = 'error'
         item.error = (err as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'lỗi mạng'
@@ -169,7 +142,7 @@ export function StrandedRecoveryCard({ snapshots }: { snapshots: ClientSnapshotM
         <div>
           <div className="font-bold" style={{ color: C.ink }}>Dữ liệu kẹt trên máy giáo viên</div>
           <div className="text-sm" style={{ color: C.muted }}>
-            Quét bản chụp mới nhất của từng máy ({latestPerDevice.length} máy), so với server. Chỉ đưa lên những buổi server CHƯA có — không ghi đè điểm đã có, không khôi phục buổi đã xóa.
+            Quét bản chụp MỚI NHẤT của từng máy ({latestPerDevice.length} máy), so với server. Buổi đã biến khỏi máy thì dùng ô tìm theo lớp và ngày ở trên. Chỉ đưa lên những buổi server CHƯA có — không ghi đè điểm đã có, không khôi phục buổi đã xóa.
           </div>
         </div>
         <div className="flex gap-2">

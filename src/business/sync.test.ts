@@ -3,7 +3,7 @@ import {
   pruneGoneFromServer, resolvePlausibleNo, syncStudentsFromServer, adoptServerSession, pendingSessionsOf, markSessionSaved,
   markConflict, resolveConflict, collectOrphans, appendOrphans, sameDateClash, detachDeletedSession,
   orphanForLocalDelete, rescueOtherTabSessions, maxesToBackfill, takeServerCopy, countUnsaved, homeworkToBackfill,
-  navChoiceOf, unsentCountOf, unsentSessionCount,
+  navChoiceOf, unsentCountOf, unsentSessionCount, latestSessionOf,
   type ServerSessionForSync, type ServerScoreForSync,
 } from './sync'
 import { emptyEntry, normalize } from './seed'
@@ -25,6 +25,27 @@ describe('navChoiceOf (bấm chuyển em khi em chưa có buổi — sự cố L
   })
   it('em chưa có buổi nào', () => {
     expect(navChoiceOf({ sessions: [] }, 1, '2026-10-29')).toEqual({ kind: 'noSession' })
+  })
+})
+
+describe('latestSessionOf (không gửi bằng dữ liệu cũ — nguồn xung đột giả)', () => {
+  const oid = (n: number) => n.toString(16).padStart(24, '0')
+  const session = (extra: Partial<Session>): Session => ({ id: oid(1), no: 1, date: '2026-11-02', entry: emptyEntry(), ...extra })
+  const classesWith = (s: Session) => [{ id: 'c', students: [{ id: 'st', sessions: [s] }] }]
+
+  it('lượt lưu khác vừa xong: thấy đã hết dirty + mốc mới, nhờ đó không gửi lại', () => {
+    const old = session({ dirty: true, baseUpdatedAt: 't1' })
+    const r = latestSessionOf(classesWith(session({ dirty: false, baseUpdatedAt: 't2' })), 'c', 'st', old.id)
+    expect(r?.session).toMatchObject({ dirty: false, baseUpdatedAt: 't2' })
+  })
+  it('đã sửa thêm sau lượt lưu kia: gửi đúng nội dung mới với mốc mới', () => {
+    const fresh = session({ dirty: true, baseUpdatedAt: 't2', entry: { ...emptyEntry(), note: 'sửa thêm' } })
+    expect(latestSessionOf(classesWith(fresh), 'c', 'st', fresh.id)?.session).toMatchObject({ baseUpdatedAt: 't2', entry: { note: 'sửa thêm' } })
+  })
+  it('buổi đã đổi id (tạm → server) hoặc không còn: trả null, không gửi', () => {
+    expect(latestSessionOf(classesWith(session({})), 'c', 'st', 'tmp-cu')).toBeNull()
+    expect(latestSessionOf(classesWith(session({})), 'khac', 'st', oid(1))).toBeNull()
+    expect(latestSessionOf(undefined, 'c', 'st', oid(1))).toBeNull()
   })
 })
 

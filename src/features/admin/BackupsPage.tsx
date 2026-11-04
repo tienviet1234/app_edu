@@ -5,6 +5,7 @@ import { toast } from '@/store/toastStore'
 import { C } from '@/constants/colors'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
+import { SnapshotSearchCard } from './SnapshotSearchCard'
 import { StrandedRecoveryCard } from './StrandedRecoveryCard'
 import { MissingSessionsCard } from './MissingSessionsCard'
 import { ChangeHistoryCard } from './ChangeHistoryCard'
@@ -163,7 +164,10 @@ export function BackupsPage() {
 
       {/* Giữ cả 4 công cụ luôn được dựng (chỉ ẩn) — đổi thẻ không mất kết quả đang quét. */}
       <div hidden={tool !== 'missing'}><MissingSessionsCard /></div>
-      <div hidden={tool !== 'stranded'}><StrandedRecoveryCard snapshots={data?.snapshots ?? []} /></div>
+      <div hidden={tool !== 'stranded'} className="space-y-4">
+        <SnapshotSearchCard />
+        <StrandedRecoveryCard snapshots={data?.snapshots ?? []} />
+      </div>
       <div hidden={tool !== 'history'}><ChangeHistoryCard /></div>
 
       <div hidden={tool !== 'files'} className="space-y-4">

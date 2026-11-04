@@ -49,6 +49,24 @@ describe('snapshotsToDelete (dọn bản chụp máy giáo viên)', () => {
     expect(ids(snapshotsToDelete([...recent, at(31 * 24 * 60 * MIN, 'cũ')], NOW))).toEqual(['cũ'])
   })
 
+  describe('giữ các lúc dữ liệu chỉ nằm trên máy', () => {
+    const recent = Array.from({ length: KEEP_RECENT }, (_, i) => ({ ...at(i * MIN), unsyncedSessionCount: 0 }))
+    const old = (id: string, iso: string, unsyncedSessionCount: number) => ({ id, createdAt: new Date(iso), unsyncedSessionCount })
+
+    it('buổi chỉ sống vài chục phút rồi biến khỏi máy: giữ bản có buổi chưa gửi dù không phải bản mới nhất trong ngày', () => {
+      const snaps = [...recent, old('sau', '2026-10-13T12:00:00.000Z', 0), old('có 8 buổi chưa gửi', '2026-10-13T11:30:00.000Z', 8), old('trước', '2026-10-13T11:00:00.000Z', 0)]
+      expect(ids(snapshotsToDelete(snaps, NOW))).toEqual(['trước'])
+    })
+    it('máy đứng yên ở cùng số buổi chưa gửi: chỉ giữ bản đầu tiên của mỗi mức, không phình theo số lần chụp', () => {
+      const flat = Array.from({ length: 20 }, (_, i) => old(`b${i}`, new Date(Date.parse('2026-10-13T12:00:00.000Z') - i * 60e3).toISOString(), 4))
+      const kept = new Set(ids(flat)); for (const id of ids(snapshotsToDelete([...recent, ...flat], NOW))) kept.delete(id)
+      expect([...kept].sort()).toEqual(['b0', 'b19'])
+    })
+    it('quá 30 ngày thì không giữ riêng nữa', () => {
+      expect(ids(snapshotsToDelete([...recent, old('rất cũ', '2026-09-01T00:00:00.000Z', 8), old('cũ hơn', '2026-08-31T23:00:00.000Z', 0)], NOW))).toEqual(['rất cũ', 'cũ hơn'])
+    })
+  })
+
   it('thứ tự đầu vào không quan trọng', () => {
     const snaps = Array.from({ length: 200 }, (_, i) => at(i * 7 * MIN))
     const a = ids(snapshotsToDelete(snaps, NOW)).sort()

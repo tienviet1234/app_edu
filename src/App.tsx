@@ -20,13 +20,13 @@ import { useClasses, useClassStudents, useSessions, useClassScores, usePwaInstal
 import { isMongoid } from '@/utils/mongoid'
 import {
   pruneGoneFromServer, syncStudentsFromServer, adoptServerSession, markSessionSaved, markConflict, detachDeletedSession, toSessionEntry, maxesToBackfill,
-  collectOrphans, appendOrphans, unsentSessionCount, type ServerScoreForSync,
+  collectOrphans, appendOrphans, unsentSessionCount, latestSessionOf, type ServerScoreForSync,
 } from '@/business/sync'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
 import { getClassRubric } from '@/constants/rubrics'
 import { rescaleComp, sessionScore } from '@/business/scoring'
 import { autoLevel } from '@/constants/rubrics'
-import { collectScoreJobs, sameEntry } from '@/business/strandedScores'
+import { collectScoreJobs, jobIsCurrent, sameEntry } from '@/business/strandedScores'
 import { tryLockSession, unlockSession } from '@/utils/syncLocks'
 import { sessionService } from '@/services/sessions'
 import { scoreService, conflictFromError, isSessionDeletedError } from '@/services/scores'
@@ -135,6 +135,7 @@ function resolveTeacherName(ac: ApiClass, fallback: string): string {
 async function autoSyncStrandedScores(
   classes: ClassData[],
   setData: (fn: (d: AppData) => void) => void,
+  stillOwner: () => boolean,
 ) {
   // Công thức gom chung với công cụ "Dữ liệu kẹt" của admin (business/
   // strandedScores.ts) — bọc riêng từng lớp, tính cả buổi chỉ "vắng phép".
@@ -144,11 +145,13 @@ async function autoSyncStrandedScores(
   // Mọi thay đổi trên máy chỉ áp dụng SAU khi server xác nhận, qua hàm thuần
   // có test (business/sync.ts) — tìm đúng học sinh theo id lớp, không theo
   // "lớp đang chọn".
-  const onStudent = (job: (typeof jobs)[number], fn: (st: ClassData['students'][number]) => void) =>
+  const onStudent = (job: (typeof jobs)[number], fn: (st: ClassData['students'][number]) => void) => {
+    if (!stillOwner()) return
     setData(produce((d: AppData) => {
       const st = d.classes.find((c) => c.id === job.classId)?.students.find((s) => s.id === job.studentId)
       if (st) fn(st)
     }))
+  }
 
   let fail = 0
   let recovered = 0
@@ -156,6 +159,12 @@ async function autoSyncStrandedScores(
   const conflicts: string[] = []
   const deletedOnServer: string[] = []
   for (const job of jobs) {
+    // Đã đăng xuất / đổi tài khoản giữa chừng: dừng hẳn. Gửi tiếp là mang dữ liệu
+    // của người trước đi dưới tên người sau (token dùng chung cả app). Phần chưa
+    // gửi vẫn nằm trên máy, lần mở app sau của đúng người đó gửi tiếp.
+    if (!stillOwner()) return
+    const latest = latestSessionOf(useAppStore.getState().data?.classes, job.classId, job.studentId, job.sessionLocalId)
+    if (!jobIsCurrent(job, latest?.session)) continue
     if (!tryLockSession(job.sessionLocalId)) continue // Nhập điểm đang gửi đúng buổi này
     const sent = { entry: job.entry, homework: job.homework, maxes: job.maxes }
     try {
@@ -243,6 +252,7 @@ async function autoSyncStrandedScores(
       unlockSession(job.sessionLocalId)
     }
   }
+  if (!stillOwner()) return
   if (recovered > 0) {
     toast.success(`Đã khôi phục ${recovered} buổi học còn kẹt trên máy này lên server`, { persist: true })
   }
@@ -267,18 +277,19 @@ async function autoSyncStrandedScores(
  *  thì để nguyên trong kho cho admin xem — không ghi nhầm chỗ, không mất. Buổi
  *  chưa từng lên server của học sinh đã rời lớp thì không tự tạo (server cũng
  *  chặn NOT_IN_CLASS) — admin xử lý qua bản chụp. */
-async function autoSyncOrphans(data: AppData, setData: (fn: (d: AppData) => void) => void) {
+async function autoSyncOrphans(data: AppData, setData: (fn: (d: AppData) => void) => void, stillOwner: () => boolean) {
   for (const o of data.orphans ?? []) {
     const cls = data.classes.find((c) => c.id === o.classId)
     if (!cls) continue
     const r = getClassRubric(cls)
     for (const s of o.sessions) {
+      if (!stillOwner()) return
       if (!isMongoid(s.id) || !s.dirty || s.conflict || !tryLockSession(s.id)) continue
       try {
         const mx = s.maxes ?? {}
         const total = sessionScore(s.entry, { ...r, comps: r.comps.map((c) => (mx[c.key] != null ? rescaleComp(c, mx[c.key]) : c)) }) ?? 0
         await scoreService.upsert({ classId: o.classId, sessionId: s.id, studentId: o.studentId, ...s.entry, total, baseUpdatedAt: s.baseUpdatedAt })
-        setData(produce((d: AppData) => {
+        if (stillOwner()) setData(produce((d: AppData) => {
           const rec = d.orphans?.find((x) => x.classId === o.classId && x.studentId === o.studentId)
           if (rec) rec.sessions = rec.sessions.filter((x) => x.id !== s.id)
           d.orphans = d.orphans?.filter((x) => x.sessions.length)
@@ -301,6 +312,7 @@ async function autoSyncStrandedStudents(
   classes: ClassData[],
   setData: (fn: (d: AppData) => void) => void,
   queryClient: ReturnType<typeof useQueryClient>,
+  stillOwner: () => boolean,
 ) {
   const targets = classes.filter((c) => isMongoid(c.id) && c.students.some((s) => !isMongoid(s.id)))
   if (!targets.length) return
@@ -308,9 +320,11 @@ async function autoSyncStrandedStudents(
   let ok = 0
   let fail = 0
   for (const c of targets) {
+    if (!stillOwner()) return
     const localOnly = c.students.filter((s) => !isMongoid(s.id))
     try {
       const created = await classService.addManagedStudents(c.id, localOnly.map((s) => s.name))
+      if (!stillOwner()) return
       setData(produce((d: AppData) => {
         const cls2 = d.classes.find((x) => x.id === c.id)
         localOnly.forEach((oldSt, i) => {
@@ -330,6 +344,7 @@ async function autoSyncStrandedStudents(
       fail += localOnly.length
     }
   }
+  if (!stillOwner()) return
   if (ok > 0) {
     toast.success(`Đã tự động đồng bộ ${ok} học sinh còn thiếu lên server`)
   }
@@ -640,18 +655,21 @@ export default function App() {
     if (!reachable) { autoSyncedForRef.current = undefined; return }
     if (autoSyncedForRef.current === user.id) return
     autoSyncedForRef.current = user.id
+    const ownerId = user.id
+    const stillOwner = () => useAuthStore.getState().user?.id === ownerId
     void (async () => {
       try {
-        await autoSyncStrandedStudents(data.classes, setData, queryClient)
+        await autoSyncStrandedStudents(data.classes, setData, queryClient, stillOwner)
         const fresh = useAppStore.getState().data
-        if (fresh) await autoSyncStrandedScores(fresh.classes, setData)
+        if (fresh && stillOwner()) await autoSyncStrandedScores(fresh.classes, setData, stillOwner)
         const afterScores = useAppStore.getState().data
-        if (afterScores?.orphans?.length) await autoSyncOrphans(afterScores, setData)
+        if (afterScores?.orphans?.length && stillOwner()) await autoSyncOrphans(afterScores, setData, stillOwner)
       } catch (err) {
         // Trước đây lỗi ở đây biến mất hoàn toàn (không try/catch), khiến
         // điểm không lên được server mà không ai biết vì sao — giờ luôn báo
         // rõ ràng thay vì im lặng.
         console.error('Lỗi đồng bộ tự động:', err)
+        if (!stillOwner()) return
         toast.error('Có lỗi khi tự động đồng bộ dữ liệu — thử tải lại trang.', { persist: true })
       }
     })()

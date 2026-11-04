@@ -1,6 +1,6 @@
 import axios, { type InternalAxiosRequestConfig } from 'axios'
 import type { ApiResponse, LoginResponse } from '@/types/auth'
-import { classifyAuthFailure } from '@/business/authOffline'
+import { classifyAuthFailure, shouldRefreshOn401 } from '@/business/authOffline'
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api'
 
@@ -12,9 +12,19 @@ export const api = axios.create({
 
 let accessToken: string | null = null
 let refreshPromise: Promise<LoginResponse> | null = null
+let sessionEnded = false
 
 export function setAccessToken(token: string | null) {
   accessToken = token
+  if (token) sessionEnded = false
+}
+
+/** Phiên đã kết thúc thật (đăng xuất / server từ chối). Khác `setAccessToken(null)`
+ *  lúc mở app khi mất mạng: khi đó phiên vẫn còn, có mạng lại phải gia hạn được.
+ *  Xem shouldRefreshOn401. */
+export function endSession() {
+  accessToken = null
+  sessionEnded = true
 }
 
 export function getAccessToken() {
@@ -57,7 +67,7 @@ api.interceptors.response.use(
     const original = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
     const isRefreshRequest = original.url?.includes('/auth/refresh')
 
-    if (error.response?.status !== 401 || original._retry || isRefreshRequest) {
+    if (!shouldRefreshOn401({ status: error.response?.status, alreadyRetried: original._retry, isRefreshRequest, sessionEnded })) {
       return Promise.reject(error)
     }
 
@@ -70,7 +80,7 @@ api.interceptors.response.use(
       // Chỉ đăng xuất khi server từ chối thật. Rớt mạng đúng lúc gia hạn thì
       // giữ phiên — trước đây về màn đăng nhập, tưởng mất hết buổi vừa nhập.
       if (classifyAuthFailure(refreshErr) === 'rejected') {
-        setAccessToken(null)
+        endSession()
         window.dispatchEvent(new Event('auth:logout'))
       }
       return Promise.reject(error)

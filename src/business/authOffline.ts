@@ -16,6 +16,20 @@ export function classifyAuthFailure(err: unknown): 'unreachable' | 'rejected' {
   return status >= 500 || status === 408 || status === 429 ? 'unreachable' : 'rejected'
 }
 
+/** Server báo 401 thì có thử gia hạn đăng nhập không. Phiên đã kết thúc (đăng
+ *  xuất / server từ chối) thì KHÔNG: việc nền còn dang dở trước đây mỗi lượt lại
+ *  gọi gia hạn — đo thật 04/11: 89 lần trong 2 giây sau khi admin đăng xuất, đủ
+ *  làm cả mạng dùng chung chạm giới hạn /api/auth (200 lần/15 phút theo IP), lúc
+ *  đó máy khác hết hạn phiên giữa buổi không gia hạn được, lưu điểm thất bại. */
+export function shouldRefreshOn401(req: {
+  status?: number
+  alreadyRetried?: boolean
+  isRefreshRequest?: boolean
+  sessionEnded: boolean
+}): boolean {
+  return req.status === 401 && !req.alreadyRetried && !req.isRefreshRequest && !req.sessionEnded
+}
+
 /** Chỉ giáo viên/admin mới cần làm việc khi mất mạng (nhập điểm lưu trên máy).
  *  Không giữ thông tin tài khoản học sinh/phụ huynh trên máy. */
 export function canKeepOfflineSession(user: { role?: string } | null | undefined): boolean {

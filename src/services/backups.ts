@@ -15,7 +15,29 @@ export interface ClientSnapshotMeta {
   createdAt: string
 }
 
+export interface SnapshotDayVersion {
+  studentId: string
+  studentName: string
+  session: Record<string, unknown>
+  inOrphans: boolean
+  sources: Array<{ deviceId: string; user: { _id: string; name: string; role: string } | null; firstAt: string; lastAt: string; copies: number }>
+}
+
+export interface SnapshotDayResult {
+  scanned: number
+  failed: number
+  devices: number
+  classMeta: Record<string, unknown> | null
+  versions: SnapshotDayVersion[]
+}
+
 export const backupService = {
+  /** Tìm buổi của 1 lớp + 1 ngày trong MỌI bản chụp còn giữ của mọi máy. */
+  searchSnapshotSessions: (classId: string, date: string) =>
+    api
+      .get<{ data: SnapshotDayResult }>('/admin/backups/snapshot-sessions', { params: { classId, date }, timeout: 180_000 })
+      .then((r) => r.data.data),
+
   /** Máy giáo viên/admin gửi bản chụp NGUYÊN VĂN dữ liệu đang có trên máy. */
   uploadSnapshot: (deviceId: string, data: string) =>
     api

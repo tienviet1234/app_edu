@@ -466,6 +466,22 @@ export function navChoiceOf(student: { sessions: Session[] }, no: number, date: 
   return clash ? { kind: 'clash', clash } : { kind: 'noSession' }
 }
 
+/** Buổi MỚI NHẤT trong kho máy lúc sắp gửi. Hàm lưu chạy theo lịch (tự lưu 1,5
+ *  giây) giữ bản dữ liệu lúc được lên lịch: nếu 1 lượt lưu khác (bấm chuyển em) vừa
+ *  xong, bản cũ đó còn `dirty` và mốc `baseUpdatedAt` cũ → gửi lại → server báo
+ *  CONFLICT vì chính lần lưu của máy này (57 lần trong 14 ngày tới 03/11). Nội dung
+ *  đã sửa thêm thì thành thanh vàng "2 máy cùng sửa" giả, buổi bị treo chờ chọn. */
+export function latestSessionOf<S extends { id: string; sessions: Session[] }>(
+  classes: Array<{ id: string; students: S[] }> | undefined,
+  classId: string,
+  studentId: string,
+  sessionId: string,
+): { student: S; session: Session } | null {
+  const student = classes?.find((c) => c.id === classId)?.students.find((s) => s.id === studentId)
+  const session = student?.sessions.find((s) => s.id === sessionId)
+  return student && session ? { student, session } : null
+}
+
 /** Số buổi trên máy CHƯA lên server (id tạm, hoặc đã sửa mà server chưa xác
  *  nhận) — hiện cho giáo viên biết dữ liệu vẫn còn trên máy, sẽ tự gửi. */
 export function unsentCountOf(student: { sessions: Session[] }): number {

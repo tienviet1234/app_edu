@@ -3,6 +3,7 @@ import { Types } from 'mongoose'
 import { ClientSnapshot } from '../models/ClientSnapshot.js'
 import { uploadBufferToR2, deleteVideoFromR2, getDownloadPresignedUrl, listR2Keys, getR2ObjectText } from './storageService.js'
 import { snapshotsToDelete } from '../utils/snapshotRetention.js'
+import { searchSnapshotsForDay, type DaySearchResult } from '../utils/snapshotSearch.js'
 
 const PREFIX = 'client-snapshots/'
 const isMongoid = (id: string) => /^[a-f0-9]{24}$/i.test(id)
@@ -34,7 +35,7 @@ export async function saveClientSnapshot(input: {
   })
 
   // Giữ dày gần đây, thưa dần về quá khứ — xem snapshotsToDelete.
-  const all = await ClientSnapshot.find({ userId, deviceId: input.deviceId }, 'r2Key createdAt').lean()
+  const all = await ClientSnapshot.find({ userId, deviceId: input.deviceId }, 'r2Key createdAt unsyncedSessionCount').lean()
   for (const o of snapshotsToDelete(all)) {
     await deleteVideoFromR2(o.r2Key).catch(() => null)
     await ClientSnapshot.deleteOne({ _id: o._id })
@@ -50,7 +51,8 @@ export async function listBackups() {
   // Mỗi máy luôn có mặt (kèm tối đa PER_DEVICE bản gần nhất). Trước đây lấy 300
   // bản mới nhất CHUNG mọi máy — máy gửi dày (1 phút/lần) chiếm hết chỗ, máy ít
   // mở và bản sao lưu gửi lên để khôi phục biến khỏi trang Sao lưu / "Dữ liệu kẹt".
-  const PER_DEVICE = 30
+  // Sau đó 30 bản/máy lại che mất bản cũ cần tra — đủ để liệt kê mọi bản còn giữ.
+  const PER_DEVICE = 300
   const perDevice = new Map<string, number>()
   const snapshots = all.filter((s) => {
     const k = `${String((s.userId as { _id?: unknown } | null)?._id ?? s.userId)}|${s.deviceId}`
@@ -72,6 +74,24 @@ export async function readSnapshotContent(id: string): Promise<{ meta: { userId:
   if (!doc) return null
   const raw = await getR2ObjectText(doc.r2Key)
   return { meta: { userId: String(doc.userId), deviceId: doc.deviceId, createdAt: doc.createdAt }, data: JSON.parse(raw) }
+}
+
+/** Tìm buổi của 1 lớp + 1 ngày trong MỌI bản chụp còn giữ (xem snapshotSearch.ts).
+ *  Bản chụp trước ngày đó không thể có buổi của ngày đó nên bỏ qua (chừa 1 ngày
+ *  phòng lệch giờ máy). */
+export async function searchSnapshots(classId: string, date: string): Promise<DaySearchResult> {
+  const from = new Date(new Date(`${date}T00:00:00Z`).getTime() - 24 * 3600e3)
+  const docs = await ClientSnapshot.find({ createdAt: { $gte: from } }, 'deviceId createdAt r2Key userId').sort({ createdAt: -1 }).populate('userId', 'name role').lean()
+  const keyOf = new Map(docs.map((d) => [String(d._id), d.r2Key]))
+  return searchSnapshotsForDay(
+    docs.map((d) => {
+      const u = d.userId as unknown as { _id: unknown; name?: string; role?: string } | null
+      return { id: String(d._id), deviceId: d.deviceId, createdAt: d.createdAt, user: u ? { _id: String(u._id), name: u.name ?? '', role: u.role ?? '' } : null }
+    }),
+    async (id) => JSON.parse(await getR2ObjectText(keyOf.get(id)!)),
+    classId,
+    date,
+  )
 }
 
 export async function presignBackupKey(key: string): Promise<string> {

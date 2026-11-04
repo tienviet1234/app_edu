@@ -11,7 +11,7 @@ import { periodPositionOf, sessionLabelOf } from '@/business/tuition'
 import { emptyEntry } from '@/business/seed'
 import {
   resolvePlausibleNo, pendingSessionsOf, adoptServerSession, markSessionSaved, markConflict, resolveConflict, detachDeletedSession,
-  toSessionEntry, sameDateClash, navChoiceOf, unsentCountOf, takeServerCopy, appendOrphans, homeworkToBackfill, type ServerScoreForSync,
+  toSessionEntry, sameDateClash, navChoiceOf, unsentCountOf, latestSessionOf, takeServerCopy, appendOrphans, homeworkToBackfill, type ServerScoreForSync,
 } from '@/business/sync'
 import { useAppStore } from '@/store/appStore'
 import { useAuthStore } from '@/store/authStore'
@@ -351,9 +351,10 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
    *  trên máy → máy giữ bản cũ đè mất điểm mới hơn do máy khác sửa). */
   async function syncSession(studentId: string, sessionLocalId: string, opts: { silent?: boolean } = {}) {
     if (!isMongoid(cls.id) || !isMongoid(studentId)) return
-    const student = cls.students.find((s) => s.id === studentId)
-    const target = student?.sessions.find((s) => s.id === sessionLocalId)
-    if (!student || !target) return // chưa nhập gì cho học sinh này buổi này — không có gì để lưu
+    // Đọc kho máy NGAY LÚC GỬI, không dùng bản lúc lên lịch — xem latestSessionOf.
+    const latest = latestSessionOf(useAppStore.getState().data?.classes, cls.id, studentId, sessionLocalId)
+    if (!latest) return // chưa nhập gì cho học sinh này buổi này — không có gì để lưu
+    const { student, session: target } = latest
     // Nhãn + tên học sinh chụp lại NGAY LÚC GỌI (trước khi màn hình có thể
     // đã chuyển sang học sinh khác) — để thông báo lưu xong vẫn nói đúng
     // tên, dù lúc đó người dùng đã đang xem học sinh khác rồi.

@@ -5,15 +5,18 @@
  *  dữ liệu trên máy biến mất (sự cố 17–18/10). Quy tắc mới GIỮ:
  *   - 60 bản mới nhất (y như trước — không bao giờ xóa bản nào cách cũ còn giữ);
  *   - trong 3 ngày gần nhất: bản mới nhất của MỖI GIỜ;
- *   - trong 30 ngày gần nhất: bản mới nhất của MỖI NGÀY (giờ VN).
- *  Ngoài ra mới xóa. Tối đa ~60 + 72 + 30 bản / máy. */
+ *   - trong 30 ngày gần nhất: bản mới nhất của MỖI NGÀY (giờ VN);
+ *   - trong 30 ngày gần nhất: bản có buổi CHƯA LÊN SERVER mà số buổi đó khác bản
+ *     trước — đúng các lúc dữ liệu chỉ nằm trên máy. Dữ liệu sống vài chục phút
+ *     rồi biến khỏi máy mà chỉ giữ 1 bản/ngày thì không còn dấu vết để khôi phục.
+ *  Ngoài ra mới xóa. Máy đứng yên ở cùng số buổi chưa gửi không làm tăng số bản. */
 export const KEEP_RECENT = 60
 const HOUR = 3600e3
 const DAY = 24 * HOUR
 const HOURLY_FOR = 3 * DAY
 const DAILY_FOR = 30 * DAY
 
-export function snapshotsToDelete<T extends { createdAt: Date | string }>(snaps: T[], now: Date = new Date()): T[] {
+export function snapshotsToDelete<T extends { createdAt: Date | string; unsyncedSessionCount?: number }>(snaps: T[], now: Date = new Date()): T[] {
   const sorted = [...snaps].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   const hours = new Set<number>()
   const days = new Set<number>()
@@ -30,6 +33,8 @@ export function snapshotsToDelete<T extends { createdAt: Date | string }>(snaps:
     if (i < KEEP_RECENT) return
     if (age <= HOURLY_FOR && newestOfHour) return
     if (age <= DAILY_FOR && newestOfDay) return
+    const unsent = s.unsyncedSessionCount ?? 0
+    if (age <= DAILY_FOR && unsent > 0 && unsent !== (sorted[i + 1]?.unsyncedSessionCount ?? 0)) return
     out.push(s)
   })
   return out

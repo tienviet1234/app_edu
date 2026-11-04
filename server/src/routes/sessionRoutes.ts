@@ -10,7 +10,7 @@ export const sessionRouter = Router()
 
 sessionRouter.use(authenticate)
 sessionRouter.get('/', validate({ query: listQuerySchema }), asyncHandler(listSessions))
-sessionRouter.post('/', authorize('teacher'), validate({ body: sessionBodySchema }), asyncHandler(createSession))
+sessionRouter.post('/', authorize('teacher'), validate({ body: sessionBodySchema }, { action: 'session.create.rejected', resource: 'ClassSession' }), asyncHandler(createSession))
 // Đặt TRƯỚC '/:id' — path tĩnh, nếu để sau sẽ bị Express khớp nhầm thành id.
 sessionRouter.post('/batch-renumber', authorize('teacher'), validate({ body: sessionRenumberBodySchema }), asyncHandler(batchRenumberSessions))
 sessionRouter.get('/:id', validate({ params: idParamsSchema }), asyncHandler(getSession))
