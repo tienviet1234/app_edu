@@ -23,6 +23,30 @@ function reloadWhenSafe() {
   const timer = setInterval(() => { if (safe()) { clearInterval(timer); go() } }, 3000)
 }
 
+let updateWaiting = false
+
+/** Bản app mới đã tải xong, đang chờ đổi. Trình duyệt chỉ đổi Service Worker khi
+ *  bản cũ không còn yêu cầu nào đang chạy, chờ tối đa 5 phút. Đồng bộ nền lúc mở
+ *  app gửi yêu cầu liên tục nên giữ máy ở bản cũ đủ 5 phút (đo trong Edge 04/11:
+ *  301 giây ở trạng thái `waiting`) — giáo viên điểm danh trên bản cũ đúng lúc đó.
+ *  Vòng đồng bộ thấy cờ này thì dừng: phần chưa gửi còn trên máy, tải lại gửi tiếp. */
+export function isAppUpdateWaiting(): boolean {
+  return updateWaiting
+}
+
+function watchForWaitingUpdate(reg: ServiceWorkerRegistration) {
+  // Không có controller = lần cài đầu tiên, không phải đổi bản: đừng dừng đồng bộ.
+  const mark = () => { if (navigator.serviceWorker.controller) updateWaiting = true }
+  const follow = (worker: ServiceWorker | null) => {
+    if (!worker) return
+    if (worker.state === 'installed') mark()
+    worker.addEventListener('statechange', () => { if (worker.state === 'installed') mark() })
+  }
+  if (reg.waiting) mark()
+  follow(reg.installing)
+  reg.addEventListener('updatefound', () => follow(reg.installing))
+}
+
 export function startAppUpdates(): void {
   if (!('serviceWorker' in navigator)) return
   registerSW({
@@ -30,7 +54,9 @@ export function startAppUpdates(): void {
     onNeedReload: reloadWhenSafe,
     // Tab mở cả ngày vẫn nhận bản mới: kiểm tra mỗi 15 phút.
     onRegisteredSW: (_url, reg) => {
-      if (reg) setInterval(() => { reg.update().catch(() => {}) }, 15 * 60_000)
+      if (!reg) return
+      watchForWaitingUpdate(reg)
+      setInterval(() => { reg.update().catch(() => {}) }, 15 * 60_000)
     },
   })
   // Trang đang chạy bản cũ tải 1 phần app (màn mở sau) mà file đó đã bị thay

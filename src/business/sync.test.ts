@@ -313,6 +313,69 @@ describe('syncStudentsFromServer', () => {
     expect(sessions).toHaveLength(1)
   })
 
+  describe('danh sách tải TRƯỚC lần lưu của máy (sự cố thật 30/10: máy tự gỡ 2 buổi đã lưu của Lớp 7)', () => {
+    const SAVED = 1000
+    const runAt = (sessions: Session[], server: ServerSessionForSync[], scores: ServerScoreForSync[], at: { sessions?: number; scores?: number }) => {
+      const students = [{ id: STU, sessions }]
+      const changed = syncStudentsFromServer(students, server, new Map(scores.map((s) => [s.sessionId, s])), at)
+      return { changed, sessions: students[0].sessions }
+    }
+    const justSaved = (over: Partial<Session> = {}) => sess({ synced: true, savedAt: SAVED, baseUpdatedAt: 'T2', ...over })
+
+    it('buổi vừa lưu chưa có trong danh sách cũ → GIỮ, không gỡ', () => {
+      expect(runAt([justSaved()], [], [], { sessions: SAVED - 1, scores: SAVED + 5 }).sessions).toHaveLength(1)
+    })
+    it('danh sách bắt đầu tải đúng lúc vừa lưu xong vẫn coi là cũ', () => {
+      expect(runAt([justSaved()], [], [], { sessions: SAVED }).sessions).toHaveLength(1)
+    })
+    it('danh sách tải SAU lần lưu mà không còn buổi → gỡ thật (admin đã xóa)', () => {
+      expect(runAt([justSaved()], [], [], { sessions: SAVED + 1 }).sessions).toHaveLength(0)
+    })
+    it('điểm tải trước lần lưu → không ghi đè bản mới hơn, không kéo lùi mốc', () => {
+      const { sessions, changed } = runAt(
+        [justSaved({ entry: { ...emptyEntry(), scores: { mini: 9 } } })],
+        [serverSess()], [serverScore({ scores: { mini: 5 }, updatedAt: 'T1' })],
+        { sessions: SAVED + 1, scores: SAVED - 1 },
+      )
+      expect(sessions[0].entry.scores).toEqual({ mini: 9 })
+      expect(sessions[0].baseUpdatedAt).toBe('T2')
+      expect(changed).toBe(false)
+    })
+    it('bài tập trong danh sách buổi cũ → không đè bài tập vừa lưu', () => {
+      const { sessions } = runAt([justSaved({ homework: 'Trang 2' })], [serverSess({ notes: 'Trang 1' })], [], { sessions: SAVED - 1, scores: SAVED + 1 })
+      expect(sessions[0].homework).toBe('Trang 2')
+    })
+    it('cả 2 danh sách tải sau lần lưu → máy khác sửa thì vẫn nhận bản server', () => {
+      const { sessions } = runAt(
+        [justSaved({ entry: { ...emptyEntry(), scores: { mini: 9 } } })],
+        [serverSess({ notes: 'Trang 3' })], [serverScore({ scores: { mini: 5 }, updatedAt: 'T3' })],
+        { sessions: SAVED + 1, scores: SAVED + 1 },
+      )
+      expect(sessions[0].entry.scores).toEqual({ mini: 5 })
+      expect(sessions[0].homework).toBe('Trang 3')
+      expect(sessions[0].baseUpdatedAt).toBe('T3')
+    })
+    it('số buổi / ngày / đã thu vẫn theo server dù danh sách cũ hơn lần lưu', () => {
+      const { sessions } = runAt([justSaved({ no: 9 })], [serverSess({ lessonNo: 12, billed: true })], [], { sessions: SAVED - 1 })
+      expect(sessions[0]).toMatchObject({ no: 12, billed: true })
+    })
+    it('buổi chưa từng lưu từ máy này (không có mốc) → quy tắc gỡ như cũ', () => {
+      expect(runAt([sess({ synced: true })], [], [], { sessions: 1 }).sessions).toHaveLength(0)
+    })
+    it('markSessionSaved + adoptServerSession ghi mốc lưu', () => {
+      const a = { sessions: [sess({ dirty: true })] }
+      markSessionSaved(a, SV1, { entry: a.sessions[0].entry, homework: '' }, 'T9', 42)
+      expect(a.sessions[0].savedAt).toBe(42)
+      const b = { sessions: [sess({ id: 'local-1', dirty: true })] }
+      adoptServerSession(b, 'local-1', SV2, 3, undefined, undefined, 43)
+      expect(b.sessions[0]).toMatchObject({ id: SV2, savedAt: 43 })
+    })
+    it('mốc lưu không bị mất khi mở lại app (normalize)', () => {
+      const data = normalize({ classes: [{ id: 'c'.repeat(24), name: 'L', level: 'secondary', students: [{ id: STU, name: 'A', sessions: [{ id: SV1, no: 1, date: '2026-10-10', savedAt: 77, entry: { attendance: 'present' } }] }] }] })
+      expect(data.classes[0].students[0].sessions[0].savedAt).toBe(77)
+    })
+  })
+
   it('buổi id tạm (chưa lên server) không bao giờ bị đụng', () => {
     const temp = sess({ id: 'local-1', entry: { ...emptyEntry(), scores: { mini: 3 } } })
     const { sessions } = run([temp], [serverSess()], [serverScore()])

@@ -322,3 +322,39 @@ export function planDuplicateFix(input: {
   rest.forEach((s, i) => { if (s.lessonNo !== i + 1) ops.push({ kind: 'renumber', id: s.id, from: s.lessonNo, to: i + 1 }) })
   return { ok: true, ops }
 }
+
+/** Kế hoạch ghi bù 1 buổi CHỈ CÓ ĐIỂM DANH cho 1 học sinh (bản app cũ bấm "Xác
+ *  nhận" khi em chưa có buổi thì không lưu — Lớp 7 ngày 29/10). Xếp đúng vị trí
+ *  theo ngày như `placeByDate`: buổi sau ngày đó tăng 1 số, buổi trước không đổi.
+ *  Từ chối thay vì đoán khi dữ liệu không như lúc duyệt:
+ *   - đã có buổi đúng ngày (giáo viên vừa nhập bù, hoặc chạy lại lần 2);
+ *   - không có dấu vết bấm chuyển em "chưa có buổi" đúng ngày đó;
+ *   - em có buổi ở lớp khác (số buổi tính theo học sinh, đánh lại dễ trùng);
+ *   - số buổi hiện tại không liền nhau 1..n theo ngày;
+ *   - phiếu kiểu cũ đã thu theo VỊ TRÍ mà buổi mới chen vào phần đã thu (làm lệch
+ *     kỳ đã thu, buổi chưa thu cuối kỳ bị coi là đã thu). */
+export function planAttendanceBackfill(input: {
+  /** Buổi CÒN HIỆU LỰC của học sinh-lớp, đã sắp theo ngày rồi số buổi. */
+  live: Array<{ id: string; lessonNo: number; date: string; billed?: boolean }>
+  date: string
+  clickedWithoutSession: boolean
+  otherClassSessions: number
+  /** `periodTo` lớn nhất của phiếu kiểu cũ (không có danh sách buổi); null = không có. */
+  legacyPaidThrough: number | null
+}): { ok: true; lessonNo: number; renumbers: Array<{ id: string; from: number; to: number }> } | { ok: false; reason: string } {
+  if (input.live.some((s) => s.date === input.date)) return { ok: false, reason: `đã có buổi ngày ${input.date}` }
+  if (!input.clickedWithoutSession) return { ok: false, reason: `không có dấu vết bấm chuyển em ngày ${input.date}` }
+  if (input.otherClassSessions > 0) return { ok: false, reason: `em có ${input.otherClassSessions} buổi ở lớp khác` }
+  const wrong = input.live.findIndex((s, i) => s.lessonNo !== i + 1)
+  if (wrong >= 0) return { ok: false, reason: `số buổi đã lệch từ trước (${input.live[wrong].date} là Buổi ${input.live[wrong].lessonNo}, đúng ra ${wrong + 1})` }
+  const position = input.live.filter((s) => s.date < input.date).length
+  const anyBilled = input.live.some((s) => s.billed)
+  if (!anyBilled && input.legacyPaidThrough != null && position < input.legacyPaidThrough) {
+    return { ok: false, reason: `buổi mới rơi vào phần phiếu kiểu cũ đã thu (vị trí ${position + 1}, đã thu tới ${input.legacyPaidThrough})` }
+  }
+  return {
+    ok: true,
+    lessonNo: position + 1,
+    renumbers: input.live.slice(position).map((s) => ({ id: s.id, from: s.lessonNo, to: s.lessonNo + 1 })),
+  }
+}

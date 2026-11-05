@@ -8,7 +8,11 @@ export const SCORE_KEYS = {
 export function useClassScores(classId: string) {
   return useQuery({
     queryKey: SCORE_KEYS.byClass(classId),
-    queryFn: () => scoreService.listAll({ classId }),
+    queryFn: async () => {
+      // Đo lúc BẮT ĐẦU tải — xem requestedAt ở syncStudentsFromServer.
+      const requestedAt = Date.now()
+      return { ...(await scoreService.listAll({ classId })), requestedAt }
+    },
     enabled: !!classId,
   })
 }

@@ -1,5 +1,44 @@
 import { describe, it, expect } from 'vitest'
-import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession } from './dataRules.js'
+import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill } from './dataRules.js'
+
+describe('planAttendanceBackfill (ghi bù buổi chỉ có điểm danh, ca Lớp 7 ngày 29/10)', () => {
+  const live = [
+    { id: 'a', lessonNo: 1, date: '2026-10-20' },
+    { id: 'b', lessonNo: 2, date: '2026-10-22' },
+    { id: 'c', lessonNo: 3, date: '2026-10-31' },
+    { id: 'd', lessonNo: 4, date: '2026-11-03' },
+  ]
+  const base = { live, date: '2026-10-29', clickedWithoutSession: true, otherClassSessions: 0, legacyPaidThrough: null }
+
+  it('chen đúng vị trí theo ngày: buổi sau tăng 1 số, buổi trước không đổi', () => {
+    expect(planAttendanceBackfill(base)).toEqual({ ok: true, lessonNo: 3, renumbers: [{ id: 'c', from: 3, to: 4 }, { id: 'd', from: 4, to: 5 }] })
+  })
+  it('ngày mới nhất: không đổi số buổi nào', () => {
+    expect(planAttendanceBackfill({ ...base, date: '2026-11-05' })).toEqual({ ok: true, lessonNo: 5, renumbers: [] })
+  })
+  it('đã có buổi đúng ngày → từ chối (giáo viên vừa nhập bù, hoặc chạy lại lần 2)', () => {
+    expect(planAttendanceBackfill({ ...base, date: '2026-10-22' })).toMatchObject({ ok: false })
+  })
+  it('không có dấu vết bấm hôm đó → từ chối, không tự suy ra buổi', () => {
+    expect(planAttendanceBackfill({ ...base, clickedWithoutSession: false })).toMatchObject({ ok: false })
+  })
+  it('em đang có buổi ở lớp khác → từ chối', () => {
+    expect(planAttendanceBackfill({ ...base, otherClassSessions: 2 })).toMatchObject({ ok: false })
+  })
+  it('số buổi lệch từ trước → từ chối, không tiện tay đánh lại', () => {
+    expect(planAttendanceBackfill({ ...base, live: [{ id: 'a', lessonNo: 1, date: '2026-10-20' }, { id: 'b', lessonNo: 5, date: '2026-10-22' }] })).toMatchObject({ ok: false })
+  })
+  it('phiếu kiểu cũ đã thu theo vị trí: chen vào phần đã thu → từ chối', () => {
+    expect(planAttendanceBackfill({ ...base, legacyPaidThrough: 3 })).toMatchObject({ ok: false })
+  })
+  it('phiếu kiểu cũ nhưng buổi mới nằm sau phần đã thu → cho phép', () => {
+    expect(planAttendanceBackfill({ ...base, legacyPaidThrough: 2 })).toMatchObject({ ok: true, lessonNo: 3 })
+  })
+  it('đã có dấu "đã thu" theo từng buổi: phiếu cũ không còn so vị trí → cho phép, buổi mới là chưa thu', () => {
+    const billedLive = live.map((s, i) => ({ ...s, billed: i < 3 }))
+    expect(planAttendanceBackfill({ ...base, live: billedLive, legacyPaidThrough: 3 })).toMatchObject({ ok: true, lessonNo: 3 })
+  })
+})
 
 describe('navClicksWithoutSession (bấm chuyển em mà không có gì được lưu)', () => {
   const click = (studentName: string, sessionNo: number, date = '2026-10-29') => ({ className: 'Lớp 7', studentName, date, sessionNo })

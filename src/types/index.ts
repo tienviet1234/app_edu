@@ -123,6 +123,10 @@ export interface Session {
    *  hơn trong lúc máy này sửa (2 máy cùng sửa 1 buổi → trước đây bản lưu sau
    *  âm thầm đè mất bản kia). */
   baseUpdatedAt?: string
+  /** CHỈ trên máy. Thời điểm (giờ máy, ms) server xác nhận lần lưu gần nhất —
+   *  danh sách tải TRƯỚC mốc này là bản cũ với buổi này, không được dùng để gỡ
+   *  buổi hay ghi đè nội dung (xem syncStudentsFromServer). */
+  savedAt?: number
   /** CHỈ trên máy. Server từ chối lưu vì máy khác đã lưu bản mới hơn — giữ bản
    *  máy kia ở đây để giáo viên tự chọn giữ bản nào (xem resolveConflict). */
   conflict?: SessionConflict

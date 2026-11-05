@@ -320,7 +320,7 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
         update((c) => {
           const s = c.students.find((y) => y.id === addStudentId)
           const ss = s?.sessions.find((y) => y.id === localId)
-          if (ss) ss.id = apiSession._id
+          if (ss) { ss.id = apiSession._id; ss.savedAt = Date.now() }
         })
       } catch {
         toast.error(`Đã tạo Buổi ${addNo} cho ${student.name} trên máy, nhưng lỗi khi lưu lên server. Thử lại.`, { persist: true })

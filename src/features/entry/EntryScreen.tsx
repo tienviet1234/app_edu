@@ -341,7 +341,11 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
 
   /** Lưu buổi ĐANG XEM của 1 học sinh (nút Trước/Tiếp theo/đổi buổi). */
   async function syncScore(studentId: string, opts: { silent?: boolean } = {}) {
-    const target = cls.students.find((s) => s.id === studentId)?.sessions.find((s) => s.no === noOf(studentId))
+    // Đọc từ store, không từ `cls` của lần vẽ trước: "Ghi đi học đúng giờ" vừa tạo
+    // buổi ngay trước khi gọi hàm này. Đọc `cls` thì không thấy buổi, không gửi,
+    // không báo gì — giáo viên không có xác nhận nào là em đó đã lưu.
+    const fresh = useAppStore.getState().data?.classes.find((c) => c.id === cls.id) ?? cls
+    const target = fresh.students.find((s) => s.id === studentId)?.sessions.find((s) => s.no === noOf(studentId))
     if (target) await syncSession(studentId, target.id, opts)
   }
 
@@ -449,7 +453,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
       // đây chính là nguyên nhân "chấm xong, bấm Tiếp theo, nhưng điểm vẫn
       // mất" dù đã làm đúng quy trình, phát hiện khi rà soát sau báo cáo
       // thực tế mất điểm nhiều em ở Lớp 3/4/5/7.
-      if (opts.silent) { /* tự lưu nền — chỉ báo khi lỗi */ } else if (wasNew) toast.info(`Đã tạo ${label} cho ${student.name} (${viDate(target.date)})`)
+      if (opts.silent) { /* tự lưu nền — chỉ báo khi lỗi */ } else if (wasNew) toast.success(`✓ Đã lưu ${label} của ${student.name} (${viDate(target.date)})`)
       else toast.success(`✓ Đã lưu điểm ${label} của ${student.name}`)
     } catch (err) {
       setSyncStatus('error')
@@ -1108,7 +1112,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
             </button>
           )}
           {!session && (
-            <span className="text-xs" style={{ color: C.muted }}>(chưa lưu)</span>
+            <span className="text-xs font-bold" style={{ color: C.red }}>Chưa lưu gì cho em này</span>
           )}
           <Btn onClick={presetClass} title="Đặt sẵn mức đạt cho cả lớp">
             ⚡ Mặc định

@@ -12,6 +12,7 @@ import { Sidebar } from '@/components/molecules/Sidebar'
 import { BottomNav } from '@/components/molecules/BottomNav'
 import { useAppStore } from '@/store/appStore'
 import { useAuthStore } from '@/store/authStore'
+import { isAppUpdateWaiting } from '@/utils/appUpdate'
 import { startClientSnapshotLoop } from '@/utils/clientSnapshot'
 import { startLocalBackupLoop } from '@/utils/localBackup'
 import { LocalBackupsModal } from '@/features/backup/LocalBackupsModal'
@@ -163,6 +164,8 @@ async function autoSyncStrandedScores(
     // của người trước đi dưới tên người sau (token dùng chung cả app). Phần chưa
     // gửi vẫn nằm trên máy, lần mở app sau của đúng người đó gửi tiếp.
     if (!stillOwner()) return
+    // Có bản app mới đang chờ đổi: dừng để trình duyệt đổi ngay (xem isAppUpdateWaiting).
+    if (isAppUpdateWaiting()) return
     const latest = latestSessionOf(useAppStore.getState().data?.classes, job.classId, job.studentId, job.sessionLocalId)
     if (!jobIsCurrent(job, latest?.session)) continue
     if (!tryLockSession(job.sessionLocalId)) continue // Nhập điểm đang gửi đúng buổi này
@@ -283,7 +286,7 @@ async function autoSyncOrphans(data: AppData, setData: (fn: (d: AppData) => void
     if (!cls) continue
     const r = getClassRubric(cls)
     for (const s of o.sessions) {
-      if (!stillOwner()) return
+      if (!stillOwner() || isAppUpdateWaiting()) return
       if (!isMongoid(s.id) || !s.dirty || s.conflict || !tryLockSession(s.id)) continue
       try {
         const mx = s.maxes ?? {}
@@ -582,8 +585,8 @@ export default function App() {
   // which must never land in a student/parent's local storage.
   const canSyncWholeClass = user?.role === 'teacher' || user?.role === 'admin'
   const syncClassId = canSyncWholeClass && cls && isMongoid(cls.id) ? cls.id : ''
-  const { data: apiSessions } = useSessions(syncClassId)
-  const { data: apiScores, isError: scoresError } = useClassScores(syncClassId)
+  const { data: apiSessions, isFetching: sessionsFetching } = useSessions(syncClassId)
+  const { data: apiScores, isError: scoresError, isFetching: scoresFetching } = useClassScores(syncClassId)
   // Có updatedAt: admin đổi số buổi/ngày/bài tập/số câu (id không đổi) thì
   // máy khác cũng phải nhận ra — trước đây chỉ có id nên không bao giờ biết.
   const apiSessionsKey = apiSessions?.items.map((s) => s._id + s.updatedAt).join(',') ?? ''
@@ -597,6 +600,9 @@ export default function App() {
     // (Tải điểm LỖI thì vẫn đồng bộ danh sách buổi — không có điểm server thì
     // hàm đồng bộ không đụng nội dung buổi nào.)
     if (!cls || !syncClassId || apiSessions === undefined || (apiScores === undefined && !scoresError)) return
+    // Đang tải lại: chờ cả 2 danh sách về rồi mới áp, không áp nửa cũ nửa mới
+    // (danh sách buổi cũ + điểm mới từng làm máy gỡ buổi vừa lưu, 30/10).
+    if (sessionsFetching || scoresFetching) return
     // Quy tắc đồng bộ (ai thắng khi máy và server khác nhau) nằm ở hàm thuần
     // có test — business/sync.ts syncStudentsFromServer. Trước đây viết thẳng
     // ở đây và CHỈ điền buổi trống → máy A sửa điểm, máy B mãi hiện điểm cũ.
@@ -608,10 +614,10 @@ export default function App() {
     const scoresBySession = new Map((apiScores?.items ?? []).map((s) => [s.sessionId, s as unknown as ServerScoreForSync]))
     setData((d: AppData) => {
       const localCls = d.classes.find((c) => c.id === syncClassId)
-      if (localCls) syncStudentsFromServer(localCls.students, serverSessions, scoresBySession)
+      if (localCls) syncStudentsFromServer(localCls.students, serverSessions, scoresBySession, { sessions: apiSessions.requestedAt, scores: apiScores?.requestedAt })
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiSessionsKey, apiScoresKey, syncClassId, scoresError])
+  }, [apiSessionsKey, apiScoresKey, syncClassId, scoresError, sessionsFetching, scoresFetching])
 
   // "Số câu" máy này có mà server còn trống (trước 21/10 chỉ lưu trên máy) →
   // điền lên, server CHỈ nhận khi đang trống (không ghi đè máy khác). Mỗi buổi

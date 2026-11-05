@@ -11,6 +11,8 @@ export function useSessions(classId: string) {
     // Server giới hạn tối đa 100 dòng/trang (mặc định chỉ 20) — nếu chỉ lấy trang
     // đầu, lớp nhiều học sinh sẽ mất các buổi cũ trên máy chưa từng mở lớp này.
     queryFn: async () => {
+      // Đo lúc BẮT ĐẦU tải: buổi lưu xong sau mốc này có thể chưa có trong danh sách.
+      const requestedAt = Date.now()
       const items: Awaited<ReturnType<typeof sessionService.list>>['items'] = []
       let total = 0
       for (let page = 1; page <= 100; page++) {
@@ -19,7 +21,7 @@ export function useSessions(classId: string) {
         total = r.total
         if (!r.items.length || items.length >= total) break
       }
-      return { items, total, page: 1, totalPages: 1 }
+      return { items, total, page: 1, totalPages: 1, requestedAt }
     },
     enabled: !!classId,
   })

@@ -149,10 +149,16 @@ export function syncStudentsFromServer(
   students: Array<{ id: string; sessions: Session[] }>,
   serverSessions: ServerSessionForSync[],
   scoresBySession: Map<string, ServerScoreForSync>,
+  /** Lúc (giờ máy, ms) BẮT ĐẦU tải 2 danh sách trên. Buổi vừa lưu sau mốc đó có
+   *  thể chưa có trong danh sách, hoặc danh sách còn bản cũ của nó. Sự cố thật
+   *  29–30/10: máy giữ danh sách buổi cũ trong bộ nhớ, điểm vừa tải mới → gỡ khỏi
+   *  máy 2 buổi đã lưu (Minh Nhân, Kim Phụng 29/10), server vẫn còn nguyên. */
+  requestedAt?: { sessions?: number; scores?: number },
 ): boolean {
   let changed = false
   const perStudent = serverSessions.filter((s) => s.studentId)
   const serverIds = new Set(perStudent.map((s) => s._id))
+  const savedAfter = (s: Session, listAt?: number) => s.savedAt != null && listAt != null && s.savedAt >= listAt
   const localById = new Map<string, Session>()
   for (const st of students) for (const s of st.sessions) localById.set(s.id, s)
 
@@ -198,6 +204,9 @@ export function syncStudentsFromServer(
       }
       continue
     }
+    // Danh sách cũ hơn lần lưu vừa rồi của chính máy này: bản máy mới hơn, giữ
+    // nguyên cả mốc — lần tải sau sẽ khớp.
+    if (savedAfter(local, requestedAt?.sessions) || savedAfter(local, requestedAt?.scores)) continue
     const serverEntry = score ? toSessionEntry(score) : null
     const serverHomework = as.notes ?? ''
     const setBase = () => {
@@ -243,7 +252,7 @@ export function syncStudentsFromServer(
   }
 
   for (const st of students) {
-    const kept = st.sessions.filter((s) => !isMongoid(s.id) || serverIds.has(s.id) || s.dirty)
+    const kept = st.sessions.filter((s) => !isMongoid(s.id) || serverIds.has(s.id) || s.dirty || savedAfter(s, requestedAt?.sessions))
     if (kept.length !== st.sessions.length) { st.sessions = kept; changed = true }
   }
   if (changed) for (const st of students) st.sessions.sort((a, b) => a.no - b.no)
@@ -270,12 +279,14 @@ export function adoptServerSession(
    *  xong → giữ nguyên dirty (gửi điểm lỗi thì lần sau còn gửi lại). */
   sent?: SentContent,
   serverUpdatedAt?: string,
+  now = Date.now(),
 ): void {
   const temp = student.sessions.find((s) => s.id === tempId)
   if (!temp) return
   const twin = student.sessions.find((s) => s.id === serverId)
   if (!twin) {
     temp.id = serverId
+    temp.savedAt = now
     if (serverNo) temp.no = serverNo
     if (sent) {
       temp.synced = true
@@ -288,6 +299,7 @@ export function adoptServerSession(
     twin.entry = temp.entry
     if (!twin.homework?.trim()) twin.homework = temp.homework
     if (!twin.maxes) twin.maxes = temp.maxes
+    twin.savedAt = now
   }
   student.sessions = student.sessions.filter((s) => s.id !== tempId)
 }
@@ -308,10 +320,12 @@ export function markSessionSaved(
   sent: SentContent,
   /** `updatedAt` server trả về cho bản vừa lưu — mốc cho lần sửa tiếp theo. */
   serverUpdatedAt?: string,
+  now = Date.now(),
 ): void {
   const s = student.sessions.find((x) => x.id === sessionId)
   if (!s) return
   s.synced = true
+  s.savedAt = now
   if (serverUpdatedAt) s.baseUpdatedAt = serverUpdatedAt
   s.conflict = undefined
   s.serverCopy = undefined

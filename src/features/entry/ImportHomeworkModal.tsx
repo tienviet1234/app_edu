@@ -153,6 +153,7 @@ export function ImportHomeworkModal({ cls, studentId, teacherName, update, onClo
             entry: { ...emptyEntry(), note: r.note },
             createdByName: teacherName, recordedAt: apiSession.createdAt,
             synced: true, // vừa được server xác nhận
+            savedAt: Date.now(),
           })
           stu.sessions.sort((a, b) => a.no - b.no)
         })
