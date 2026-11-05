@@ -323,6 +323,14 @@ export function planDuplicateFix(input: {
   return { ok: true, ops }
 }
 
+/** Lớp đã có buổi học thì không được xóa: buổi, điểm, học phí đều neo vào lớp, xóa
+ *  là mồ côi hết, không màn nào hiện nữa. Lớp thôi học thì đổi trạng thái. */
+export function classDeleteBlockReason(sessionCount: number): string | null {
+  return sessionCount > 0
+    ? `Lớp này đã có ${sessionCount} buổi học nên không xóa được, để giữ điểm và học phí. Lớp thôi học thì đổi trạng thái sang "Đã kết thúc".`
+    : null
+}
+
 /** Kế hoạch ghi bù 1 buổi CHỈ CÓ ĐIỂM DANH cho 1 học sinh (bản app cũ bấm "Xác
  *  nhận" khi em chưa có buổi thì không lưu — Lớp 7 ngày 29/10). Xếp đúng vị trí
  *  theo ngày như `placeByDate`: buổi sau ngày đó tăng 1 số, buổi trước không đổi.

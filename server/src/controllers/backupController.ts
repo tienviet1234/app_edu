@@ -4,6 +4,7 @@ import { asyncHandler } from '../utils/asyncHandler.js'
 import { ok, badRequest, notFound } from '../utils/response.js'
 import { saveClientSnapshot, listBackups, presignBackupKey, readSnapshotContent, searchSnapshots } from '../services/clientSnapshotService.js'
 import { runDatabaseBackup } from '../services/backupService.js'
+import { readDataHealth } from '../services/dataHealthService.js'
 import { writeAudit, writeRejectedAudit, appVersionOf } from '../services/auditService.js'
 
 /** POST /api/client-snapshots — máy giáo viên/admin tự gửi bản chụp dữ liệu
@@ -27,6 +28,11 @@ export const postClientSnapshot = asyncHandler(async (req: Request, res: Respons
     throw err
   }
   ok(res, result)
+})
+
+/** GET /api/admin/backups/health — các lớp bảo vệ dữ liệu còn hoạt động không (chỉ đọc). */
+export const getDataHealth = asyncHandler(async (_req: Request, res: Response) => {
+  ok(res, await readDataHealth())
 })
 
 /** GET /api/admin/backups — bản sao lưu DB hằng ngày (R2) + bản chụp từ máy giáo viên. */

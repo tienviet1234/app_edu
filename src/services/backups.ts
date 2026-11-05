@@ -31,7 +31,13 @@ export interface SnapshotDayResult {
   versions: SnapshotDayVersion[]
 }
 
+export interface HealthItem { key: string; level: 'ok' | 'warn' | 'bad'; title: string; detail: string; lines?: string[] }
+export interface DataHealth { level: HealthItem['level']; items: HealthItem[] }
+
 export const backupService = {
+  /** Các lớp bảo vệ dữ liệu còn hoạt động không (chỉ đọc). */
+  dataHealth: () => api.get<{ data: DataHealth }>('/admin/backups/health', { timeout: 60_000 }).then((r) => r.data.data),
+
   /** Tìm buổi của 1 lớp + 1 ngày trong MỌI bản chụp còn giữ của mọi máy. */
   searchSnapshotSessions: (classId: string, date: string) =>
     api

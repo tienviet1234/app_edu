@@ -11,7 +11,7 @@ import { periodPositionOf, sessionLabelOf } from '@/business/tuition'
 import { emptyEntry } from '@/business/seed'
 import {
   resolvePlausibleNo, pendingSessionsOf, adoptServerSession, markSessionSaved, markConflict, resolveConflict, detachDeletedSession,
-  toSessionEntry, sameDateClash, navChoiceOf, unsentCountOf, latestSessionOf, takeServerCopy, appendOrphans, homeworkToBackfill, type ServerScoreForSync,
+  toSessionEntry, sameDateClash, navChoiceOf, unsentCountOf, latestSessionOf, siblingDefaultsFor, notesToSend, baseForSave, takeServerCopy, appendOrphans, homeworkToBackfill, type ServerScoreForSync,
 } from '@/business/sync'
 import { useAppStore } from '@/store/appStore'
 import { useAuthStore } from '@/store/authStore'
@@ -116,18 +116,13 @@ function findOrCreateSession(c: ClassData, studentId: string, no: number, dateFo
         )
       }
     }
-    // Kế thừa "Số câu" đã đặt cho buổi này ở học sinh khác (nếu có) — để cả
-    // lớp nhất quán mà KHÔNG cần tạo sẵn buổi (với điểm danh mặc định) cho
-    // mọi học sinh ngay khi chỉ 1 người sửa ô "Số câu".
-    const siblingMaxes = c.students.flatMap((s) => s.sessions).find((s) => s.no === no)?.maxes
-    // Tương tự, kế thừa "Bài tập về nhà" đã ghi cho buổi này ở học sinh khác
-    // (cả lớp thường giao chung 1 bài) — giáo viên vẫn sửa thoải mái riêng
-    // cho em nào bài khác, chỉ ảnh hưởng đúng em đó (xem setHomework).
-    const siblingHomework = c.students.flatMap((s) => s.sessions).find((s) => s.no === no && s.homework)?.homework
+    // Kế thừa "Số câu" + "Bài tập về nhà" từ bạn khác CÙNG NGÀY (xem
+    // siblingDefaultsFor) — giáo viên vẫn sửa riêng cho em nào bài khác.
+    const inherited = siblingDefaultsFor(c.students, dateForNew)
     session = {
-      id: uid(), no, date: dateForNew, homework: siblingHomework ?? '', entry: emptyEntry(),
+      id: uid(), no, date: dateForNew, homework: inherited.homework, entry: emptyEntry(),
       createdByName: teacherName, recordedAt: new Date().toISOString(),
-      maxes: siblingMaxes ? { ...siblingMaxes } : undefined,
+      maxes: inherited.maxes,
     }
     student.sessions.push(session)
     student.sessions.sort((a, b) => a.no - b.no)
@@ -429,14 +424,16 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
       // cũng chưa gửi (đợi giáo viên chọn bản nào).
       let savedUpdatedAt: string | undefined
       if (!scoreAlreadySaved) {
-        const saved = await scoreService.upsert({ classId: cls.id, sessionId, studentId, ...target.entry, total, ...(wasNew ? {} : { baseUpdatedAt: target.baseUpdatedAt }) })
+        const saved = await scoreService.upsert({ classId: cls.id, sessionId, studentId, ...target.entry, total, ...(wasNew ? {} : { baseUpdatedAt: baseForSave(target) }) })
         savedUpdatedAt = saved.updatedAt
       }
       if (!wasNew) {
-        // Buổi đã có sẵn trên server — gửi kèm "Bài tập về nhà" + "Số câu"
-        // (trước đây bài tập không bao giờ được gửi, số câu thì chỉ nằm trên
-        // máy → máy khác tính % theo số câu mặc định).
-        await sessionService.update(sessionId, { notes: target.homework ?? '', ...(target.maxes ? { maxes: target.maxes } : {}) })
+        // Buổi đã có sẵn trên server — gửi kèm "Số câu", và "Bài tập về nhà" chỉ
+        // khi máy này thật sự đổi (xem notesToSend).
+        const notes = notesToSend(target)
+        if (notes !== undefined || target.maxes) {
+          await sessionService.update(sessionId, { ...(notes !== undefined ? { notes } : {}), ...(target.maxes ? { maxes: target.maxes } : {}) })
+        }
       }
       const savedId = sessionId
       update((c) => {

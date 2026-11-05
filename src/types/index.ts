@@ -127,6 +127,9 @@ export interface Session {
    *  danh sách tải TRƯỚC mốc này là bản cũ với buổi này, không được dùng để gỡ
    *  buổi hay ghi đè nội dung (xem syncStudentsFromServer). */
   savedAt?: number
+  /** CHỈ trên máy. Bài tập về nhà server đang có theo máy này biết — chỉ gửi bài
+   *  tập khi khác giá trị này (xem notesToSend). */
+  homeworkBase?: string
   /** CHỈ trên máy. Server từ chối lưu vì máy khác đã lưu bản mới hơn — giữ bản
    *  máy kia ở đây để giáo viên tự chọn giữ bản nào (xem resolveConflict). */
   conflict?: SessionConflict

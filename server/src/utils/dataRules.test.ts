@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest'
-import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill } from './dataRules.js'
+import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason } from './dataRules.js'
+
+describe('classDeleteBlockReason (xóa lớp không được làm mồ côi điểm và học phí)', () => {
+  it('lớp đã có buổi: chặn, nói rõ số buổi và cách làm thay', () => {
+    expect(classDeleteBlockReason(221)).toContain('221 buổi')
+    expect(classDeleteBlockReason(1)).toContain('Đã kết thúc')
+  })
+  it('lớp chưa có buổi nào (tạo nhầm): cho xóa', () => {
+    expect(classDeleteBlockReason(0)).toBeNull()
+  })
+})
 
 describe('planAttendanceBackfill (ghi bù buổi chỉ có điểm danh, ca Lớp 7 ngày 29/10)', () => {
   const live = [

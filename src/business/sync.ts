@@ -181,6 +181,7 @@ export function syncStudentsFromServer(
         entry: score ? toSessionEntry(score) : emptyEntry(),
         synced: true,
         baseUpdatedAt: score?.updatedAt,
+        homeworkBase: as.notes ?? '',
       })
       changed = true
       continue
@@ -209,6 +210,7 @@ export function syncStudentsFromServer(
     if (savedAfter(local, requestedAt?.sessions) || savedAfter(local, requestedAt?.scores)) continue
     const serverEntry = score ? toSessionEntry(score) : null
     const serverHomework = as.notes ?? ''
+    local.homeworkBase = serverHomework
     const setBase = () => {
       if (score?.updatedAt && local.baseUpdatedAt !== score.updatedAt) { local.baseUpdatedAt = score.updatedAt; changed = true }
     }
@@ -290,6 +292,7 @@ export function adoptServerSession(
     if (serverNo) temp.no = serverNo
     if (sent) {
       temp.synced = true
+      temp.homeworkBase = sent.homework ?? ''
       if (serverUpdatedAt) temp.baseUpdatedAt = serverUpdatedAt
       if (sameContent(temp, sent)) temp.dirty = false
     }
@@ -326,6 +329,7 @@ export function markSessionSaved(
   if (!s) return
   s.synced = true
   s.savedAt = now
+  s.homeworkBase = sent.homework ?? ''
   if (serverUpdatedAt) s.baseUpdatedAt = serverUpdatedAt
   s.conflict = undefined
   s.serverCopy = undefined
@@ -478,6 +482,55 @@ export function navChoiceOf(student: { sessions: Session[] }, no: number, date: 
   if (student.sessions.some((s) => s.no === no)) return { kind: 'hasSession' }
   const clash = sameDateClash(student, no, date)
   return clash ? { kind: 'clash', clash } : { kind: 'noSession' }
+}
+
+/** Bài tập + số câu cho buổi MỚI, lấy từ bạn khác CÙNG NGÀY (cả lớp thường giao
+ *  chung 1 bài). Trước 05/11 lấy theo cùng SỐ buổi, mà số buổi mỗi em khác nhau:
+ *  buổi mới nhận bài tập và số câu của NGÀY KHÁC (số câu sai còn làm lệch điểm),
+ *  giáo viên thấy sai phải tự xóa, không thấy thì bản sai nằm lại. */
+export function siblingDefaultsFor(
+  students: Array<{ sessions: Array<Pick<Session, 'date' | 'homework' | 'maxes'>> }>,
+  date: string,
+): { homework: string; maxes?: Record<string, number> } {
+  const sameDay = students.flatMap((s) => s.sessions).filter((s) => s.date === date)
+  const maxes = sameDay.find((s) => s.maxes && Object.keys(s.maxes).length)?.maxes
+  return {
+    homework: sameDay.find((s) => s.homework?.trim())?.homework ?? '',
+    ...(maxes ? { maxes: { ...maxes } } : {}),
+  }
+}
+
+/** Bài tập cần gửi khi lưu buổi đã có trên server; undefined = không gửi. Trước
+ *  05/11 mỗi lần sửa điểm đều gửi nguyên ô bài tập trên máy, nên máy đang giữ bản
+ *  cũ xóa mất bài tập máy khác vừa nhập, dù giáo viên không hề đụng tới ô đó.
+ *  Chưa biết server đang có gì (dữ liệu cũ) thì không bao giờ gửi bản trống. */
+export function notesToSend(session: Pick<Session, 'homework' | 'homeworkBase'>): string | undefined {
+  const homework = session.homework ?? ''
+  if (session.homeworkBase === undefined) return homework.trim() ? homework : undefined
+  return homework === session.homeworkBase ? undefined : homework
+}
+
+const NEVER_SYNCED_BASE = '1970-01-01T00:00:00.000Z'
+
+/** Mốc gửi kèm khi lưu điểm buổi đã có trên server. Dữ liệu cũ chưa từng khớp
+ *  server thì nội dung máy có thể cũ hơn: gửi mốc rất xa để server có điểm rồi là
+ *  báo xung đột cho giáo viên chọn, thay vì bản cũ đè mất bản trên server. */
+export function baseForSave(session: Pick<Session, 'baseUpdatedAt' | 'synced'>): string | undefined {
+  return session.baseUpdatedAt ?? (session.synced ? undefined : NEVER_SYNCED_BASE)
+}
+
+/** Buổi tạm trên máy gặp buổi CÙNG NGÀY đã có điểm trên server (`SAME_DATE`).
+ *  Server chứa trọn điểm máy mà bài tập không xung khắc thì liên kết vào đó: không
+ *  mất gì, và máy không gửi lại mãi mỗi lần mở app (Nhã Uyên, Cát Tiên 17/10 bị từ
+ *  chối 11 lần). Điểm hoặc bài tập khác nhau thì giữ nguyên để người xem quyết. */
+export function resolveSameDateTemp(
+  local: { entry: SessionEntry; homework: string },
+  server: { entry: SessionEntry; homework: string },
+): 'adopt' | 'fillHomework' | 'keep' {
+  if (!entryContains(server.entry, local.entry)) return 'keep'
+  const mine = local.homework.trim(), theirs = server.homework.trim()
+  if (!mine || mine === theirs) return 'adopt'
+  return theirs ? 'keep' : 'fillHomework'
 }
 
 /** Buổi MỚI NHẤT trong kho máy lúc sắp gửi. Hàm lưu chạy theo lịch (tự lưu 1,5

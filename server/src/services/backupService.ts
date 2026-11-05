@@ -1,8 +1,8 @@
 import mongoose from 'mongoose'
 import { uploadBufferToR2, listR2Keys, deleteVideoFromR2 } from './storageService.js'
+import { backupsToDelete } from '../utils/backupRetention.js'
 
 const BACKUP_PREFIX = 'backups/'
-const RETENTION_COUNT = 60 // giữ 60 bản gần nhất (~1 tháng — chạy 2 lần/ngày, 02:00 và 14:00)
 
 // Token đăng nhập/OTP là trạng thái phiên tạm thời (có hạn dùng riêng), không
 // phải dữ liệu cần giữ lâu dài — mất đi chỉ buộc người dùng đăng nhập lại /
@@ -24,11 +24,8 @@ interface BackupResult {
   deletedOld: number
 }
 
-/** Sao lưu toàn bộ collection trong MongoDB đang kết nối (server đã connect
- *  sẵn khi khởi động — không cần MONGO_URI riêng ở đây) thành 1 file JSON,
- *  đẩy lên Cloudflare R2 (cùng bucket với video, tiền tố "backups/"). Tự dọn
- *  bản cũ, chỉ giữ RETENTION_COUNT bản gần nhất để không phình bucket mãi. */
-export async function runDatabaseBackup(): Promise<BackupResult> {
+/** Nội dung file sao lưu: mọi collection, trừ token và mật khẩu. */
+export async function buildBackupDump(): Promise<{ dump: Record<string, unknown[]>; documents: number; collections: number }> {
   const db = mongoose.connection.db
   if (!db) throw new Error('Database chưa kết nối.')
 
@@ -42,24 +39,30 @@ export async function runDatabaseBackup(): Promise<BackupResult> {
     dump[name] = docs
     totalDocs += docs.length
   }
+  return { dump, documents: totalDocs, collections: collections.length }
+}
+
+/** Sao lưu toàn bộ collection trong MongoDB đang kết nối (server đã connect
+ *  sẵn khi khởi động — không cần MONGO_URI riêng ở đây) thành 1 file JSON,
+ *  đẩy lên Cloudflare R2 (cùng bucket với video, tiền tố "backups/"). Dọn bản cũ
+ *  theo backupsToDelete: phát hiện lỗi muộn vẫn còn bản để lấy lại. */
+export async function runDatabaseBackup(): Promise<BackupResult> {
+  const { dump, documents: totalDocs, collections } = await buildBackupDump()
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
   const key = `${BACKUP_PREFIX}db-${timestamp}.json`
   const buffer = Buffer.from(JSON.stringify(dump))
   await uploadBufferToR2(buffer, key, 'application/json')
 
-  // Dọn bản cũ vượt quá retention — sắp theo tên (chứa timestamp ISO nên sort
-  // chuỗi = sort theo thời gian), xóa các bản cũ nhất ngoài RETENTION_COUNT.
   const existing = await listR2Keys(BACKUP_PREFIX)
-  const sorted = existing.map((o) => o.key).sort() // cũ → mới
-  const toDelete = sorted.slice(0, Math.max(0, sorted.length - RETENTION_COUNT))
+  const toDelete = backupsToDelete(existing.map((o) => o.key), Date.now())
   for (const oldKey of toDelete) {
     await deleteVideoFromR2(oldKey).catch(() => null) // best-effort, không chặn backup nếu xóa lỗi
   }
 
   return {
     key,
-    collections: collections.length,
+    collections,
     documents: totalDocs,
     sizeBytes: buffer.byteLength,
     deletedOld: toDelete.length,

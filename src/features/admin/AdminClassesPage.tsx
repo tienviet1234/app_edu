@@ -117,8 +117,8 @@ function EditClassPanel({ cls, onDone }: { cls: ApiClass; onDone: () => void }) 
       await classService.delete(cls._id)
       qc.invalidateQueries({ queryKey: ['admin', 'classes'] })
       onDone()
-    } catch {
-      setMsg('Lỗi khi xóa')
+    } catch (err) {
+      setMsg((err as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Lỗi khi xóa')
       setDeleting(false)
     }
   }

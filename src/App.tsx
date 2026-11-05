@@ -21,13 +21,13 @@ import { useClasses, useClassStudents, useSessions, useClassScores, usePwaInstal
 import { isMongoid } from '@/utils/mongoid'
 import {
   pruneGoneFromServer, syncStudentsFromServer, adoptServerSession, markSessionSaved, markConflict, detachDeletedSession, toSessionEntry, maxesToBackfill,
-  collectOrphans, appendOrphans, unsentSessionCount, latestSessionOf, type ServerScoreForSync,
+  collectOrphans, appendOrphans, unsentSessionCount, latestSessionOf, notesToSend, baseForSave, resolveSameDateTemp, type ServerScoreForSync,
 } from '@/business/sync'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
 import { getClassRubric } from '@/constants/rubrics'
 import { rescaleComp, sessionScore } from '@/business/scoring'
 import { autoLevel } from '@/constants/rubrics'
-import { collectScoreJobs, jobIsCurrent, sameEntry } from '@/business/strandedScores'
+import { collectScoreJobs, jobIsCurrent } from '@/business/strandedScores'
 import { tryLockSession, unlockSession } from '@/utils/syncLocks'
 import { sessionService } from '@/services/sessions'
 import { scoreService, conflictFromError, isSessionDeletedError } from '@/services/scores'
@@ -166,8 +166,8 @@ async function autoSyncStrandedScores(
     if (!stillOwner()) return
     // Có bản app mới đang chờ đổi: dừng để trình duyệt đổi ngay (xem isAppUpdateWaiting).
     if (isAppUpdateWaiting()) return
-    const latest = latestSessionOf(useAppStore.getState().data?.classes, job.classId, job.studentId, job.sessionLocalId)
-    if (!jobIsCurrent(job, latest?.session)) continue
+    const current = latestSessionOf(useAppStore.getState().data?.classes, job.classId, job.studentId, job.sessionLocalId)?.session
+    if (!current || !jobIsCurrent(job, current)) continue
     if (!tryLockSession(job.sessionLocalId)) continue // Nhập điểm đang gửi đúng buổi này
     const sent = { entry: job.entry, homework: job.homework, maxes: job.maxes }
     try {
@@ -177,8 +177,12 @@ async function autoSyncStrandedScores(
           // gửi THẬT, kèm mốc bản server đã dựa vào: máy khác đã lưu bản mới
           // hơn trong lúc đó thì server từ chối, để giáo viên chọn (không đè).
           try {
-            const saved = await scoreService.upsert({ classId: job.classId, sessionId: job.sessionLocalId, studentId: job.studentId, ...job.entry, total: job.total, baseUpdatedAt: job.baseUpdatedAt })
-            await sessionService.update(job.sessionLocalId, { notes: job.homework, ...(job.maxes ? { maxes: job.maxes } : {}) })
+            const saved = await scoreService.upsert({ classId: job.classId, sessionId: job.sessionLocalId, studentId: job.studentId, ...job.entry, total: job.total, baseUpdatedAt: baseForSave(current) })
+            // Bài tập chỉ gửi khi máy này thật sự đổi (xem notesToSend).
+            const notes = notesToSend(current)
+            if (notes !== undefined || job.maxes) {
+              await sessionService.update(job.sessionLocalId, { ...(notes !== undefined ? { notes } : {}), ...(job.maxes ? { maxes: job.maxes } : {}) })
+            }
             onStudent(job, (st) => markSessionSaved(st, job.sessionLocalId, sent, saved.updatedAt))
           } catch (err) {
             if (isSessionDeletedError(err)) {
@@ -240,10 +244,24 @@ async function autoSyncStrandedScores(
         // Có điểm KHÁC → giữ nguyên cả 2, báo đích danh (không ghi đè).
         const existingId = resp.data.data.existingId
         const res = await scoreService.upsert({ classId: job.classId, sessionId: existingId, studentId: job.studentId, ...job.entry, total: job.total, ifAbsent: true })
-        const same = !res.skipped || sameEntry(job.entry, res)
-        if (res.deleted || !same) {
+        if (res.deleted) {
           stuckSameDate.push(`${job.studentName} (${job.date})`)
           continue
+        }
+        if (res.skipped) {
+          // Đã có điểm: server chứa trọn bản máy thì liên kết, khác thì giữ cả 2.
+          const onServer = await sessionService.get(existingId)
+          const outcome = resolveSameDateTemp(
+            { entry: job.entry, homework: job.homework },
+            { entry: toSessionEntry(res as unknown as ServerScoreForSync), homework: onServer.notes ?? '' },
+          )
+          if (outcome === 'keep') {
+            stuckSameDate.push(`${job.studentName} (${job.date})`)
+            continue
+          }
+          if (outcome === 'fillHomework') await sessionService.update(existingId, { notes: job.homework, notesIfAbsent: true })
+        } else if (job.homework.trim()) {
+          await sessionService.update(existingId, { notes: job.homework, notesIfAbsent: true })
         }
         const lessonNo = resp.data.data.lessonNo
         onStudent(job, (st) => adoptServerSession(st, job.sessionLocalId, existingId, lessonNo, sent))
@@ -688,6 +706,8 @@ export default function App() {
   // mạng (utils/localBackup.ts) — còn khi mất mạng/server lỗi.
   useEffect(() => {
     if (!user || (user.role !== 'teacher' && user.role !== 'admin')) return
+    // Xin trình duyệt giữ dữ liệu app, không tự dọn khi thiếu dung lượng/lâu không mở.
+    void navigator.storage?.persist?.().catch(() => {})
     const stopSnapshots = startClientSnapshotLoop(user.id)
     const stopLocal = startLocalBackupLoop(user.id)
     return () => { stopSnapshots(); stopLocal() }

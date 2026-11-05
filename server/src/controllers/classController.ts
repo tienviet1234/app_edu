@@ -8,7 +8,8 @@ import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit } from '../services/auditService.js'
 import { User } from '../models/User.js'
 import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
-import { checkStudentTuitionInput } from '../utils/dataRules.js'
+import { checkStudentTuitionInput, classDeleteBlockReason } from '../utils/dataRules.js'
+import { ClassSession } from '../models/ClassSession.js'
 
 export async function listClasses(req: Request, res: Response): Promise<void> {
   const authReq = req as AuthRequest
@@ -210,6 +211,14 @@ export async function deleteClass(req: Request, res: Response): Promise<void> {
   }
   if (authReq.user?.role !== 'admin' && !isClassTeacher(cls, authReq.userId!)) {
     forbidden(res, 'You can only delete your own classes.')
+    return
+  }
+  // Lớp là chỗ neo mọi buổi/điểm/học phí: xóa lớp đã có dữ liệu thì các bản ghi đó
+  // mồ côi, không màn nào hiện nữa. Chỉ cho xóa lớp chưa từng có buổi nào.
+  const blocked = classDeleteBlockReason(await ClassSession.countDocuments({ classId: cls._id }))
+  if (blocked) {
+    await writeAudit(req, { action: 'class.delete.rejected', resource: 'Class', resourceId: String(cls._id) })
+    badRequest(res, blocked)
     return
   }
   await Class.findByIdAndDelete(req.params.id)

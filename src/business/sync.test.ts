@@ -3,7 +3,7 @@ import {
   pruneGoneFromServer, resolvePlausibleNo, syncStudentsFromServer, adoptServerSession, pendingSessionsOf, markSessionSaved,
   markConflict, resolveConflict, collectOrphans, appendOrphans, sameDateClash, detachDeletedSession,
   orphanForLocalDelete, rescueOtherTabSessions, maxesToBackfill, takeServerCopy, countUnsaved, homeworkToBackfill,
-  navChoiceOf, unsentCountOf, unsentSessionCount, latestSessionOf,
+  navChoiceOf, unsentCountOf, unsentSessionCount, latestSessionOf, siblingDefaultsFor, notesToSend, baseForSave, resolveSameDateTemp,
   type ServerSessionForSync, type ServerScoreForSync,
 } from './sync'
 import { emptyEntry, normalize } from './seed'
@@ -373,6 +373,98 @@ describe('syncStudentsFromServer', () => {
     it('mốc lưu không bị mất khi mở lại app (normalize)', () => {
       const data = normalize({ classes: [{ id: 'c'.repeat(24), name: 'L', level: 'secondary', students: [{ id: STU, name: 'A', sessions: [{ id: SV1, no: 1, date: '2026-10-10', savedAt: 77, entry: { attendance: 'present' } }] }] }] })
       expect(data.classes[0].students[0].sessions[0].savedAt).toBe(77)
+    })
+  })
+
+  describe('siblingDefaultsFor (buổi mới không được nhận bài tập, số câu của ngày khác)', () => {
+    const peers = [
+      { sessions: [{ date: '2026-10-24', homework: 'Trang 28', maxes: { mini: 30 } }] }, // Buổi 14 của em này
+      { sessions: [{ date: '2026-10-25', homework: 'Trang 30', maxes: { mini: 20 } }, { date: '2026-10-24', homework: '', maxes: undefined }] },
+    ]
+    it('ca thật: lấy đúng bạn cùng NGÀY, không theo số buổi', () => {
+      expect(siblingDefaultsFor(peers, '2026-10-25')).toEqual({ homework: 'Trang 30', maxes: { mini: 20 } })
+    })
+    it('bạn đầu tiên cùng ngày còn trống bài tập thì bỏ qua, lấy bạn có nội dung', () => {
+      expect(siblingDefaultsFor(peers, '2026-10-24').homework).toBe('Trang 28')
+    })
+    it('chưa ai có buổi ngày đó: để trống, không tự điền từ ngày khác', () => {
+      expect(siblingDefaultsFor(peers, '2026-10-31')).toEqual({ homework: '' })
+    })
+    it('số câu là bản sao riêng, sửa của em này không dính sang em kia', () => {
+      const r = siblingDefaultsFor(peers, '2026-10-25')
+      r.maxes!.mini = 99
+      expect(peers[1].sessions[0].maxes!.mini).toBe(20)
+    })
+  })
+
+  describe('notesToSend (sửa điểm không được xóa bài tập máy khác vừa nhập)', () => {
+    it('máy không đổi bài tập → không gửi', () => {
+      expect(notesToSend({ homework: 'Trang 1', homeworkBase: 'Trang 1' })).toBeUndefined()
+    })
+    it('máy giữ bản trống, chưa từng đổi → không gửi, không xóa bài của máy khác', () => {
+      expect(notesToSend({ homework: '', homeworkBase: '' })).toBeUndefined()
+    })
+    it('giáo viên sửa bài tập → gửi', () => {
+      expect(notesToSend({ homework: 'Trang 2', homeworkBase: 'Trang 1' })).toBe('Trang 2')
+    })
+    it('giáo viên chủ động xóa bài tập → vẫn gửi bản trống', () => {
+      expect(notesToSend({ homework: '', homeworkBase: 'Trang 1' })).toBe('')
+    })
+    it('dữ liệu cũ chưa biết server có gì: có nội dung thì gửi, trống thì không gửi', () => {
+      expect(notesToSend({ homework: 'Trang 1' })).toBe('Trang 1')
+      expect(notesToSend({ homework: '' })).toBeUndefined()
+      expect(notesToSend({})).toBeUndefined()
+    })
+    it('đồng bộ và lưu xong đều ghi nhận mốc bài tập', () => {
+      const { sessions } = run([sess({ synced: true })], [serverSess({ notes: 'Unit 5' })])
+      expect(sessions[0].homeworkBase).toBe('Unit 5')
+      const added = run([], [serverSess({ notes: 'Unit 6' })])
+      expect(added.sessions[0].homeworkBase).toBe('Unit 6')
+      const st = { sessions: [sess({ dirty: true, homework: 'Trang 9' })] }
+      markSessionSaved(st, SV1, { entry: st.sessions[0].entry, homework: 'Trang 9' }, 'T1', 1)
+      expect(notesToSend(st.sessions[0])).toBeUndefined()
+    })
+    it('máy khác nhập bài tập trong lúc máy này đang sửa điểm: không bị đè, lần đồng bộ sau nhận về', () => {
+      const local = sess({ synced: true, dirty: true, homework: '', homeworkBase: '' })
+      expect(notesToSend(local)).toBeUndefined()
+      const { sessions } = run([{ ...local, dirty: false }], [serverSess({ notes: 'Máy khác nhập' })])
+      expect(sessions[0].homework).toBe('Máy khác nhập')
+    })
+    it('mốc bài tập không mất khi mở lại app (normalize)', () => {
+      const data = normalize({ classes: [{ id: 'c'.repeat(24), name: 'L', level: 'secondary', students: [{ id: STU, name: 'A', sessions: [{ id: SV1, no: 1, date: '2026-10-10', homeworkBase: 'x', entry: { attendance: 'present' } }] }] }] })
+      expect(data.classes[0].students[0].sessions[0].homeworkBase).toBe('x')
+    })
+  })
+
+  describe('baseForSave (dữ liệu cũ trên máy không được âm thầm đè bản server)', () => {
+    it('có mốc: gửi đúng mốc', () => {
+      expect(baseForSave({ baseUpdatedAt: 'T1', synced: true })).toBe('T1')
+    })
+    it('dữ liệu cũ chưa từng khớp server: mốc rất xa, server có điểm là báo xung đột', () => {
+      const base = baseForSave({})
+      expect(base && Date.parse(base)).toBeLessThan(Date.parse('2000-01-01'))
+    })
+    it('đã khớp server nhưng chưa có mốc (server chưa có điểm): không gửi mốc, tránh xung đột giả', () => {
+      expect(baseForSave({ synced: true })).toBeUndefined()
+    })
+  })
+
+  describe('resolveSameDateTemp (buổi tạm gặp buổi cùng ngày đã có điểm trên server)', () => {
+    const ticks = { ...emptyEntry(), ticks: { attitude: ['a', 'b'] } }
+    const full = { ...emptyEntry(), ticks: { attitude: ['a', 'b'] }, parts: { video: { full: 10 } } }
+    it('ca thật Cát Tiên: server chứa trọn điểm máy, server chưa có bài tập → điền rồi liên kết', () => {
+      expect(resolveSameDateTemp({ entry: ticks, homework: 'Trang 32' }, { entry: full, homework: '' })).toBe('fillHomework')
+    })
+    it('ca thật Nhã Uyên: bài tập 2 nơi khác nhau → giữ nguyên để người xem quyết', () => {
+      expect(resolveSameDateTemp({ entry: ticks, homework: 'Lesson 2' }, { entry: full, homework: 'Phiếu thì' })).toBe('keep')
+    })
+    it('máy không có bài tập hoặc bài tập giống server → liên kết, không còn gửi lại mãi', () => {
+      expect(resolveSameDateTemp({ entry: ticks, homework: '' }, { entry: full, homework: 'Phiếu thì' })).toBe('adopt')
+      expect(resolveSameDateTemp({ entry: ticks, homework: 'Phiếu thì ' }, { entry: full, homework: 'Phiếu thì' })).toBe('adopt')
+    })
+    it('máy có điểm server không có → giữ nguyên, không bỏ điểm của máy', () => {
+      const more = { ...emptyEntry(), scores: { mini: 9 } }
+      expect(resolveSameDateTemp({ entry: more, homework: '' }, { entry: full, homework: '' })).toBe('keep')
     })
   })
 

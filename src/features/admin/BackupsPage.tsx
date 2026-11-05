@@ -5,6 +5,7 @@ import { toast } from '@/store/toastStore'
 import { C } from '@/constants/colors'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
+import { DataHealthCard } from './DataHealthCard'
 import { SnapshotSearchCard } from './SnapshotSearchCard'
 import { StrandedRecoveryCard } from './StrandedRecoveryCard'
 import { MissingSessionsCard } from './MissingSessionsCard'
@@ -37,10 +38,11 @@ function deviceCode(deviceId: string): string {
 
 interface DeviceGroup { key: string; latest: ClientSnapshotMeta; history: ClientSnapshotMeta[] }
 
-type ToolKey = 'missing' | 'stranded' | 'history' | 'files'
+type ToolKey = 'health' | 'missing' | 'stranded' | 'history' | 'files'
 
 // Xếp theo TÌNH HUỐNG admin đang gặp, không theo cách hệ thống lưu dữ liệu.
 const TOOLS: Array<{ key: ToolKey; label: string; when: string }> = [
+  { key: 'health', label: 'Sức khỏe dữ liệu', when: 'Muốn biết sao lưu và dữ liệu có ổn không' },
   { key: 'missing', label: 'Kiểm tra buổi thiếu', when: 'Nghi có em hoặc cả lớp thiếu ngày học' },
   { key: 'stranded', label: 'Dữ liệu kẹt trên máy', when: 'Giáo viên đã nhập mà server chưa có' },
   { key: 'history', label: 'Lịch sử điểm', when: 'Điểm bị sửa sai, cần lấy lại bản cũ' },
@@ -51,9 +53,9 @@ const TOOL_STORAGE_KEY = 'lms:backupsTool'
 function loadTool(): ToolKey {
   try {
     const saved = localStorage.getItem(TOOL_STORAGE_KEY)
-    return TOOLS.find((t) => t.key === saved)?.key ?? 'missing'
+    return TOOLS.find((t) => t.key === saved)?.key ?? 'health'
   } catch {
-    return 'missing'
+    return 'health'
   }
 }
 
@@ -129,7 +131,7 @@ export function BackupsPage() {
         <p className="text-sm mt-0.5" style={{ color: C.muted }}>Bạn đang cần làm gì?</p>
       </div>
 
-      <nav aria-label="Công cụ sao lưu và khôi phục" className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+      <nav aria-label="Công cụ sao lưu và khôi phục" className="grid grid-cols-2 gap-2 lg:grid-cols-5">
         {TOOLS.map((t) => {
           const active = tool === t.key
           const alert = alertOf(t.key)
@@ -162,7 +164,8 @@ export function BackupsPage() {
         </Card>
       )}
 
-      {/* Giữ cả 4 công cụ luôn được dựng (chỉ ẩn) — đổi thẻ không mất kết quả đang quét. */}
+      {/* Giữ các công cụ luôn được dựng (chỉ ẩn) — đổi thẻ không mất kết quả đang quét. */}
+      <div hidden={tool !== 'health'}><DataHealthCard /></div>
       <div hidden={tool !== 'missing'}><MissingSessionsCard /></div>
       <div hidden={tool !== 'stranded'} className="space-y-4">
         <SnapshotSearchCard />

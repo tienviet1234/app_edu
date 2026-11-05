@@ -147,8 +147,9 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
     if (isMongoid(c.id)) {
       try {
         await classService.delete(c.id)
-      } catch {
-        toast.error(`Xóa lớp "${c.name}" thất bại, thử lại.`)
+      } catch (err) {
+        const reason = (err as { response?: { data?: { message?: string } } }).response?.data?.message
+        toast.error(reason ?? `Xóa lớp "${c.name}" thất bại, thử lại.`, { persist: !!reason })
         return // không xóa local nếu server thất bại — tránh lớp "hồi sinh" sau khi đồng bộ lại
       }
     }

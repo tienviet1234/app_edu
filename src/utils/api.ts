@@ -31,13 +31,18 @@ export function getAccessToken() {
   return accessToken
 }
 
+/** 2 tab cùng gia hạn: tab đến sau dùng token vừa bị đổi → bị từ chối → văng ra
+ *  màn đăng nhập. Xếp hàng giữa các tab để tab sau dùng cookie mới. */
+function withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
+  return navigator.locks ? (navigator.locks.request('lms-auth-refresh', fn) as Promise<T>) : fn()
+}
+
 /** Gia hạn đăng nhập — MỌI nơi trong tab dùng chung 1 lần gọi: server chỉ cho
  *  dùng mỗi refresh token 1 lần, 2 lần gọi song song (lúc vừa có mạng lại) thì
  *  lần sau bị từ chối → văng ra màn đăng nhập. */
 export function refreshSession(): Promise<LoginResponse> {
   if (!refreshPromise) {
-    refreshPromise = api
-      .post<ApiResponse<LoginResponse>>('/auth/refresh')
+    refreshPromise = withRefreshLock(() => api.post<ApiResponse<LoginResponse>>('/auth/refresh'))
       .then((r) => {
         const payload = r.data.data
         if (!r.data.success || !payload) throw new Error(r.data.message ?? 'Không gia hạn được đăng nhập.')
