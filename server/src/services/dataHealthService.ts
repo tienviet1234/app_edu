@@ -1,13 +1,35 @@
 import mongoose from 'mongoose'
 import { listR2Keys } from './storageService.js'
 import { navClicksWithoutSession } from '../utils/dataRules.js'
-import { summarizeDataHealth, suspectInherited } from '../utils/dataHealth.js'
+import { morningAlertFrom, summarizeDataHealth, suspectInherited } from '../utils/dataHealth.js'
+import { Notification } from '../models/Notification.js'
+import { User } from '../models/User.js'
 
 // Gói Atlas miễn phí. Đầy thì mọi lệnh ghi bị từ chối, nên phải thấy trước.
 const ATLAS_LIMIT_BYTES = 512 * 1024 * 1024
 const DAY = 24 * 3600 * 1000
 const vnDay = (d: Date) => new Date(new Date(d).getTime() + 7 * 3600e3).toISOString().slice(0, 10)
 const utcDay = (d: Date) => new Date(d).toISOString().slice(0, 10)
+
+/** Chạy mỗi sáng qua POST /api/cron/check-data-health. Gửi vào chuông của mọi admin
+ *  đang hoạt động khi có mục "cần xử lý ngay", mỗi ngày tối đa 1 lần. Chỉ nhắc, không
+ *  tự sửa gì. */
+export async function sendDataHealthAlert(): Promise<{ sent: number; level: string; alreadySentToday?: boolean }> {
+  const health = await readDataHealth()
+  const alert = morningAlertFrom(health)
+  if (!alert) return { sent: 0, level: health.level }
+  const day = vnDay(new Date())
+  if (await Notification.findOne({ 'data.kind': 'data-health-alert', 'data.day': day }).lean()) {
+    return { sent: 0, level: health.level, alreadySentToday: true }
+  }
+  const admins = await User.find({ role: 'admin', isActive: true }, '_id').lean()
+  if (admins.length) {
+    await Notification.insertMany(admins.map((a) => ({
+      recipientId: a._id, title: alert.title, body: alert.body, type: 'system' as const, data: { kind: 'data-health-alert', day },
+    })))
+  }
+  return { sent: admins.length, level: health.level }
+}
 
 /** CHỈ ĐỌC. Đọc các lớp bảo vệ dữ liệu, đưa cho summarizeDataHealth kết luận. */
 export async function readDataHealth() {

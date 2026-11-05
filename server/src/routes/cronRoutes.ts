@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { checkReminders, backupDatabase, cleanupAiPhotos, checkBillingReminders } from '../controllers/cronController.js'
+import { checkReminders, backupDatabase, cleanupAiPhotos, checkBillingReminders, checkDataHealth } from '../controllers/cronController.js'
 
 export const cronRouter = Router()
 
@@ -8,3 +8,4 @@ cronRouter.post('/check-reminders', checkReminders)
 cronRouter.post('/backup-database', backupDatabase)
 cronRouter.post('/cleanup-ai-photos', cleanupAiPhotos)
 cronRouter.post('/check-billing-reminders', checkBillingReminders)
+cronRouter.post('/check-data-health', checkDataHealth)

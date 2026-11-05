@@ -60,6 +60,15 @@ export function suspectInherited(sessions: SessionForCheck[]): string[] {
   return out
 }
 
+/** Nội dung thông báo buổi sáng cho admin: CHỈ khi có mục "cần xử lý ngay". Mục
+ *  "cần xem" không gửi, để chuông không thành tiếng ồn rồi bị bỏ qua. */
+export function morningAlertFrom(health: { items: HealthItem[] }): { title: string; body: string } | null {
+  const bad = health.items.filter((i) => i.level === 'bad')
+  if (!bad.length) return null
+  const body = `${bad.map((i) => `${i.title}: ${i.detail}`).join('\n')}\nXem ở Sao lưu → Sức khỏe dữ liệu.`
+  return { title: '🚨 Dữ liệu cần xử lý ngay', body: body.slice(0, 2000) }
+}
+
 const HOUR = 3600e3
 const worst = (levels: HealthLevel[]): HealthLevel => (levels.includes('bad') ? 'bad' : levels.includes('warn') ? 'warn' : 'ok')
 const viTime = (t: number) => new Date(t + 7 * HOUR).toISOString().slice(0, 16).replace('T', ' ')

@@ -1,5 +1,22 @@
 import { describe, it, expect } from 'vitest'
-import { summarizeDataHealth, suspectInherited, type HealthInput } from './dataHealth.js'
+import { morningAlertFrom, summarizeDataHealth, suspectInherited, type HealthInput } from './dataHealth.js'
+
+describe('morningAlertFrom (chuông buổi sáng chỉ kêu khi cần xử lý ngay)', () => {
+  const item = (level: 'ok' | 'warn' | 'bad', title = 'Mục') => ({ key: title, level, title, detail: 'chi tiết ' + title })
+  it('mọi mục ổn hoặc chỉ "cần xem" → không gửi', () => {
+    expect(morningAlertFrom({ items: [item('ok'), item('warn')] })).toBeNull()
+  })
+  it('có mục "cần xử lý ngay" → gửi đúng các mục đó, không kèm mục khác', () => {
+    const r = morningAlertFrom({ items: [item('ok', 'A'), item('warn', 'B'), item('bad', 'Sao lưu database')] })!
+    expect(r.body).toContain('Sao lưu database: chi tiết Sao lưu database')
+    expect(r.body).not.toContain('chi tiết B')
+    expect(r.body).toContain('Sức khỏe dữ liệu')
+  })
+  it('nội dung không vượt giới hạn của thông báo', () => {
+    const long = { key: 'x', level: 'bad' as const, title: 'x', detail: 'y'.repeat(5000) }
+    expect(morningAlertFrom({ items: [long] })!.body.length).toBeLessThanOrEqual(2000)
+  })
+})
 
 describe('suspectInherited (bài tập, số câu nghi lấy nhầm từ ngày khác)', () => {
   const s = (studentName: string, date: string, notes = '', maxes?: Record<string, number>) => ({ className: 'Lớp 10', studentName, date, notes, maxes })

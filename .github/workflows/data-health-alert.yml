@@ -1,0 +1,16 @@
+name: Data Health Alert
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # 00:00 UTC = 07:00 sáng giờ Việt Nam, mỗi ngày
+  workflow_dispatch: {} # cho phép bấm chạy tay từ tab Actions để test
+
+jobs:
+  check-data-health:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gọi /api/cron/check-data-health
+        run: |
+          curl --fail --show-error --silent --retry 3 --retry-delay 30 --max-time 180 \
+            -X POST "${{ secrets.BACKEND_URL }}/api/cron/check-data-health" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}"

@@ -3,6 +3,7 @@ import { runReminderCheck } from '../services/reminderService.js'
 import { runDatabaseBackup } from '../services/backupService.js'
 import { runAiPhotoCleanup } from '../services/aiGradedPhotoService.js'
 import { runBillingReminders } from '../services/billingReminderService.js'
+import { sendDataHealthAlert } from '../services/dataHealthService.js'
 import { ok, unauthorized } from '../utils/response.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
 import { env } from '../config/env.js'
@@ -51,5 +52,16 @@ export const checkBillingReminders = asyncHandler(async (req: Request, res: Resp
     return
   }
   const result = await runBillingReminders()
+  ok(res, result)
+})
+
+/** POST /api/cron/check-data-health — mỗi sáng báo vào chuông admin khi dữ liệu có
+ *  mục "cần xử lý ngay". Lỗi thì lần chạy GitHub Actions đỏ, không im lặng. */
+export const checkDataHealth = asyncHandler(async (req: Request, res: Response) => {
+  if (!checkCronSecret(req)) {
+    unauthorized(res, 'Invalid cron secret.')
+    return
+  }
+  const result = await sendDataHealthAlert()
   ok(res, result)
 })
