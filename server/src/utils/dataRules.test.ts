@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason, billedDeleteBlockReason, planBilledFlagRepair, noticeCoverage } from './dataRules.js'
+import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason, billedDeleteBlockReason, planBilledFlagRepair, noticeCoverage, planSessionRemoval } from './dataRules.js'
 
 describe('billedDeleteBlockReason (xóa buổi đã thu làm buổi khác bị tính tiền lần 2)', () => {
   it('buổi đã thu: chặn, nói rõ cách làm', () => {
@@ -433,5 +433,51 @@ describe('effectiveTuitionRate (giá/buổi thực của 1 học sinh — cùng 
     expect(effectiveTuitionRate(75000, { mode: 'percent', value: 12.5 })).toBe(84375)
     expect(effectiveTuitionRate(70001, { mode: 'percent', value: -33.33 })).toBe(46670)
     expect(effectiveTuitionRate(75000, { mode: 'percent', value: -100 })).toBe(0)
+  })
+})
+describe('planSessionRemoval (bỏ buổi không có thật: Lớp 7 24/10, 27/10)', () => {
+  const day = (i: number) => new Date(Date.UTC(2026, 8, 12 + i * 2)).toISOString().slice(0, 10)
+  // 24 buổi: kỳ 1 (1–12) phiếu cũ đã đóng, kỳ 2 (13–24) phiếu mới chưa đóng chứa 2 buổi không thật (19, 20).
+  const kp = Array.from({ length: 24 }, (_, i) => ({ id: `k${i + 1}`, lessonNo: i + 1, date: day(i), billed: true }))
+  const kpNotices = [
+    { id: 'n1', periodFrom: 0, periodTo: 12, sessionsBilled: 12, paymentStatus: 'paid' },
+    { id: 'n2', sessionIds: kp.slice(12).map((s) => s.id), sessionsBilled: 12, paymentStatus: 'unpaid' },
+  ]
+  it('ca thật Kim Phụng: gỡ phiếu kỳ 2 chưa đóng, xóa 2 buổi, gỡ dấu 10 buổi còn lại, đánh lại số 21–24 → 19–22', () => {
+    const r = planSessionRemoval({ live: kp, removeIds: ['k19', 'k20'], notices: kpNotices, dropNoticeIds: ['n2'] })
+    expect(r).toEqual({
+      ok: true, deletes: ['k19', 'k20'], dropNotices: ['n2'],
+      unbill: ['k13', 'k14', 'k15', 'k16', 'k17', 'k18', 'k21', 'k22', 'k23', 'k24'],
+      renumber: [{ id: 'k21', from: 21, to: 19 }, { id: 'k22', from: 22, to: 20 }, { id: 'k23', from: 23, to: 21 }, { id: 'k24', from: 24, to: 22 }],
+    })
+  })
+  const vt = kp.map((s, i) => ({ ...s, billed: i < 12 })).slice(0, 23)
+  const vtNotices = [kpNotices[0]]
+  it('ca thật Vương Thắng: buổi chưa thu → xóa + đánh lại số, không đụng phiếu', () => {
+    const r = planSessionRemoval({ live: vt, removeIds: ['k18', 'k19'], notices: vtNotices, dropNoticeIds: [] })
+    expect(r).toMatchObject({ ok: true, deletes: ['k18', 'k19'], unbill: [], dropNotices: [] })
+    expect((r as { renumber: unknown[] }).renumber).toEqual([20, 21, 22, 23].map((n) => ({ id: `k${n}`, from: n, to: n - 2 })))
+  })
+  it('chưa sửa dấu "đã thu" (kỳ 1 mới mang dấu 9/12) → từ chối, phải chạy lệnh sửa dấu trước', () => {
+    const r = planSessionRemoval({ live: vt.map((s, i) => ({ ...s, billed: i < 9 })), removeIds: ['k18', 'k19'], notices: vtNotices, dropNoticeIds: [] })
+    expect(r).toMatchObject({ ok: false })
+  })
+  it('chạy lại lần 2 (buổi đã xóa) → từ chối', () => {
+    const live = vt.filter((s) => !['k18', 'k19'].includes(s.id)).map((s, i) => ({ ...s, lessonNo: i + 1 }))
+    expect(planSessionRemoval({ live, removeIds: ['k18', 'k19'], notices: vtNotices, dropNoticeIds: [] })).toMatchObject({ ok: false })
+  })
+  it('phiếu đã đóng tiền → không tự gỡ', () => {
+    const notices = [kpNotices[0], { ...kpNotices[1], paymentStatus: 'paid' }]
+    expect(planSessionRemoval({ live: kp, removeIds: ['k19', 'k20'], notices, dropNoticeIds: ['n2'] })).toMatchObject({ ok: false })
+  })
+  it('buổi đã thu mà không gỡ phiếu chứa nó → từ chối', () => {
+    expect(planSessionRemoval({ live: kp, removeIds: ['k19', 'k20'], notices: kpNotices, dropNoticeIds: [] })).toMatchObject({ ok: false })
+  })
+  it('gỡ phiếu kiểu cũ → từ chối', () => {
+    expect(planSessionRemoval({ live: kp.map((s, i) => ({ ...s, billed: i < 12 })), removeIds: ['k2'], notices: kpNotices, dropNoticeIds: ['n1'] })).toMatchObject({ ok: false })
+  })
+  it('số buổi đã lệch từ trước → từ chối, không đánh số chồng lên', () => {
+    const live = vt.map((s) => (s.id === 'k5' ? { ...s, lessonNo: 1005 } : s))
+    expect(planSessionRemoval({ live, removeIds: ['k18', 'k19'], notices: vtNotices, dropNoticeIds: [] })).toMatchObject({ ok: false })
   })
 })

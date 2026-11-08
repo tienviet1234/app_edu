@@ -362,6 +362,54 @@ export function planBilledFlagRepair(input: {
   return { ok: true, ids: unbilled.slice(0, missing).map((s) => s.id), paid, flagged }
 }
 
+/** Kế hoạch bỏ các buổi KHÔNG CÓ THẬT của 1 học sinh-lớp (VD Lớp 7 24/10, 27/10:
+ *  chỉ 2/11 em có buổi, do tài khoản admin tạo sau, admin xác nhận lớp không học).
+ *  Xóa mềm các buổi đó, gỡ phiếu CHƯA ĐÓNG có chứa chúng (gỡ dấu "đã thu" đúng các
+ *  buổi trong phiếu, như xóa phiếu trên app) rồi đánh lại số 1..n theo ngày.
+ *  Từ chối thay vì đoán: buổi không tồn tại, phiếu đã đóng/kiểu cũ, buổi bỏ vẫn còn
+ *  mang dấu hoặc nằm trong phiếu khác, số buổi đã lệch từ trước, hoặc sau khi sửa
+ *  số buổi mang dấu ≠ số buổi các phiếu còn lại phủ (\`noticeCoverage\`). */
+export function planSessionRemoval(input: {
+  live: Array<{ id: string; lessonNo: number; date: string; billed?: boolean }>
+  removeIds: string[]
+  notices: Array<{ id: string; sessionIds?: string[]; periodFrom?: number; periodTo?: number; sessionsBilled?: number; paymentStatus?: string }>
+  dropNoticeIds: string[]
+}): { ok: true; deletes: string[]; unbill: string[]; dropNotices: string[]; renumber: Array<{ id: string; from: number; to: number }> } | { ok: false; reason: string } {
+  const byId = new Map(input.live.map((s) => [s.id, s]))
+  if (!input.removeIds.length) return { ok: false, reason: 'không có buổi nào để bỏ' }
+  const missing = input.removeIds.filter((id) => !byId.has(id))
+  if (missing.length) return { ok: false, reason: `buổi ${missing.join(', ')} không còn hiệu lực (đã xóa hoặc không thuộc em này)` }
+  const drop = input.dropNoticeIds.map((id) => input.notices.find((n) => n.id === id))
+  if (drop.some((n) => !n)) return { ok: false, reason: 'phiếu cần gỡ không còn' }
+  for (const n of drop as NonNullable<(typeof drop)[number]>[]) {
+    if (n.paymentStatus === 'paid') return { ok: false, reason: 'phiếu đã đóng tiền — không tự gỡ' }
+    if (!n.sessionIds?.length) return { ok: false, reason: 'phiếu kiểu cũ (không có danh sách buổi) — không tự gỡ' }
+  }
+  const unbillSet = new Set((drop as Array<{ sessionIds: string[] }>).flatMap((n) => n.sessionIds))
+  const kept = input.notices.filter((n) => !input.dropNoticeIds.includes(n.id))
+  const keptIds = new Set(kept.flatMap((n) => n.sessionIds ?? []))
+  for (const id of input.removeIds) {
+    const s = byId.get(id)!
+    if (keptIds.has(id)) return { ok: false, reason: `buổi ${s.date} nằm trong 1 phiếu học phí khác` }
+    if (s.billed && !unbillSet.has(id)) return { ok: false, reason: `buổi ${s.date} mang dấu "đã thu" mà không thuộc phiếu nào được gỡ` }
+  }
+  const order = (a: { date: string; lessonNo: number }, b: { date: string; lessonNo: number }) => a.date.localeCompare(b.date) || a.lessonNo - b.lessonNo
+  const sorted = [...input.live].sort(order)
+  const bad = sorted.findIndex((s, i) => s.lessonNo !== i + 1)
+  if (bad >= 0) return { ok: false, reason: `số buổi đã lệch từ trước (${sorted[bad].date} là Buổi ${sorted[bad].lessonNo}, đúng ra ${bad + 1})` }
+  const rest = sorted.filter((s) => !input.removeIds.includes(s.id))
+  const flaggedAfter = rest.filter((s) => s.billed && !unbillSet.has(s.id)).length
+  const covered = kept.reduce((k, n) => k + noticeCoverage(n), 0)
+  if (flaggedAfter !== covered) return { ok: false, reason: `sau khi sửa có ${flaggedAfter} buổi mang dấu "đã thu" ≠ ${covered} buổi các phiếu còn lại phủ (sửa dấu "đã thu" trước)` }
+  return {
+    ok: true,
+    deletes: [...input.removeIds],
+    unbill: [...unbillSet].filter((id) => byId.get(id)?.billed && !input.removeIds.includes(id)),
+    dropNotices: [...input.dropNoticeIds],
+    renumber: rest.map((s, i) => ({ id: s.id, from: s.lessonNo, to: i + 1 })).filter((r) => r.from !== r.to),
+  }
+}
+
 /** Lớp đã có buổi học thì không được xóa: buổi, điểm, học phí đều neo vào lớp, xóa
  *  là mồ côi hết, không màn nào hiện nữa. Lớp thôi học thì đổi trạng thái. */
 export function classDeleteBlockReason(sessionCount: number): string | null {
