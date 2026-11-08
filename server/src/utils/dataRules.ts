@@ -332,22 +332,33 @@ export function billedDeleteBlockReason(session: { billed?: boolean | null }): s
     : null
 }
 
-/** Kế hoạch đánh dấu bù "đã thu" khi phiếu học phí kiểu cũ đã thu N buổi mà ít
- *  hơn N buổi mang dấu. Lấy các buổi chưa thu SỚM NHẤT theo ngày: phiếu kiểu cũ thu
+/** Số buổi 1 phiếu học phí PHỦ (= số buổi phải mang dấu "đã thu"), KHÁC số buổi
+ *  tính tiền `sessionsBilled`: buổi "vắng không phép" nằm trong kỳ, mang dấu, nhưng
+ *  không tính tiền (ca thật Vũ Lớp 7: kỳ 12 buổi, vắng 29/09 → phiếu 11 buổi
+ *  660.000đ, 12 buổi mang dấu — ĐÚNG). Phiếu kiểu mới: số buổi trong danh sách;
+ *  kiểu cũ: periodTo − periodFrom. */
+export function noticeCoverage(n: { sessionsBilled?: number; sessionIds?: string[]; periodFrom?: number; periodTo?: number }): number {
+  if (n.sessionIds?.length) return n.sessionIds.length
+  if (typeof n.periodFrom === 'number' && typeof n.periodTo === 'number' && n.periodTo > n.periodFrom) return n.periodTo - n.periodFrom
+  return n.sessionsBilled ?? 0
+}
+
+/** Kế hoạch đánh dấu bù "đã thu" khi phiếu học phí kiểu cũ phủ N buổi mà ít
+ *  hơn N buổi mang dấu (đếm theo `noticeCoverage`, không theo số buổi tính tiền). Lấy các buổi chưa thu SỚM NHẤT theo ngày: phiếu kiểu cũ thu
  *  theo thứ tự từ buổi đầu. Từ chối thay vì đoán: có phiếu kiểu mới (đã có danh
  *  sách buổi chính xác), thừa dấu, hoặc không đủ buổi (em đã chuyển lớp). */
 export function planBilledFlagRepair(input: {
   live: Array<{ id: string; date: string; no: number; billed?: boolean }>
-  notices: Array<{ sessionsBilled?: number; sessionIds?: string[] }>
+  notices: Array<{ sessionsBilled?: number; sessionIds?: string[]; periodFrom?: number; periodTo?: number }>
 }): { ok: true; ids: string[]; paid: number; flagged: number } | { ok: false; reason: string } {
-  const paid = input.notices.reduce((n, x) => n + (x.sessionsBilled ?? 0), 0)
+  const paid = input.notices.reduce((n, x) => n + noticeCoverage(x), 0)
   const flagged = input.live.filter((s) => s.billed).length
   if (flagged === paid) return { ok: true, ids: [], paid, flagged }
   if (input.notices.some((n) => n.sessionIds?.length)) return { ok: false, reason: 'có phiếu kiểu mới (đã ghi đúng từng buổi), không tự đánh dấu' }
-  if (flagged > paid) return { ok: false, reason: `thừa dấu: phiếu thu ${paid} buổi nhưng ${flagged} buổi mang dấu đã thu` }
+  if (flagged > paid) return { ok: false, reason: `thừa dấu: phiếu phủ ${paid} buổi nhưng ${flagged} buổi mang dấu đã thu` }
   const missing = paid - flagged
   const unbilled = input.live.filter((s) => !s.billed).sort((a, b) => a.date.localeCompare(b.date) || a.no - b.no)
-  if (unbilled.length < missing) return { ok: false, reason: `phiếu thu ${paid} buổi nhưng em chỉ còn ${input.live.length} buổi trong lớp (có thể đã chuyển lớp)` }
+  if (unbilled.length < missing) return { ok: false, reason: `phiếu phủ ${paid} buổi nhưng em chỉ còn ${input.live.length} buổi trong lớp (có thể đã chuyển lớp)` }
   return { ok: true, ids: unbilled.slice(0, missing).map((s) => s.id), paid, flagged }
 }
 

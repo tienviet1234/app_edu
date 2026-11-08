@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason, billedDeleteBlockReason, planBilledFlagRepair } from './dataRules.js'
+import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason, billedDeleteBlockReason, planBilledFlagRepair, noticeCoverage } from './dataRules.js'
 
 describe('billedDeleteBlockReason (xóa buổi đã thu làm buổi khác bị tính tiền lần 2)', () => {
   it('buổi đã thu: chặn, nói rõ cách làm', () => {
@@ -11,7 +11,14 @@ describe('billedDeleteBlockReason (xóa buổi đã thu làm buổi khác bị t
   })
 })
 
-describe('planBilledFlagRepair (phiếu đã thu N buổi mà ít hơn N buổi mang dấu)', () => {
+describe('noticeCoverage (số buổi phiếu phủ, khác số buổi tính tiền)', () => {
+  it('kiểu mới: theo danh sách buổi', () => expect(noticeCoverage({ sessionsBilled: 10, sessionIds: Array.from({ length: 12 }, (_, i) => `x${i}`) })).toBe(12))
+  it('kiểu cũ: theo vị trí kỳ, kể cả buổi vắng không tính tiền', () => expect(noticeCoverage({ sessionsBilled: 11, periodFrom: 0, periodTo: 12 })).toBe(12))
+  it('kỳ đầu bị cắt ngắn (học sinh chuyển vào)', () => expect(noticeCoverage({ sessionsBilled: 4, periodFrom: 0, periodTo: 4 })).toBe(4))
+  it('thiếu vị trí → đành dùng số buổi tính tiền', () => expect(noticeCoverage({ sessionsBilled: 8 })).toBe(8))
+})
+
+describe('planBilledFlagRepair (phiếu phủ N buổi mà ít hơn N buổi mang dấu)', () => {
   const s = (id: string, date: string, no: number, billed = false) => ({ id, date, no, billed })
   const legacy8 = [{ sessionsBilled: 8 }]
   const lop2 = [
@@ -28,14 +35,22 @@ describe('planBilledFlagRepair (phiếu đã thu N buổi mà ít hơn N buổi 
   it('đã khớp → không làm gì; chạy lại lần 2 cũng không làm gì', () => {
     expect(planBilledFlagRepair({ live: lop2.map((x, i) => ({ ...x, billed: i < 8 })), notices: legacy8 })).toEqual({ ok: true, ids: [], paid: 8, flagged: 8 })
   })
-  it('thừa dấu (ca Vũ Lớp 7) → không tự gỡ, báo để xem tay', () => {
+  it('thừa dấu thật → không tự gỡ, báo để xem tay', () => {
     expect(planBilledFlagRepair({ live: lop2.map((x) => ({ ...x, billed: true })), notices: legacy8 })).toMatchObject({ ok: false })
+  })
+  it('ca thật Vũ Lớp 7: kỳ [0–12] có 1 buổi vắng không phép → phiếu tính 11 buổi, 12 buổi mang dấu là ĐÚNG', () => {
+    const vu = Array.from({ length: 14 }, (_, i) => s(`v${i}`, `2026-09-${String(8 + i).padStart(2, '0')}`, i + 1, i < 12))
+    expect(planBilledFlagRepair({ live: vu, notices: [{ sessionsBilled: 11, periodFrom: 0, periodTo: 12 }] })).toEqual({ ok: true, ids: [], paid: 12, flagged: 12 })
+  })
+  it('kỳ có buổi vắng không phép mà thiếu dấu → đánh bù theo số buổi của KỲ, không theo số buổi tính tiền', () => {
+    const live = lop2.slice(0, 6).concat(s('u7', '2026-10-16', 7), s('u8', '2026-10-21', 8), s('u9', '2026-10-23', 9))
+    expect(planBilledFlagRepair({ live, notices: [{ sessionsBilled: 7, periodFrom: 0, periodTo: 8 }] })).toEqual({ ok: true, ids: ['u7', 'u8'], paid: 8, flagged: 6 })
   })
   it('em chỉ còn ít buổi hơn số buổi đã thu (ca Việt An chuyển lớp) → từ chối', () => {
     expect(planBilledFlagRepair({ live: lop2.slice(0, 4), notices: legacy8 })).toMatchObject({ ok: false })
   })
   it('phiếu kiểu mới mà đã khớp → không báo gì', () => {
-    expect(planBilledFlagRepair({ live: lop2.map((x, i) => ({ ...x, billed: i < 8 })), notices: [{ sessionsBilled: 8, sessionIds: ['b0'] }] })).toEqual({ ok: true, ids: [], paid: 8, flagged: 8 })
+    expect(planBilledFlagRepair({ live: lop2.map((x, i) => ({ ...x, billed: i < 8 })), notices: [{ sessionsBilled: 8, sessionIds: lop2.slice(0, 8).map((x) => x.id) }] })).toEqual({ ok: true, ids: [], paid: 8, flagged: 8 })
   })
   it('có phiếu kiểu mới (đã ghi đúng từng buổi) → không tự đánh dấu', () => {
     expect(planBilledFlagRepair({ live: lop2, notices: [{ sessionsBilled: 8, sessionIds: ['b0'] }] })).toMatchObject({ ok: false })

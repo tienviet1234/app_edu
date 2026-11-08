@@ -1,6 +1,6 @@
 import mongoose from 'mongoose'
 import { listR2Keys } from './storageService.js'
-import { navClicksWithoutSession } from '../utils/dataRules.js'
+import { navClicksWithoutSession, noticeCoverage } from '../utils/dataRules.js'
 import { morningAlertFrom, summarizeDataHealth, suspectInherited } from '../utils/dataHealth.js'
 import { Notification } from '../models/Notification.js'
 import { User } from '../models/User.js'
@@ -86,12 +86,12 @@ export async function readDataHealth() {
   for (const s of live) { const k = `${classOf(s.classId)} · ${nameOf(s.studentId)} · ${utcDay(s.scheduledAt)}`; perDay.set(k, (perDay.get(k) ?? 0) + 1) }
 
   const scores = await db.collection('scores').find({}, { projection: { sessionId: 1 } }).toArray()
-  const notices = await db.collection('tuitionnotices').find({}, { projection: { classId: 1, studentId: 1, sessionsBilled: 1 } }).toArray()
+  const notices = await db.collection('tuitionnotices').find({}, { projection: { classId: 1, studentId: 1, sessionsBilled: 1, sessionIds: 1, periodFrom: 1, periodTo: 1 } }).toArray()
   const paidBy = new Map<string, number>()
-  for (const n of notices) { const k = `${n.classId}|${n.studentId}`; paidBy.set(k, (paidBy.get(k) ?? 0) + (n.sessionsBilled ?? 0)) }
+  for (const n of notices) { const k = `${n.classId}|${n.studentId}`; paidBy.set(k, (paidBy.get(k) ?? 0) + noticeCoverage({ ...n, sessionIds: (n.sessionIds ?? []).map(String) })) }
   const flagsBy = new Map<string, number>()
   for (const s of live) if (s.billed) { const k = `${s.classId}|${s.studentId}`; flagsBy.set(k, (flagsBy.get(k) ?? 0) + 1) }
-  const billedMismatches = [...paidBy].filter(([k, paid]) => (flagsBy.get(k) ?? 0) !== paid).map(([k, paid]) => { const [cid, sid] = k.split('|'); return `${classOf(cid)} · ${nameOf(sid)}: phiếu thu ${paid} buổi, ${flagsBy.get(k) ?? 0} buổi mang dấu đã thu` })
+  const billedMismatches = [...paidBy].filter(([k, paid]) => (flagsBy.get(k) ?? 0) !== paid).map(([k, paid]) => { const [cid, sid] = k.split('|'); return `${classOf(cid)} · ${nameOf(sid)}: phiếu phủ ${paid} buổi, ${flagsBy.get(k) ?? 0} buổi mang dấu đã thu` })
   const known = (id: string) => liveIds.has(id) || deleted.has(id)
 
   return summarizeDataHealth({
