@@ -68,7 +68,7 @@ export async function readDataHealth() {
 
   const live = await db.collection('classsessions').find(
     { deletedAt: { $exists: false }, migratedAt: { $exists: false } },
-    { projection: { classId: 1, studentId: 1, scheduledAt: 1, lessonNo: 1, notes: 1, maxes: 1 } },
+    { projection: { classId: 1, studentId: 1, scheduledAt: 1, lessonNo: 1, notes: 1, maxes: 1, billed: 1 } },
   ).toArray()
   const deleted = new Set((await db.collection('classsessions').find({ deletedAt: { $exists: true } }, { projection: { _id: 1 } }).toArray()).map((s) => String(s._id)))
   const liveIds = new Set(live.map((s) => String(s._id)))
@@ -86,6 +86,12 @@ export async function readDataHealth() {
   for (const s of live) { const k = `${classOf(s.classId)} · ${nameOf(s.studentId)} · ${utcDay(s.scheduledAt)}`; perDay.set(k, (perDay.get(k) ?? 0) + 1) }
 
   const scores = await db.collection('scores').find({}, { projection: { sessionId: 1 } }).toArray()
+  const notices = await db.collection('tuitionnotices').find({}, { projection: { classId: 1, studentId: 1, sessionsBilled: 1 } }).toArray()
+  const paidBy = new Map<string, number>()
+  for (const n of notices) { const k = `${n.classId}|${n.studentId}`; paidBy.set(k, (paidBy.get(k) ?? 0) + (n.sessionsBilled ?? 0)) }
+  const flagsBy = new Map<string, number>()
+  for (const s of live) if (s.billed) { const k = `${s.classId}|${s.studentId}`; flagsBy.set(k, (flagsBy.get(k) ?? 0) + 1) }
+  const billedMismatches = [...paidBy].filter(([k, paid]) => (flagsBy.get(k) ?? 0) !== paid).map(([k, paid]) => { const [cid, sid] = k.split('|'); return `${classOf(cid)} · ${nameOf(sid)}: phiếu thu ${paid} buổi, ${flagsBy.get(k) ?? 0} buổi mang dấu đã thu` })
   const known = (id: string) => liveIds.has(id) || deleted.has(id)
 
   return summarizeDataHealth({
@@ -102,6 +108,7 @@ export async function readDataHealth() {
     scoresWithoutSession: scores.filter((s) => !known(String(s.sessionId))).length,
     scoresOnDeletedSession: scores.filter((s) => deleted.has(String(s.sessionId))).length,
     stuckNumbers: live.filter((s) => (s.lessonNo ?? 0) >= 1000).length,
+    billedMismatches,
     suspectInherited: suspectInherited(live.map((s) => ({ className: classOf(s.classId), studentName: nameOf(s.studentId), date: utcDay(s.scheduledAt), notes: s.notes, maxes: s.maxes }))),
     snapshotFailures: await db.collection('auditlogs').countDocuments({ action: 'clientSnapshot.failed', createdAt: { $gte: new Date(now - 7 * DAY) } }),
   })

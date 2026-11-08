@@ -1,5 +1,46 @@
 import { describe, it, expect } from 'vitest'
-import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason } from './dataRules.js'
+import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason, billedDeleteBlockReason, planBilledFlagRepair } from './dataRules.js'
+
+describe('billedDeleteBlockReason (xóa buổi đã thu làm buổi khác bị tính tiền lần 2)', () => {
+  it('buổi đã thu: chặn, nói rõ cách làm', () => {
+    expect(billedDeleteBlockReason({ billed: true })).toContain('đã thu tiền')
+  })
+  it('buổi chưa thu: cho xóa', () => {
+    expect(billedDeleteBlockReason({ billed: false })).toBeNull()
+    expect(billedDeleteBlockReason({})).toBeNull()
+  })
+})
+
+describe('planBilledFlagRepair (phiếu đã thu N buổi mà ít hơn N buổi mang dấu)', () => {
+  const s = (id: string, date: string, no: number, billed = false) => ({ id, date, no, billed })
+  const legacy8 = [{ sessionsBilled: 8 }]
+  const lop2 = [
+    ...Array.from({ length: 6 }, (_, i) => s(`b${i}`, `2026-09-${String(10 + i * 2).padStart(2, '0')}`, i + 1, true)),
+    s('u7', '2026-10-16', 7), s('u8', '2026-10-21', 8), s('u9', '2026-10-23', 9),
+  ]
+  it('ca thật Tường Yên: thu 8, dấu 6 → đánh dấu 2 buổi chưa thu sớm nhất', () => {
+    expect(planBilledFlagRepair({ live: lop2, notices: legacy8 })).toEqual({ ok: true, ids: ['u7', 'u8'], paid: 8, flagged: 6 })
+  })
+  it('chọn theo NGÀY, không theo số buổi (buổi ghi bù có số lớn nhưng ngày sớm)', () => {
+    const live = [...lop2.slice(0, 6), s('late', '2026-10-30', 7), s('early', '2026-10-01', 9), s('mid', '2026-10-16', 8)]
+    expect((planBilledFlagRepair({ live, notices: legacy8 }) as { ids: string[] }).ids).toEqual(['early', 'mid'])
+  })
+  it('đã khớp → không làm gì; chạy lại lần 2 cũng không làm gì', () => {
+    expect(planBilledFlagRepair({ live: lop2.map((x, i) => ({ ...x, billed: i < 8 })), notices: legacy8 })).toEqual({ ok: true, ids: [], paid: 8, flagged: 8 })
+  })
+  it('thừa dấu (ca Vũ Lớp 7) → không tự gỡ, báo để xem tay', () => {
+    expect(planBilledFlagRepair({ live: lop2.map((x) => ({ ...x, billed: true })), notices: legacy8 })).toMatchObject({ ok: false })
+  })
+  it('em chỉ còn ít buổi hơn số buổi đã thu (ca Việt An chuyển lớp) → từ chối', () => {
+    expect(planBilledFlagRepair({ live: lop2.slice(0, 4), notices: legacy8 })).toMatchObject({ ok: false })
+  })
+  it('phiếu kiểu mới mà đã khớp → không báo gì', () => {
+    expect(planBilledFlagRepair({ live: lop2.map((x, i) => ({ ...x, billed: i < 8 })), notices: [{ sessionsBilled: 8, sessionIds: ['b0'] }] })).toEqual({ ok: true, ids: [], paid: 8, flagged: 8 })
+  })
+  it('có phiếu kiểu mới (đã ghi đúng từng buổi) → không tự đánh dấu', () => {
+    expect(planBilledFlagRepair({ live: lop2, notices: [{ sessionsBilled: 8, sessionIds: ['b0'] }] })).toMatchObject({ ok: false })
+  })
+})
 
 describe('classDeleteBlockReason (xóa lớp không được làm mồ côi điểm và học phí)', () => {
   it('lớp đã có buổi: chặn, nói rõ số buổi và cách làm thay', () => {

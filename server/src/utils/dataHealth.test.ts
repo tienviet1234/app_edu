@@ -47,7 +47,7 @@ const HOUR = 3600e3
 const healthy: HealthInput = {
   now: NOW, latestBackupAt: NOW - 5 * HOUR, backupCount: 60, usedBytes: 50 * 1048576, limitBytes: 512 * 1048576,
   devices: [{ label: 'Cô A', unsent: 0, lastSeenAt: NOW }], rejected: [], clicksWithoutSession: [],
-  sameDatePairs: [], futureSessions: [], scoresWithoutSession: 0, scoresOnDeletedSession: 0, stuckNumbers: 0, snapshotFailures: 0, suspectInherited: [],
+  sameDatePairs: [], futureSessions: [], scoresWithoutSession: 0, scoresOnDeletedSession: 0, stuckNumbers: 0, snapshotFailures: 0, suspectInherited: [], billedMismatches: [],
 }
 const item = (over: Partial<HealthInput>, key: string) => summarizeDataHealth({ ...healthy, ...over }).items.find((i) => i.key === key)!
 
@@ -87,6 +87,11 @@ describe('summarizeDataHealth', () => {
     expect(item({ scoresWithoutSession: 1 }, 'integrity').level).toBe('bad')
     expect(item({ stuckNumbers: 2 }, 'integrity').level).toBe('bad')
     expect(item({ scoresOnDeletedSession: 16 }, 'integrity').level).toBe('ok')
+  })
+  it('phiếu học phí lệch dấu đã thu → cần xem, nêu đúng em', () => {
+    const r = item({ billedMismatches: ['Lớp 2 · Tường Yên: phiếu thu 8, dấu 6'] }, 'billed')
+    expect(r.level).toBe('warn')
+    expect(r.lines).toEqual(['Lớp 2 · Tường Yên: phiếu thu 8, dấu 6'])
   })
   it('mức chung lấy theo mục nặng nhất', () => {
     expect(summarizeDataHealth({ ...healthy, futureSessions: ['x'] }).level).toBe('warn')

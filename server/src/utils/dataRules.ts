@@ -323,6 +323,34 @@ export function planDuplicateFix(input: {
   return { ok: true, ops }
 }
 
+/** Buổi đã nằm trong số tiền đã thu thì không xóa được: xóa là mất dấu "đã thu",
+ *  buổi còn lại (VD bản kia của 1 cặp trùng ngày) thành "chưa thu" và bị tính tiền
+ *  lần 2. Sự cố thật 08/11: 11 em lệch, Lớp 2 mới Buổi 5–7 đã báo đủ 8 buổi. */
+export function billedDeleteBlockReason(session: { billed?: boolean | null }): string | null {
+  return session.billed
+    ? 'Buổi này đã thu tiền nên không xóa được (xóa sẽ làm buổi khác bị tính tiền lần 2). Cần bỏ buổi này thì báo admin chuyển dấu "đã thu" sang buổi đúng trước.'
+    : null
+}
+
+/** Kế hoạch đánh dấu bù "đã thu" khi phiếu học phí kiểu cũ đã thu N buổi mà ít
+ *  hơn N buổi mang dấu. Lấy các buổi chưa thu SỚM NHẤT theo ngày: phiếu kiểu cũ thu
+ *  theo thứ tự từ buổi đầu. Từ chối thay vì đoán: có phiếu kiểu mới (đã có danh
+ *  sách buổi chính xác), thừa dấu, hoặc không đủ buổi (em đã chuyển lớp). */
+export function planBilledFlagRepair(input: {
+  live: Array<{ id: string; date: string; no: number; billed?: boolean }>
+  notices: Array<{ sessionsBilled?: number; sessionIds?: string[] }>
+}): { ok: true; ids: string[]; paid: number; flagged: number } | { ok: false; reason: string } {
+  const paid = input.notices.reduce((n, x) => n + (x.sessionsBilled ?? 0), 0)
+  const flagged = input.live.filter((s) => s.billed).length
+  if (flagged === paid) return { ok: true, ids: [], paid, flagged }
+  if (input.notices.some((n) => n.sessionIds?.length)) return { ok: false, reason: 'có phiếu kiểu mới (đã ghi đúng từng buổi), không tự đánh dấu' }
+  if (flagged > paid) return { ok: false, reason: `thừa dấu: phiếu thu ${paid} buổi nhưng ${flagged} buổi mang dấu đã thu` }
+  const missing = paid - flagged
+  const unbilled = input.live.filter((s) => !s.billed).sort((a, b) => a.date.localeCompare(b.date) || a.no - b.no)
+  if (unbilled.length < missing) return { ok: false, reason: `phiếu thu ${paid} buổi nhưng em chỉ còn ${input.live.length} buổi trong lớp (có thể đã chuyển lớp)` }
+  return { ok: true, ids: unbilled.slice(0, missing).map((s) => s.id), paid, flagged }
+}
+
 /** Lớp đã có buổi học thì không được xóa: buổi, điểm, học phí đều neo vào lớp, xóa
  *  là mồ côi hết, không màn nào hiện nữa. Lớp thôi học thì đổi trạng thái. */
 export function classDeleteBlockReason(sessionCount: number): string | null {

@@ -7,7 +7,7 @@ import { parsePagination } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit, writeRejectedAudit } from '../services/auditService.js'
 import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
-import { isStudentInClass, rejectedWriteMetadata, resolveSessionCreator } from '../utils/dataRules.js'
+import { billedDeleteBlockReason, isStudentInClass, rejectedWriteMetadata, resolveSessionCreator } from '../utils/dataRules.js'
 import { renumberSessions, RenumberValidationError, createSessionPlacedByDate } from '../services/sessionRenumberService.js'
 
 /** Giáo viên chỉ được xem/sửa/xóa buổi học của các lớp mình dạy — admin qua
@@ -212,6 +212,12 @@ export async function deleteSession(req: Request, res: Response): Promise<void> 
   }
   if (!(await canManageSessionOfClass(authReq, session.classId))) {
     forbidden(res, 'You can only delete sessions in your own classes.')
+    return
+  }
+  const blocked = billedDeleteBlockReason(session)
+  if (blocked) {
+    await writeAudit(req, { action: 'session.delete.rejected', resource: 'ClassSession', resourceId: String(session._id), metadata: { code: 'BILLED' } })
+    badRequest(res, blocked)
     return
   }
   session.deletedAt = new Date()

@@ -181,8 +181,8 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
         return next
       })
       toast.success(`Đã xóa Buổi ${ss.no} của ${student!.name}.`)
-    } catch {
-      toast.error('Lỗi khi xóa — thử lại.', { persist: true })
+    } catch (err) {
+      toast.error((err as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Lỗi khi xóa — thử lại.', { persist: true })
     } finally {
       setDeletingId(null)
     }

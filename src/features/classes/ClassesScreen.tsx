@@ -775,8 +775,8 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                                           if (isMongoid(ss.id)) {
                                             try {
                                               await sessionService.remove(ss.id)
-                                            } catch {
-                                              toast.error(`Lỗi khi xóa Buổi ${ss.no} trên server. Thử lại.`, { persist: true })
+                                            } catch (err) {
+                                              toast.error((err as { response?: { data?: { message?: string } } }).response?.data?.message ?? `Lỗi khi xóa Buổi ${ss.no} trên server. Thử lại.`, { persist: true })
                                               return
                                             }
                                           }

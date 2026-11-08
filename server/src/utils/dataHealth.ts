@@ -18,6 +18,8 @@ export interface HealthInput {
   stuckNumbers: number
   snapshotFailures: number
   suspectInherited: string[]
+  /** Em có phiếu học phí đã thu N buổi mà số buổi mang dấu "đã thu" khác N. */
+  billedMismatches: string[]
 }
 
 export interface SessionForCheck { className: string; studentName: string; date: string; notes?: string; maxes?: Record<string, number> | null }
@@ -129,6 +131,12 @@ export function summarizeDataHealth(i: HealthInput): { level: HealthLevel; items
     key: 'dates', level: i.sameDatePairs.length || i.futureSessions.length ? 'warn' : 'ok', title: 'Ngày học bất thường',
     detail: i.sameDatePairs.length || i.futureSessions.length ? `${i.sameDatePairs.length} ngày có 2 buổi cùng 1 em · ${i.futureSessions.length} buổi ngày tương lai` : 'Không có.',
     lines: [...i.sameDatePairs, ...i.futureSessions],
+  })
+
+  items.push({
+    key: 'billed', level: i.billedMismatches.length ? 'warn' : 'ok', title: 'Phiếu học phí lệch dấu "đã thu"',
+    detail: i.billedMismatches.length ? `${i.billedMismatches.length} em: buổi đã thu tiền bị tính là chưa thu (hoặc ngược lại), kỳ sau báo đến hạn sai và có thể thu 2 lần.` : 'Không có.',
+    lines: i.billedMismatches,
   })
 
   items.push({

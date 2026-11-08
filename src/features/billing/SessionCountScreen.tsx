@@ -267,8 +267,8 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
     if (isMongoid(row.sessionId)) {
       try {
         await sessionService.remove(row.sessionId)
-      } catch {
-        toast.error(`Lỗi khi xóa Buổi ${row.no} trên server. Thử lại.`, { persist: true })
+      } catch (err) {
+        toast.error((err as { response?: { data?: { message?: string } } }).response?.data?.message ?? `Lỗi khi xóa Buổi ${row.no} trên server. Thử lại.`, { persist: true })
         return
       }
     }
