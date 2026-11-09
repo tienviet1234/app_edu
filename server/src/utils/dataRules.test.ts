@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason, billedDeleteBlockReason, planBilledFlagRepair, noticeCoverage, planSessionRemoval } from './dataRules.js'
+import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason, billedDeleteBlockReason, planBilledFlagRepair, noticeCoverage, planSessionRemoval, reviewFixResult, changedFields } from './dataRules.js'
 
 describe('billedDeleteBlockReason (xóa buổi đã thu làm buổi khác bị tính tiền lần 2)', () => {
   it('buổi đã thu: chặn, nói rõ cách làm', () => {
@@ -479,5 +479,39 @@ describe('planSessionRemoval (bỏ buổi không có thật: Lớp 7 24/10, 27/1
   it('số buổi đã lệch từ trước → từ chối, không đánh số chồng lên', () => {
     const live = vt.map((s) => (s.id === 'k5' ? { ...s, lessonNo: 1005 } : s))
     expect(planSessionRemoval({ live, removeIds: ['k18', 'k19'], notices: vtNotices, dropNoticeIds: [] })).toMatchObject({ ok: false })
+  })
+})
+
+describe('reviewFixResult (sau khi sửa dữ liệu thật: không đổi gì ngoài kế hoạch)', () => {
+  const s = (o: Record<string, unknown>) => ({ _id: 'a', lessonNo: 5, billed: false, notes: 'BT', updatedAt: 't1', ...o })
+  const allowed = { classsessions: { fields: ['billed', 'deletedAt', 'lessonNo'] }, tuitionnotices: { deletable: true }, scores: {} }
+  it('chỉ đổi trường được phép → đạt; updatedAt/__v không tính', () => {
+    const r = reviewFixResult({ items: [{ coll: 'classsessions', id: 'a', before: s({}), after: s({ billed: true, updatedAt: 't2' }) }], allowed, writtenDuringRun: [{ coll: 'classsessions', id: 'a' }] })
+    expect(r).toMatchObject({ ok: true, rows: [{ fields: ['billed'], verdict: 'planned' }], outside: [] })
+  })
+  it('lệnh đổi cả bài tập (trường không được phép) → KHÔNG đạt', () => {
+    const r = reviewFixResult({ items: [{ coll: 'classsessions', id: 'a', before: s({}), after: s({ billed: true, notes: '' }) }], allowed, writtenDuringRun: [] })
+    expect(r.ok).toBe(false)
+    expect(r.rows[0]).toMatchObject({ fields: ['billed', 'notes'], verdict: 'unexpected' })
+  })
+  it('trường lạ đổi nhưng do giáo viên sửa SAU khi lệnh chạy → không tính là lỗi của lệnh, vẫn liệt kê', () => {
+    const r = reviewFixResult({ items: [{ coll: 'classsessions', id: 'a', before: s({}), after: s({ billed: true, notes: 'BT mới' }), editedLater: true }], allowed, writtenDuringRun: [] })
+    expect(r).toMatchObject({ ok: true, rows: [{ verdict: 'laterEdit', fields: ['billed', 'notes'] }] })
+  })
+  it('điểm (không được phép đổi gì) bị đổi → KHÔNG đạt', () => {
+    const r = reviewFixResult({ items: [{ coll: 'scores', id: 'x', before: { total: 24 }, after: { total: 0 } }], allowed, writtenDuringRun: [] })
+    expect(r.ok).toBe(false)
+  })
+  it('phiếu được phép xóa → đạt; buổi bị xóa hẳn (không được phép) → KHÔNG đạt', () => {
+    expect(reviewFixResult({ items: [{ coll: 'tuitionnotices', id: 'n', before: {}, after: null }], allowed, writtenDuringRun: [] }).ok).toBe(true)
+    expect(reviewFixResult({ items: [{ coll: 'classsessions', id: 'a', before: s({}), after: null }], allowed, writtenDuringRun: [] }).ok).toBe(false)
+  })
+  it('có bản ghi NGOÀI kế hoạch bị ghi trong lúc lệnh chạy → KHÔNG đạt, nêu đúng bản ghi đó', () => {
+    const r = reviewFixResult({ items: [{ coll: 'classsessions', id: 'a', before: s({}), after: s({ billed: true }) }], allowed, writtenDuringRun: [{ coll: 'classsessions', id: 'a' }, { coll: 'classsessions', id: 'zz' }, { coll: 'classsessions', id: 'zz' }] })
+    expect(r).toMatchObject({ ok: false, outside: [{ coll: 'classsessions', id: 'zz' }] })
+  })
+  it('changedFields: trường mới xuất hiện / biến mất cũng tính', () => {
+    expect(changedFields({ a: 1 }, { a: 1, deletedAt: 'd' })).toEqual(['deletedAt'])
+    expect(changedFields({ a: 1, b: 2 }, { a: 1 })).toEqual(['b'])
   })
 })

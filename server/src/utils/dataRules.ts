@@ -453,3 +453,51 @@ export function planAttendanceBackfill(input: {
     renumbers: input.live.slice(position).map((s) => ({ id: s.id, from: s.lessonNo, to: s.lessonNo + 1 })),
   }
 }
+
+/** Kiểm tra SAU mỗi lần sửa dữ liệu thật: lệnh chỉ được đổi đúng các trường đã định
+ *  trên đúng các bản ghi trong kế hoạch (quy định admin 09/11). So bản TRƯỚC (file
+ *  sao lưu JSON của lệnh) với bản HIỆN TẠI từng trường; bản ghi nào bị ghi trong lúc
+ *  lệnh chạy mà KHÔNG nằm trong kế hoạch là "ngoài kế hoạch". Trường lệch ngoài danh
+ *  sách cho phép nhưng có lịch sử sửa SAU khi lệnh chạy xong → do người dùng app sửa
+ *  sau, không phải do lệnh (vẫn liệt kê để người xem tự đối chiếu). */
+export interface FixReviewItem {
+  coll: string
+  id: string
+  before: Record<string, unknown>
+  after: Record<string, unknown> | null
+  /** Bản ghi này có lịch sử sửa SAU khi lệnh chạy xong. */
+  editedLater?: boolean
+}
+export interface FixReviewRow {
+  coll: string
+  id: string
+  deleted: boolean
+  fields: string[]
+  verdict: 'unchanged' | 'planned' | 'laterEdit' | 'unexpected'
+}
+const IGNORED_FIELDS = new Set(['updatedAt', '__v'])
+export function changedFields(before: Record<string, unknown>, after: Record<string, unknown>): string[] {
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)])
+  return [...keys].filter((k) => !IGNORED_FIELDS.has(k) && JSON.stringify(before[k]) !== JSON.stringify(after[k])).sort()
+}
+export function reviewFixResult(input: {
+  items: FixReviewItem[]
+  /** Trường được phép đổi theo từng collection; `deletable` = được xóa hẳn bản ghi. */
+  allowed: Record<string, { fields?: string[]; deletable?: boolean }>
+  /** Bản ghi có lịch sử ghi TRONG lúc lệnh chạy (coll + id). */
+  writtenDuringRun: Array<{ coll: string; id: string }>
+}): { ok: boolean; rows: FixReviewRow[]; outside: Array<{ coll: string; id: string }> } {
+  const rows = input.items.map((it): FixReviewRow => {
+    const rule = input.allowed[it.coll] ?? {}
+    if (!it.after) return { coll: it.coll, id: it.id, deleted: true, fields: [], verdict: rule.deletable ? 'planned' : 'unexpected' }
+    const fields = changedFields(it.before, it.after)
+    if (!fields.length) return { coll: it.coll, id: it.id, deleted: false, fields, verdict: 'unchanged' }
+    const extra = fields.filter((f) => !(rule.fields ?? []).includes(f))
+    const verdict = !extra.length ? 'planned' : it.editedLater ? 'laterEdit' : 'unexpected'
+    return { coll: it.coll, id: it.id, deleted: false, fields, verdict }
+  })
+  const planned = new Set(input.items.map((it) => `${it.coll}|${it.id}`))
+  const outside = input.writtenDuringRun.filter((w) => !planned.has(`${w.coll}|${w.id}`))
+  const uniqOutside = [...new Map(outside.map((w) => [`${w.coll}|${w.id}`, w])).values()]
+  return { ok: !uniqOutside.length && rows.every((r) => r.verdict !== 'unexpected'), rows, outside: uniqOutside }
+}
