@@ -11,6 +11,7 @@ import { sessionService } from '@/services/sessions'
 import { toast } from '@/store/toastStore'
 import { useAppStore } from '@/store/appStore'
 import { appendOrphans, orphanForLocalDelete } from '@/business/sync'
+import { dateChangeCheck } from '@/business/sessionDates'
 import { logActivity } from '@/services/activity'
 
 interface SessionCountScreenProps {
@@ -236,6 +237,9 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
 
   function handleDateChange(row: DetailRow, newDate: string) {
     const oldDate = row.date
+    const chk = dateChangeCheck(cls.students, row.studentId, row.sessionId, newDate)
+    if (chk.block) { toast.error(chk.block, { persist: true }); return }
+    if (chk.confirm && !confirm(chk.confirm)) return
     update((c) => {
       const s = c.students.find((y) => y.id === row.studentId)
       const ss = s?.sessions.find((y) => y.id === row.sessionId)
@@ -244,8 +248,9 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
     if (isMongoid(row.sessionId)) {
       sessionService
         .update(row.sessionId, { scheduledAt: `${newDate}T00:00:00.000Z` })
-        .catch(() => {
-          toast.error(`Lỗi khi lưu ngày mới của Buổi ${row.no} (${row.studentName}) lên server — đã khôi phục ngày cũ`, { persist: true })
+        .catch((err: unknown) => {
+          const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message
+          toast.error(`${msg ?? `Lỗi khi lưu ngày mới của Buổi ${row.no} (${row.studentName}) lên server.`} Đã khôi phục ngày cũ.`, { persist: true })
           update((c) => {
             const s = c.students.find((y) => y.id === row.studentId)
             const ss = s?.sessions.find((y) => y.id === row.sessionId)
@@ -298,12 +303,17 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
     // 1 học sinh chỉ nên có 1 buổi/1 ngày — cảnh báo rõ nếu ngày này trùng
     // với 1 buổi khác em đã có, nhưng vẫn cho tạo (có thể cố ý, VD học bù).
     const sameDateOther = student.sessions.find((s) => s.date === addDate)
+    // Trước 09/11 chỉ cảnh báo rồi vẫn tạo → 2 buổi cùng ngày, kỳ học phí đếm dư
+    // buổi. Giờ chặn hẳn (server cũng chặn — dateMoveBlockReason).
     if (sameDateOther) {
       toast.error(
-        `⚠ ${student.name} đã có Buổi ${sameDateOther.no} ghi ngày ${viDate(addDate)} rồi — Buổi ${addNo} này cũng cùng ngày đó, kiểm tra lại có bị trùng không.`,
+        `${student.name} đã có Buổi ${sameDateOther.no} ngày ${viDate(addDate)} rồi — 1 em không học 2 buổi cùng ngày. Chưa tạo gì. Sai ngày thì sửa ngày buổi kia.`,
         { persist: true },
       )
+      return
     }
+    const dayCheck = dateChangeCheck(cls.students, addStudentId, null, addDate)
+    if (dayCheck.confirm && !confirm(dayCheck.confirm)) return
     const localId = uid()
     update((c) => {
       const s = c.students.find((y) => y.id === addStudentId)

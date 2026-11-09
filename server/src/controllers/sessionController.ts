@@ -7,7 +7,8 @@ import { parsePagination } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit, writeRejectedAudit } from '../services/auditService.js'
 import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
-import { billedDeleteBlockReason, isStudentInClass, rejectedWriteMetadata, resolveSessionCreator } from '../utils/dataRules.js'
+import { billedChangeBlockReason, billedDeleteBlockReason, dateMoveBlockReason, isStudentInClass, rejectedWriteMetadata, resolveSessionCreator } from '../utils/dataRules.js'
+import { TuitionNotice } from '../models/TuitionNotice.js'
 import { renumberSessions, RenumberValidationError, createSessionPlacedByDate } from '../services/sessionRenumberService.js'
 
 /** Giáo viên chỉ được xem/sửa/xóa buổi học của các lớp mình dạy — admin qua
@@ -122,6 +123,21 @@ export async function createSession(req: Request, res: Response): Promise<void> 
     badRequest(res, `Học sinh này đã có Buổi ${req.body.lessonNo} (ngày ${conflict.scheduledAt.toISOString().slice(0, 10)}) rồi — chọn số buổi khác.`)
     return
   }
+  // Tạo buổi theo số gõ tay (Thống kê buổi → Thêm buổi): trước 09/11 trùng ngày chỉ
+  // cảnh báo ở máy rồi vẫn tạo → 2 buổi cùng ngày, kỳ học phí đếm dư.
+  if (req.body.studentId) {
+    const newDate = (req.body.scheduledAt ? new Date(req.body.scheduledAt) : new Date()).toISOString().slice(0, 10)
+    const others = await ClassSession.find(
+      { classId: req.body.classId, studentId: req.body.studentId, deletedAt: { $exists: false }, migratedAt: { $exists: false } },
+      'scheduledAt',
+    ).lean()
+    const sameDay = dateMoveBlockReason(newDate, others.filter((o) => o.scheduledAt).map((o) => new Date(o.scheduledAt as Date).toISOString().slice(0, 10)))
+    if (sameDay) {
+      reject('SAME_DATE')
+      res.status(409).json({ success: false, code: 'SAME_DATE', message: sameDay })
+      return
+    }
+  }
   const session = await ClassSession.create({
     ...body,
     scheduledAt: req.body.scheduledAt ? new Date(req.body.scheduledAt) : new Date(),
@@ -143,7 +159,7 @@ export async function getSession(req: Request, res: Response): Promise<void> {
 
 export async function updateSession(req: Request, res: Response): Promise<void> {
   const authReq = req as AuthRequest
-  const existing = await ClassSession.findById(req.params.id, 'classId studentId lessonNo')
+  const existing = await ClassSession.findById(req.params.id, 'classId studentId lessonNo scheduledAt billed')
   if (!existing) {
     notFound(res, 'Session not found.')
     return
@@ -151,6 +167,32 @@ export async function updateSession(req: Request, res: Response): Promise<void> 
   if (!(await canManageSessionOfClass(authReq, existing.classId))) {
     forbidden(res, 'You can only update sessions in your own classes.')
     return
+  }
+  // Dấu "đã thu" chỉ đổi qua phiếu học phí (hoặc admin xác nhận) — xem billedChangeBlockReason.
+  if (typeof req.body.billed === 'boolean' && req.body.billed !== !!existing.billed) {
+    const inNotice = !!(await TuitionNotice.exists({ sessionIds: existing._id }))
+    const blocked = billedChangeBlockReason({ role: authReq.user?.role ?? '', current: !!existing.billed, requested: req.body.billed, inNotice })
+    if (blocked) {
+      await writeAudit(req, { action: 'session.update.rejected', resource: 'ClassSession', resourceId: String(existing._id), metadata: { code: 'BILLED_CHANGE', requested: req.body.billed } })
+      badRequest(res, blocked)
+      return
+    }
+  }
+  // Đổi ngày sang ngày em đã có buổi khác → 2 buổi cùng ngày (xem dateMoveBlockReason).
+  if (req.body.scheduledAt) {
+    const newDate = new Date(req.body.scheduledAt).toISOString().slice(0, 10)
+    if (!existing.scheduledAt || newDate !== existing.scheduledAt.toISOString().slice(0, 10)) {
+      const others = await ClassSession.find(
+        { _id: { $ne: existing._id }, classId: existing.classId, studentId: existing.studentId, deletedAt: { $exists: false }, migratedAt: { $exists: false } },
+        'scheduledAt',
+      ).lean()
+      const blocked = dateMoveBlockReason(newDate, others.filter((o) => o.scheduledAt).map((o) => new Date(o.scheduledAt as Date).toISOString().slice(0, 10)))
+      if (blocked) {
+        await writeAudit(req, { action: 'session.update.rejected', resource: 'ClassSession', resourceId: String(existing._id), metadata: { code: 'SAME_DATE', newDate } })
+        badRequest(res, blocked)
+        return
+      }
+    }
   }
   // Điền "Bài tập về nhà" CHỈ KHI server còn trống (nút "Đồng bộ bài tập về
   // nhà" — trước 21/10 bài tập không được gửi lên cho buổi đã có, chỉ nằm trên

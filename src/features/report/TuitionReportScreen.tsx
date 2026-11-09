@@ -1269,14 +1269,18 @@ export function TuitionReportScreen({ cls, update }: Props) {
                 >
                   ✂️ Chốt buổi
                 </button>
-                <button
-                  className="rounded px-1.5 py-0.5 font-semibold"
-                  style={{ color: C.muted, border: `1px solid ${C.line}` }}
-                  title="Dùng khi các buổi này THẬT RA đã nằm trong 1 khoản đã thu tiền trước đó rồi (VD do xóa 1 buổi lỗi/trùng trong kỳ đó) — KHÔNG tạo khoản thu mới, chỉ ẩn khỏi danh sách này"
-                  onClick={() => markAlreadyBilled(r)}
-                >
-                  ☑️ Đã tính tiền trước đó
-                </button>
+                {/* Chỉ admin: đặt dấu "đã thu" không qua phiếu là ẩn buổi khỏi học phí —
+                    server cũng chỉ cho admin (billedChangeBlockReason, 09/11). */}
+                {isAdmin && (
+                  <button
+                    className="rounded px-1.5 py-0.5 font-semibold"
+                    style={{ color: C.muted, border: `1px solid ${C.line}` }}
+                    title="Dùng khi các buổi này THẬT RA đã nằm trong 1 khoản đã thu tiền trước đó rồi (VD do xóa 1 buổi lỗi/trùng trong kỳ đó) — KHÔNG tạo khoản thu mới, chỉ ẩn khỏi danh sách này"
+                    onClick={() => markAlreadyBilled(r)}
+                  >
+                    ☑️ Đã tính tiền trước đó
+                  </button>
+                )}
               </span>
             ))}
           </div>

@@ -88,10 +88,21 @@ describe('summarizeDataHealth', () => {
     expect(item({ stuckNumbers: 2 }, 'integrity').level).toBe('bad')
     expect(item({ scoresOnDeletedSession: 16 }, 'integrity').level).toBe('ok')
   })
-  it('phiếu học phí lệch dấu đã thu → cần xem, nêu đúng em', () => {
-    const r = item({ billedMismatches: ['Lớp 2 · Tường Yên: phiếu thu 8, dấu 6'] }, 'billed')
-    expect(r.level).toBe('warn')
-    expect(r.lines).toEqual(['Lớp 2 · Tường Yên: phiếu thu 8, dấu 6'])
+  it('lệch dấu đã thu CÓ rủi ro tiền → cần xử lý ngay (sự cố 08/11 lẽ ra chuông phải báo), nêu đúng em', () => {
+    const r = item({ billedMismatches: ['Lớp 2 · Tường Yên: phiếu phủ 8, dấu 6 — buổi đã đóng sẽ bị tính lại'] }, 'billed')
+    expect(r.level).toBe('bad')
+    expect(r.lines).toEqual(['Lớp 2 · Tường Yên: phiếu phủ 8, dấu 6 — buổi đã đóng sẽ bị tính lại'])
+    expect(morningAlertFrom(summarizeDataHealth({ ...healthy, billedMismatches: ['x'] }))?.body).toContain('lệch dấu')
+  })
+  it('đóng dư do chuyển lớp (Việt An) → chỉ cần xem, chuông KHÔNG reo mỗi sáng', () => {
+    const h = summarizeDataHealth({ ...healthy, billedOverpaid: ['Lớp 2 · Việt An: phiếu phủ 8, 4 buổi mang dấu'] })
+    expect(h.items.find((i) => i.key === 'billedOverpaid')?.level).toBe('warn')
+    expect(morningAlertFrom(h)).toBeNull()
+  })
+  it('điểm danh sửa sau khi gửi phiếu → cần xử lý ngay; ngày chỉ vài em → cần xem', () => {
+    expect(item({ attendanceDrift: ['Lớp 2 · A: thu thiếu 75.000đ'] }, 'attendanceDrift').level).toBe('bad')
+    expect(item({ lonelyDays: ['Lớp 7 24/10: chỉ 2/11 em'] }, 'lonelyDays').level).toBe('warn')
+    expect(item({}, 'attendanceDrift').level).toBe('ok')
   })
   it('mức chung lấy theo mục nặng nhất', () => {
     expect(summarizeDataHealth({ ...healthy, futureSessions: ['x'] }).level).toBe('warn')

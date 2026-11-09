@@ -1,6 +1,6 @@
 import mongoose from 'mongoose'
 import { listR2Keys } from './storageService.js'
-import { navClicksWithoutSession, noticeCoverage } from '../utils/dataRules.js'
+import { billedMismatchKind, lonelyClassDays, navClicksWithoutSession, noticeAttendanceDrift, noticeCoverage } from '../utils/dataRules.js'
 import { morningAlertFrom, summarizeDataHealth, suspectInherited } from '../utils/dataHealth.js'
 import { Notification } from '../models/Notification.js'
 import { User } from '../models/User.js'
@@ -62,7 +62,7 @@ export async function readDataHealth() {
   ]).toArray()
 
   const rejected = await db.collection('auditlogs').aggregate([
-    { $match: { action: { $in: ['score.upsert.rejected', 'session.create.rejected'] }, createdAt: { $gte: new Date(now - 7 * DAY) } } },
+    { $match: { action: { $in: ['score.upsert.rejected', 'session.create.rejected', 'session.update.rejected'] }, createdAt: { $gte: new Date(now - 7 * DAY) } } },
     { $group: { _id: '$metadata.code', count: { $sum: 1 } } },
   ]).toArray()
 
@@ -85,13 +85,40 @@ export async function readDataHealth() {
   const perDay = new Map<string, number>()
   for (const s of live) { const k = `${classOf(s.classId)} · ${nameOf(s.studentId)} · ${utcDay(s.scheduledAt)}`; perDay.set(k, (perDay.get(k) ?? 0) + 1) }
 
-  const scores = await db.collection('scores').find({}, { projection: { sessionId: 1 } }).toArray()
-  const notices = await db.collection('tuitionnotices').find({}, { projection: { classId: 1, studentId: 1, sessionsBilled: 1, sessionIds: 1, periodFrom: 1, periodTo: 1 } }).toArray()
+  const scores = await db.collection('scores').find({}, { projection: { sessionId: 1, attendance: 1 } }).toArray()
+  const notices = await db.collection('tuitionnotices').find({}, { projection: { classId: 1, studentId: 1, sessionsBilled: 1, sessionIds: 1, periodFrom: 1, periodTo: 1, ratePerSession: 1, amount: 1, finalAmount: 1, paymentStatus: 1, periodLabel: 1 } }).toArray()
   const paidBy = new Map<string, number>()
   for (const n of notices) { const k = `${n.classId}|${n.studentId}`; paidBy.set(k, (paidBy.get(k) ?? 0) + noticeCoverage({ ...n, sessionIds: (n.sessionIds ?? []).map(String) })) }
   const flagsBy = new Map<string, number>()
-  for (const s of live) if (s.billed) { const k = `${s.classId}|${s.studentId}`; flagsBy.set(k, (flagsBy.get(k) ?? 0) + 1) }
-  const billedMismatches = [...paidBy].filter(([k, paid]) => (flagsBy.get(k) ?? 0) !== paid).map(([k, paid]) => { const [cid, sid] = k.split('|'); return `${classOf(cid)} · ${nameOf(sid)}: phiếu phủ ${paid} buổi, ${flagsBy.get(k) ?? 0} buổi mang dấu đã thu` })
+  const unbilledBy = new Map<string, number>()
+  for (const s of live) { const k = `${s.classId}|${s.studentId}`; if (s.billed) flagsBy.set(k, (flagsBy.get(k) ?? 0) + 1); else unbilledBy.set(k, (unbilledBy.get(k) ?? 0) + 1) }
+  // Em có dấu "đã thu" mà không có phiếu nào → buổi bị ẩn.
+  for (const k of flagsBy.keys()) if (!paidBy.has(k)) paidBy.set(k, 0)
+  const billedMismatches: string[] = []
+  const billedOverpaid: string[] = []
+  for (const [k, paid] of paidBy) {
+    const flagged = flagsBy.get(k) ?? 0
+    const kind = billedMismatchKind(paid, flagged, unbilledBy.get(k) ?? 0)
+    if (!kind) continue
+    const [cid, sid] = k.split('|')
+    const line = `${classOf(cid)} · ${nameOf(sid)}: phiếu phủ ${paid} buổi, ${flagged} buổi mang dấu đã thu`
+    if (kind === 'overpaid') billedOverpaid.push(line)
+    else billedMismatches.push(`${line} — ${kind === 'recharge' ? 'buổi đã đóng sẽ bị tính lại' : 'có buổi bị ẩn, không bao giờ được thu'}`)
+  }
+  // Điểm danh sửa SAU khi gửi phiếu → tiền trên phiếu lệch.
+  const attOf = new Map(scores.map((s) => [String(s.sessionId), s.attendance as string | undefined]))
+  const attendanceDrift: string[] = []
+  for (const n of notices) {
+    const ids = (n.sessionIds ?? []).map(String)
+    const d = noticeAttendanceDrift({ ...n, sessionIds: ids }, ids.filter((id: string) => liveIds.has(id)).map((id: string) => ({ id, attendance: attOf.get(id) })))
+    if (d) attendanceDrift.push(`${classOf(n.classId)} · ${nameOf(n.studentId)}: phiếu "${n.periodLabel ?? ''}" (${n.paymentStatus === 'paid' ? 'đã đóng' : 'chưa đóng'}) tính ${d.billed} buổi, nay ${d.chargeableNow} buổi tính tiền → ${d.diffAmount > 0 ? 'thu thiếu' : 'thu thừa'} ${Math.abs(d.diffAmount).toLocaleString('vi-VN')}đ`)
+  }
+  // Ngày chỉ vài em có buổi trong 30 ngày gần nhất.
+  const since = utcDay(new Date(now - 30 * DAY))
+  const lonelyDays = classes.filter((c) => c.studentIds?.length).flatMap((c) => lonelyClassDays({
+    className: c.name, rosterSize: c.studentIds.length, sinceDate: since,
+    sessions: live.filter((s) => String(s.classId) === String(c._id)).map((s) => ({ date: utcDay(s.scheduledAt), studentName: nameOf(s.studentId) })),
+  }))
   const known = (id: string) => liveIds.has(id) || deleted.has(id)
 
   return summarizeDataHealth({
@@ -109,6 +136,9 @@ export async function readDataHealth() {
     scoresOnDeletedSession: scores.filter((s) => deleted.has(String(s.sessionId))).length,
     stuckNumbers: live.filter((s) => (s.lessonNo ?? 0) >= 1000).length,
     billedMismatches,
+    billedOverpaid,
+    attendanceDrift,
+    lonelyDays,
     suspectInherited: suspectInherited(live.map((s) => ({ className: classOf(s.classId), studentName: nameOf(s.studentId), date: utcDay(s.scheduledAt), notes: s.notes, maxes: s.maxes }))),
     snapshotFailures: await db.collection('auditlogs').countDocuments({ action: 'clientSnapshot.failed', createdAt: { $gte: new Date(now - 7 * DAY) } }),
   })

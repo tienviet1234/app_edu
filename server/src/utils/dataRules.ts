@@ -501,3 +501,76 @@ export function reviewFixResult(input: {
   const uniqOutside = [...new Map(outside.map((w) => [`${w.coll}|${w.id}`, w])).values()]
   return { ok: !uniqOutside.length && rows.every((r) => r.verdict !== 'unexpected'), rows, outside: uniqOutside }
 }
+
+/** Phiếu đã gửi mà điểm danh các buổi TRONG PHIẾU bị sửa SAU đó → tiền trên phiếu
+ *  không còn khớp (VD thu 7 buổi vì 1 buổi "vắng không phép", sau đó giáo viên sửa
+ *  thành "có mặt": thu thiếu; ngược lại thu thừa). Trước 09/11 không chỗ nào kiểm
+ *  tra. Chỉ xét phiếu có danh sách buổi. Buổi chưa có bản điểm = "có mặt" (như app).
+ *  null = khớp / không xét được (có buổi không còn). */
+export function noticeAttendanceDrift(
+  notice: { sessionIds?: string[]; sessionsBilled?: number; ratePerSession?: number; amount?: number },
+  sessions: Array<{ id: string; attendance?: string | null }>,
+): { billed: number; chargeableNow: number; diffAmount: number } | null {
+  if (!notice.sessionIds?.length || notice.sessionsBilled == null) return null
+  const ids = new Set(notice.sessionIds)
+  const inNotice = sessions.filter((s) => ids.has(s.id))
+  if (inNotice.length !== ids.size) return null
+  const chargeableNow = inNotice.filter((s) => (s.attendance ?? 'present') !== 'absent').length
+  if (chargeableNow === notice.sessionsBilled) return null
+  const rate = notice.ratePerSession ?? (notice.sessionsBilled ? (notice.amount ?? 0) / notice.sessionsBilled : 0)
+  return { billed: notice.sessionsBilled, chargeableNow, diffAmount: (chargeableNow - notice.sessionsBilled) * rate }
+}
+
+/** Phân loại lệch "phiếu phủ N buổi ≠ số buổi mang dấu" theo RỦI RO TIỀN THẬT:
+ *  - 'recharge': phiếu phủ nhiều hơn số dấu MÀ còn buổi chưa thu → buổi đã đóng bị
+ *    tính lại ở kỳ sau (sự cố 08/11) — cần xử lý ngay;
+ *  - 'hidden': nhiều dấu hơn phiếu phủ → có buổi bị ẩn khỏi học phí, không bao giờ
+ *    được thu — cần xử lý ngay;
+ *  - 'overpaid': phiếu phủ nhiều hơn số buổi em học trong lớp, không còn buổi nào
+ *    để thu lại (chuyển lớp/nghỉ ngang, VD Việt An) — chỉ cần xem. */
+export function billedMismatchKind(covered: number, flagged: number, unbilled: number): 'recharge' | 'hidden' | 'overpaid' | null {
+  if (covered === flagged) return null
+  if (flagged > covered) return 'hidden'
+  return unbilled > 0 ? 'recharge' : 'overpaid'
+}
+
+/** Ai được đổi dấu "đã thu" qua PATCH /sessions/:id. Đường chuẩn là phiếu học phí
+ *  (tạo phiếu = đánh dấu, xóa phiếu = gỡ dấu, cùng 1 giao dịch). Trước 09/11 MỌI
+ *  giáo viên gỡ/đặt dấu thẳng được: gỡ dấu 1 buổi đã thu → kỳ sau thu lần 2; đặt dấu
+ *  bừa → buổi chưa thu bị ẩn, không bao giờ thu. Giờ: chỉ admin, và không gỡ dấu
+ *  buổi đang nằm trong 1 phiếu (phải xóa phiếu). */
+export function billedChangeBlockReason(input: { role: string; current: boolean; requested: boolean | undefined; inNotice: boolean }): string | null {
+  if (input.requested === undefined || input.requested === input.current) return null
+  if (input.role !== 'admin') return 'Chỉ admin được đổi dấu "đã thu" của buổi học. Thu tiền thì gửi phiếu học phí; gửi nhầm thì xóa phiếu.'
+  if (!input.requested && input.inNotice) return 'Buổi này nằm trong 1 phiếu học phí — muốn bỏ dấu "đã thu" thì xóa phiếu đó (gỡ dấu đúng các buổi của phiếu).'
+  return null
+}
+
+/** Đổi NGÀY 1 buổi sang ngày em đó ĐÃ có buổi khác → 2 buổi cùng ngày, kỳ học phí
+ *  đếm dư buổi (ca Linh Đan Starters 30/09). Tạo buổi mới đã chặn trùng ngày
+ *  (placeByDate → SAME_DATE) nhưng đổi ngày thì trước 09/11 không chặn ở đâu cả. */
+export function dateMoveBlockReason(newDate: string, otherDatesOfStudent: string[]): string | null {
+  return otherDatesOfStudent.includes(newDate)
+    ? `Em này đã có 1 buổi khác ngày ${newDate.slice(8, 10)}/${newDate.slice(5, 7)} — 1 em không học 2 buổi cùng ngày. Sửa/xóa buổi kia trước.`
+    : null
+}
+
+/** Ngày chỉ rất ít em trong lớp có buổi, trong khi lớp có các ngày học đông — dấu
+ *  hiệu buổi tạo nhầm/đổi nhầm ngày (sự cố Lớp 7 24/10, 27/10: 2/11 em, do tài
+ *  khoản admin tạo sau) HOẶC buổi học bù riêng (có thật). Chỉ để xem, không tự xóa.
+ *  Lớp < 4 em, lớp chưa có ít nhất 2 ngày đông, hoặc ngày > 25% số em thì bỏ qua. */
+export function lonelyClassDays(input: {
+  className: string
+  rosterSize: number
+  sessions: Array<{ date: string; studentName: string }>
+  sinceDate?: string
+}): string[] {
+  if (input.rosterSize < 4) return []
+  const byDay = new Map<string, string[]>()
+  for (const s of input.sessions) byDay.set(s.date, [...(byDay.get(s.date) ?? []), s.studentName])
+  const busyDays = [...byDay.values()].filter((n) => n.length / input.rosterSize > 0.5).length
+  if (busyDays < 2) return []
+  return [...byDay].filter(([d, names]) => names.length / input.rosterSize <= 0.25 && (!input.sinceDate || d >= input.sinceDate))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([d, names]) => `${input.className} ${d.slice(8, 10)}/${d.slice(5, 7)}: chỉ ${names.length}/${input.rosterSize} em có buổi (${names.join(', ')})`)
+}

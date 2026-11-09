@@ -18,8 +18,14 @@ export interface HealthInput {
   stuckNumbers: number
   snapshotFailures: number
   suspectInherited: string[]
-  /** Em có phiếu học phí đã thu N buổi mà số buổi mang dấu "đã thu" khác N. */
+  /** Lệch dấu "đã thu" CÓ rủi ro tiền: sẽ thu lại buổi đã đóng / buổi bị ẩn (billedMismatchKind). */
   billedMismatches: string[]
+  /** Đóng nhiều buổi hơn số buổi học trong lớp, không còn buổi để thu lại (chuyển lớp). */
+  billedOverpaid?: string[]
+  /** Phiếu mà điểm danh các buổi trong phiếu bị sửa SAU khi gửi (noticeAttendanceDrift). */
+  attendanceDrift?: string[]
+  /** Ngày chỉ ≤ 25% số em có buổi trong 30 ngày gần nhất (lonelyClassDays). */
+  lonelyDays?: string[]
 }
 
 export interface SessionForCheck { className: string; studentName: string; date: string; notes?: string; maxes?: Record<string, number> | null }
@@ -133,10 +139,30 @@ export function summarizeDataHealth(i: HealthInput): { level: HealthLevel; items
     lines: [...i.sameDatePairs, ...i.futureSessions],
   })
 
+  // Ảnh hưởng TIỀN thật (thu lại buổi đã đóng / buổi bị ẩn không bao giờ thu) → cần
+  // xử lý ngay, chuông sáng báo (từ 09/11; trước đó chỉ "cần xem" nên sự cố 08/11 do
+  // giáo viên phát hiện). Đóng dư do chuyển lớp, không còn buổi để thu lại → chỉ xem.
   items.push({
-    key: 'billed', level: i.billedMismatches.length ? 'warn' : 'ok', title: 'Phiếu học phí lệch dấu "đã thu"',
-    detail: i.billedMismatches.length ? `${i.billedMismatches.length} em: buổi đã thu tiền bị tính là chưa thu (hoặc ngược lại), kỳ sau báo đến hạn sai và có thể thu 2 lần.` : 'Không có.',
+    key: 'billed', level: i.billedMismatches.length ? 'bad' : 'ok', title: 'Phiếu học phí lệch dấu "đã thu"',
+    detail: i.billedMismatches.length ? `${i.billedMismatches.length} em: buổi đã đóng tiền sẽ bị tính lại kỳ sau, hoặc có buổi bị ẩn không bao giờ được thu.` : 'Không có.',
     lines: i.billedMismatches,
+  })
+  if (i.billedOverpaid?.length) {
+    items.push({
+      key: 'billedOverpaid', level: 'warn', title: 'Đóng nhiều buổi hơn số buổi học trong lớp',
+      detail: `${i.billedOverpaid.length} em (thường do chuyển lớp/nghỉ ngang). Không còn buổi nào để thu lại; xem có cần trừ sang lớp mới không.`,
+      lines: i.billedOverpaid,
+    })
+  }
+  items.push({
+    key: 'attendanceDrift', level: i.attendanceDrift?.length ? 'bad' : 'ok', title: 'Điểm danh bị sửa sau khi gửi phiếu',
+    detail: i.attendanceDrift?.length ? `${i.attendanceDrift.length} phiếu: số tiền trên phiếu không còn khớp điểm danh hiện tại.` : 'Không có.',
+    lines: i.attendanceDrift,
+  })
+  items.push({
+    key: 'lonelyDays', level: i.lonelyDays?.length ? 'warn' : 'ok', title: 'Ngày chỉ vài em có buổi (30 ngày)',
+    detail: i.lonelyDays?.length ? `${i.lonelyDays.length} ngày: học bù riêng hay nhập nhầm ngày? (sự cố Lớp 7 24/10, 27/10 là nhập nhầm, bị tính tiền).` : 'Không có.',
+    lines: i.lonelyDays,
   })
 
   items.push({

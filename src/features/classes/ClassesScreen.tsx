@@ -18,6 +18,7 @@ import { useAuthStore } from '@/store/authStore'
 import { isMongoid } from '@/utils/mongoid'
 import { toast } from '@/store/toastStore'
 import { appendOrphans, orphanForLocalDelete } from '@/business/sync'
+import { dateChangeCheck } from '@/business/sessionDates'
 import { logActivity } from '@/services/activity'
 import { DeletedSessionsPanel } from './DeletedSessionsPanel'
 import { StudentMergeModal } from './StudentMergeModal'
@@ -740,15 +741,27 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                                         value={ss.date}
                                         onChange={(x) => {
                                           const newDate = x.target.value
+                                          const oldDate = ss.date
+                                          const chk = dateChangeCheck(cls.students, stu.id, ss.id, newDate)
+                                          if (chk.block) { toast.error(chk.block, { persist: true }); return }
+                                          if (chk.confirm && !confirm(chk.confirm)) return
                                           edit((c) => {
                                             const s = c.students.find((y) => y.id === stu.id)
                                             const found = s?.sessions.find((y) => y.id === ss.id)
                                             if (found) found.date = newDate
                                           })
                                           if (isMongoid(ss.id)) {
+                                            // Lỗi phải trả lại ngày cũ trên máy (không nuốt lỗi khi ghi).
                                             sessionService
                                               .update(ss.id, { scheduledAt: `${newDate}T00:00:00.000Z` })
-                                              .catch(() => toast.error(`Lỗi khi lưu ngày mới của Buổi ${ss.no} lên server. Thử lại.`, { persist: true }))
+                                              .catch((err: unknown) => {
+                                                const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message
+                                                toast.error(`${msg ?? `Lỗi khi lưu ngày mới của Buổi ${ss.no} lên server.`} Đã trả lại ngày ${viDate(oldDate)}.`, { persist: true })
+                                                edit((c) => {
+                                                  const found = c.students.find((y) => y.id === stu.id)?.sessions.find((y) => y.id === ss.id)
+                                                  if (found) found.date = oldDate
+                                                })
+                                              })
                                           }
                                         }}
                                         className="rounded-lg px-2 py-1 text-sm"

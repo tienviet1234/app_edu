@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason, billedDeleteBlockReason, planBilledFlagRepair, noticeCoverage, planSessionRemoval, reviewFixResult, changedFields } from './dataRules.js'
+import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason, billedDeleteBlockReason, planBilledFlagRepair, noticeCoverage, planSessionRemoval, reviewFixResult, changedFields, noticeAttendanceDrift, billedMismatchKind, billedChangeBlockReason, dateMoveBlockReason, lonelyClassDays } from './dataRules.js'
 
 describe('billedDeleteBlockReason (xóa buổi đã thu làm buổi khác bị tính tiền lần 2)', () => {
   it('buổi đã thu: chặn, nói rõ cách làm', () => {
@@ -513,5 +513,64 @@ describe('reviewFixResult (sau khi sửa dữ liệu thật: không đổi gì n
   it('changedFields: trường mới xuất hiện / biến mất cũng tính', () => {
     expect(changedFields({ a: 1 }, { a: 1, deletedAt: 'd' })).toEqual(['deletedAt'])
     expect(changedFields({ a: 1, b: 2 }, { a: 1 })).toEqual(['b'])
+  })
+})
+
+describe('noticeAttendanceDrift (sửa điểm danh SAU khi gửi phiếu)', () => {
+  const ss = (atts: Array<string | undefined>) => atts.map((a, i) => ({ id: `s${i}`, attendance: a }))
+  const n = { sessionIds: ['s0', 's1', 's2', 's3'], sessionsBilled: 3, ratePerSession: 75000 }
+  it('khớp (1 buổi vắng không phép, thu 3) → null', () => expect(noticeAttendanceDrift(n, ss(['present', 'absent', 'late', 'excused']))).toBeNull())
+  it('buổi vắng được sửa thành có mặt → thu THIẾU 1 buổi', () => expect(noticeAttendanceDrift(n, ss(['present', 'present', 'late', 'excused']))).toEqual({ billed: 3, chargeableNow: 4, diffAmount: 75000 }))
+  it('buổi có mặt bị sửa thành vắng không phép → thu THỪA', () => expect(noticeAttendanceDrift(n, ss(['absent', 'absent', 'late', 'excused']))).toEqual({ billed: 3, chargeableNow: 2, diffAmount: -75000 }))
+  it('buổi chưa có bản điểm tính như "có mặt" (giống app)', () => expect(noticeAttendanceDrift(n, ss([undefined, 'absent', 'present', 'present']))).toBeNull())
+  it('phiếu kiểu cũ / thiếu buổi → không kết luận', () => {
+    expect(noticeAttendanceDrift({ sessionsBilled: 3 }, ss(['present']))).toBeNull()
+    expect(noticeAttendanceDrift(n, ss(['present', 'absent']))).toBeNull()
+  })
+  it('không có giá/buổi thì suy từ số tiền', () => expect(noticeAttendanceDrift({ ...n, ratePerSession: undefined, amount: 180000 }, ss(['present', 'present', 'present', 'present']))?.diffAmount).toBe(60000))
+})
+
+describe('billedMismatchKind (lệch dấu "đã thu" theo rủi ro tiền)', () => {
+  it('khớp → null', () => expect(billedMismatchKind(12, 12, 5)).toBeNull())
+  it('sự cố 08/11: phiếu phủ 12, dấu 11, còn buổi chưa thu → sẽ thu lại', () => expect(billedMismatchKind(12, 11, 13)).toBe('recharge'))
+  it('dấu nhiều hơn phiếu → có buổi bị ẩn, không bao giờ thu', () => expect(billedMismatchKind(11, 12, 3)).toBe('hidden'))
+  it('Việt An: đóng 8, học 4 rồi chuyển lớp, không còn buổi nào → chỉ cần xem', () => expect(billedMismatchKind(8, 4, 0)).toBe('overpaid'))
+})
+
+describe('billedChangeBlockReason (ai được đổi dấu "đã thu" qua PATCH)', () => {
+  it('không đổi dấu → cho qua (giáo viên sửa ngày/bài tập bình thường)', () => {
+    expect(billedChangeBlockReason({ role: 'teacher', current: true, requested: undefined, inNotice: true })).toBeNull()
+    expect(billedChangeBlockReason({ role: 'teacher', current: true, requested: true, inNotice: true })).toBeNull()
+  })
+  it('giáo viên gỡ hoặc đặt dấu → chặn', () => {
+    expect(billedChangeBlockReason({ role: 'teacher', current: true, requested: false, inNotice: true })).not.toBeNull()
+    expect(billedChangeBlockReason({ role: 'teacher', current: false, requested: true, inNotice: false })).not.toBeNull()
+  })
+  it('admin gỡ dấu buổi đang nằm trong phiếu → chặn (phải xóa phiếu)', () => expect(billedChangeBlockReason({ role: 'admin', current: true, requested: false, inNotice: true })).not.toBeNull())
+  it('admin xác nhận "đã tính tiền trước đó" / gỡ dấu không thuộc phiếu → cho', () => {
+    expect(billedChangeBlockReason({ role: 'admin', current: false, requested: true, inNotice: false })).toBeNull()
+    expect(billedChangeBlockReason({ role: 'admin', current: true, requested: false, inNotice: false })).toBeNull()
+  })
+})
+
+describe('dateMoveBlockReason (đổi ngày sang ngày em đã có buổi)', () => {
+  it('ca Linh Đan: đổi sang 30/09 khi đã có buổi 30/09 → chặn', () => expect(dateMoveBlockReason('2026-09-30', ['2026-09-25', '2026-09-30'])).toContain('30/09'))
+  it('ngày trống → cho', () => expect(dateMoveBlockReason('2026-10-01', ['2026-09-30'])).toBeNull())
+})
+
+describe('lonelyClassDays (ngày chỉ vài em có buổi)', () => {
+  const day = (d: string, names: string[]) => names.map((studentName) => ({ date: d, studentName }))
+  const all = Array.from({ length: 11 }, (_, i) => `HS${i}`)
+  it('ca thật Lớp 7: 24/10, 27/10 chỉ 2/11 em giữa các ngày đủ lớp → báo đúng 2 ngày', () => {
+    const r = lonelyClassDays({ className: 'Lớp 7', rosterSize: 11, sessions: [...day('2026-10-22', all), ...day('2026-10-24', ['Kim Phụng', 'Vương Thắng']), ...day('2026-10-27', ['Kim Phụng', 'Vương Thắng']), ...day('2026-10-29', all)] })
+    expect(r).toEqual(['Lớp 7 24/10: chỉ 2/11 em có buổi (Kim Phụng, Vương Thắng)', 'Lớp 7 27/10: chỉ 2/11 em có buổi (Kim Phụng, Vương Thắng)'])
+  })
+  it('chỉ xét từ ngày sinceDate', () => {
+    const r = lonelyClassDays({ className: 'Lớp 7', rosterSize: 11, sessions: [...day('2026-10-22', all), ...day('2026-10-24', ['A']), ...day('2026-10-29', all), ...day('2026-11-03', ['B'])], sinceDate: '2026-11-01' })
+    expect(r).toHaveLength(1)
+  })
+  it('lớp nhỏ (< 4 em) hoặc lớp chưa có ngày đông → không báo', () => {
+    expect(lonelyClassDays({ className: 'X', rosterSize: 3, sessions: day('2026-10-24', ['A']) })).toEqual([])
+    expect(lonelyClassDays({ className: 'X', rosterSize: 10, sessions: [...day('2026-10-24', ['A']), ...day('2026-10-25', ['B'])] })).toEqual([])
   })
 })

@@ -9,6 +9,7 @@ import { sessionScore, rescaleComp, detectMissingComps } from '@/business/scorin
 import { sessionStatusFragments } from '@/business/report'
 import { periodPositionOf, sessionLabelOf } from '@/business/tuition'
 import { emptyEntry } from '@/business/seed'
+import { dateChangeCheck } from '@/business/sessionDates'
 import {
   resolvePlausibleNo, pendingSessionsOf, adoptServerSession, markSessionSaved, markConflict, resolveConflict, detachDeletedSession,
   toSessionEntry, sameDateClash, navChoiceOf, unsentCountOf, latestSessionOf, siblingDefaultsFor, notesToSend, baseForSave, takeServerCopy, appendOrphans, homeworkToBackfill, type ServerScoreForSync,
@@ -250,6 +251,11 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
 
   function handleDateChange(newDate: string) {
     if (session) {
+      // Đổi ngày buổi ĐÃ CÓ: chặn trùng ngày, hỏi lại nếu ngày đó cả lớp không học
+      // (sự cố Lớp 7 24/10, 27/10). Ngày cho buổi MỚI (draftDate) đã có sameDateClash.
+      const chk = st ? dateChangeCheck(cls.students, st.id, session.id, newDate) : {}
+      if (chk.block) { toast.error(chk.block, { persist: true }); return }
+      if (chk.confirm && !confirm(chk.confirm)) return
       update((c) => {
         const stu = c.students.find((s) => s.id === st?.id)
         const ss = stu?.sessions.find((y) => y.id === session.id)
@@ -261,8 +267,9 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
         const sessionId = session.id
         const oldDate = session.date
         const studentId = st?.id
-        sessionService.update(sessionId, { scheduledAt: `${newDate}T00:00:00.000Z` }).catch(() => {
-          toast.error(`Không lưu được ngày mới lên server — đã trả lại ngày ${viDate(oldDate)}. Kiểm tra mạng rồi đổi lại.`, { persist: true })
+        sessionService.update(sessionId, { scheduledAt: `${newDate}T00:00:00.000Z` }).catch((err: unknown) => {
+          const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message
+          toast.error(`${msg ?? 'Không lưu được ngày mới lên server — kiểm tra mạng rồi đổi lại.'} Đã trả lại ngày ${viDate(oldDate)}.`, { persist: true })
           update((c) => {
             const ss = c.students.find((s) => s.id === studentId)?.sessions.find((y) => y.id === sessionId)
             if (ss) ss.date = oldDate
