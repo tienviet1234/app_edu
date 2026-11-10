@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express'
-import { Types } from 'mongoose'
+import mongoose, { Types } from 'mongoose'
 import { ClassSession } from '../models/ClassSession.js'
 import { Class } from '../models/Class.js'
 import { badRequest, created, forbidden, notFound, ok } from '../utils/response.js'
@@ -7,7 +7,8 @@ import { parsePagination } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit, writeRejectedAudit } from '../services/auditService.js'
 import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
-import { billedChangeBlockReason, billedDeleteBlockReason, dateMoveBlockReason, isStudentInClass, rejectedWriteMetadata, resolveSessionCreator } from '../utils/dataRules.js'
+import { billedChangeBlockReason, billedDeleteBlockReason, dateMoveBlockReason, isStudentInClass, perMonthOfClass, planInsertSession, planRemoveFromNumbering, rejectedWriteMetadata, resolveSessionCreator } from '../utils/dataRules.js'
+import { User } from '../models/User.js'
 import { TuitionNotice } from '../models/TuitionNotice.js'
 import { renumberSessions, RenumberValidationError, createSessionPlacedByDate } from '../services/sessionRenumberService.js'
 
@@ -68,22 +69,6 @@ export async function listSessions(req: Request, res: Response): Promise<void> {
  *  sẽ gây tình trạng "nhiều buổi cùng Buổi N" như đã gặp (số liệu lệch nhau
  *  giữa các màn hình, dễ nhầm buổi khi chấm điểm). Loại trừ buổi đã xóa
  *  (deletedAt) và buổi chung cũ đã fan-out (migratedAt) khỏi việc kiểm tra. */
-// Trùng số chỉ tính TRONG CÙNG 1 LỚP — em học 2 lớp (VD Việt An: Lớp 2 Buổi 1–4, Starters
-// Buổi 1–8) có số buổi riêng mỗi lớp; trước 10/11 so cả lớp khác → báo trùng oan.
-async function findConflictingSession(
-  studentId: unknown, lessonNo: unknown, classId: unknown, excludeId?: string,
-): Promise<{ _id: Types.ObjectId; scheduledAt: Date } | null> {
-  if (!studentId || lessonNo == null) return null
-  return ClassSession.findOne({
-    studentId,
-    classId,
-    lessonNo,
-    deletedAt: { $exists: false },
-    migratedAt: { $exists: false },
-    ...(excludeId ? { _id: { $ne: excludeId } } : {}),
-  }, '_id scheduledAt').lean()
-}
-
 export async function createSession(req: Request, res: Response): Promise<void> {
   const authReq = req as AuthRequest
   // Trước đây không kiểm tra — giáo viên nào cũng tạo được buổi vào lớp người
@@ -120,26 +105,23 @@ export async function createSession(req: Request, res: Response): Promise<void> 
     created(res, result.session)
     return
   }
-  const conflict = await findConflictingSession(req.body.studentId, req.body.lessonNo, req.body.classId)
-  if (conflict) {
-    reject('DUPLICATE_NO')
-    badRequest(res, `Học sinh này đã có Buổi ${req.body.lessonNo} (ngày ${conflict.scheduledAt.toISOString().slice(0, 10)}) rồi — chọn số buổi khác.`)
-    return
-  }
-  // Tạo buổi theo số gõ tay (Thống kê buổi → Thêm buổi): trước 09/11 trùng ngày chỉ
-  // cảnh báo ở máy rồi vẫn tạo → 2 buổi cùng ngày, kỳ học phí đếm dư.
-  if (req.body.studentId) {
-    const newDate = (req.body.scheduledAt ? new Date(req.body.scheduledAt) : new Date()).toISOString().slice(0, 10)
-    const others = await ClassSession.find(
-      { classId: req.body.classId, studentId: req.body.studentId, deletedAt: { $exists: false }, migratedAt: { $exists: false } },
-      'scheduledAt',
-    ).lean()
-    const sameDay = dateMoveBlockReason(newDate, others.filter((o) => o.scheduledAt).map((o) => new Date(o.scheduledAt as Date).toISOString().slice(0, 10)))
-    if (sameDay) {
+  // Tạo buổi có số gõ tay (Thống kê buổi → Thêm buổi, nhập từ Excel): CHÈN vào đúng số đó, các
+  // buổi sau lùi 1 — không bao giờ trống/trùng số (planInsertSession). Trùng ngày → từ chối.
+  if (body.studentId) {
+    const result = await createSessionPlacedByDate(body as Parameters<typeof createSessionPlacedByDate>[0], creatorId, req.body.lessonNo != null ? Number(req.body.lessonNo) : null)
+    if (result.sameDate) {
       reject('SAME_DATE')
-      res.status(409).json({ success: false, code: 'SAME_DATE', message: sameDay })
+      res.status(409).json({ success: false, code: 'SAME_DATE', message: 'Học sinh đã có 1 buổi cùng ngày này rồi — 1 em không học 2 buổi cùng ngày.', data: { existingId: String(result.sameDate._id), lessonNo: result.sameDate.lessonNo } })
       return
     }
+    if (result.refused) {
+      reject('BAD_NUMBER')
+      badRequest(res, `Không tạo: ${result.refused}.`)
+      return
+    }
+    await writeAudit(req, { action: 'session.create', resource: 'ClassSession', resourceId: String(result.session!._id), metadata: { lessonNo: result.session!.lessonNo, ...(creatorId !== authReq.userId ? { onBehalfOf: creatorId } : {}) } })
+    created(res, result.session)
+    return
   }
   const session = await ClassSession.create({
     ...body,
@@ -231,12 +213,12 @@ export async function updateSession(req: Request, res: Response): Promise<void> 
   }
   // Chỉ cần kiểm tra khi THỰC SỰ đổi sang số khác — tránh tự báo trùng với
   // chính buổi đang sửa khi admin chỉ đổi ngày/ghi chú, không đổi số buổi.
+  // Đổi số 1 buổi lẻ luôn để lại chỗ trống hoặc trùng số → chỉ đổi qua "Sửa số buổi" (đổi cả dãy
+  // trong 1 lần, server kiểm tra 1..n — quy định 10/11).
   if (req.body.lessonNo != null && req.body.lessonNo !== existing.lessonNo) {
-    const conflict = await findConflictingSession(existing.studentId, req.body.lessonNo, existing.classId, String(req.params.id))
-    if (conflict) {
-      badRequest(res, `Học sinh này đã có Buổi ${req.body.lessonNo} (ngày ${conflict.scheduledAt.toISOString().slice(0, 10)}) rồi — chọn số buổi khác.`)
-      return
-    }
+    await writeAudit(req, { action: 'session.update.rejected', resource: 'ClassSession', resourceId: String(existing._id), metadata: { code: 'NUMBER_SINGLE', requested: req.body.lessonNo } })
+    badRequest(res, 'Đổi số buổi dùng nút "Sửa số buổi" (đổi cả dãy cùng lúc để không trống, không trùng số).')
+    return
   }
   const session = await ClassSession.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
   await writeAudit(req, { action: 'session.update', resource: 'ClassSession', resourceId: String(session!._id) })
@@ -265,9 +247,17 @@ export async function deleteSession(req: Request, res: Response): Promise<void> 
     badRequest(res, blocked)
     return
   }
-  session.deletedAt = new Date()
-  await session.save()
-  await writeAudit(req, { action: 'session.delete', resource: 'ClassSession', resourceId: String(session._id) })
+  // Các buổi phía sau lùi 1 số trong CÙNG giao dịch — không để trống số (planRemoveFromNumbering).
+  const siblings = session.studentId ? await ClassSession.find({ classId: session.classId, studentId: session.studentId, deletedAt: { $exists: false }, migratedAt: { $exists: false } }, '_id lessonNo').lean() : []
+  const shifts = planRemoveFromNumbering(siblings.map((x) => ({ id: String(x._id), no: x.lessonNo ?? 0 })), String(session._id))
+  const tx = await mongoose.startSession()
+  try {
+    await tx.withTransaction(async () => {
+      await ClassSession.updateOne({ _id: session._id }, { $set: { deletedAt: new Date() } }, { session: tx })
+      for (const sh of shifts) await ClassSession.updateOne({ _id: sh.id, lessonNo: sh.from }, { $set: { lessonNo: sh.to } }, { session: tx })
+    })
+  } finally { await tx.endSession() }
+  await writeAudit(req, { action: 'session.delete', resource: 'ClassSession', resourceId: String(session._id), metadata: { renumbered: shifts.length } })
   ok(res, { deleted: true })
 }
 
@@ -298,10 +288,29 @@ export async function restoreSession(req: Request, res: Response): Promise<void>
       return
     }
   }
-  session.deletedAt = undefined
-  await session.save()
-  await writeAudit(req, { action: 'session.restore', resource: 'ClassSession', resourceId: String(session._id) })
-  ok(res, session)
+  // Chèn lại đúng vị trí theo ngày, các buổi sau lùi 1 số (planInsertSession) — không trùng số.
+  let restoredNo = session.lessonNo
+  if (session.studentId && session.scheduledAt) {
+    const [cls, user] = await Promise.all([Class.findById(session.classId, 'name level').lean(), User.findById(session.studentId, 'sessionOffset').lean()])
+    const siblings = await ClassSession.find({ _id: { $ne: session._id }, classId: session.classId, studentId: session.studentId, deletedAt: { $exists: false }, migratedAt: { $exists: false } }, '_id lessonNo scheduledAt').lean()
+    const plan = planInsertSession(siblings.map((x) => ({ id: String(x._id), no: x.lessonNo ?? 0, date: new Date(x.scheduledAt as Date).toISOString().slice(0, 10) })),
+      { date: session.scheduledAt.toISOString().slice(0, 10) }, cls ? perMonthOfClass(cls) : 12, (user as { sessionOffset?: number } | null)?.sessionOffset ?? 0)
+    if (!plan.ok) { badRequest(res, `Không khôi phục được: ${plan.reason}.`); return }
+    restoredNo = plan.newNo
+    const tx = await mongoose.startSession()
+    try {
+      await tx.withTransaction(async () => {
+        for (const sh of plan.shifts) await ClassSession.updateOne({ _id: sh.id, lessonNo: sh.from }, { $set: { lessonNo: sh.to } }, { session: tx })
+        await ClassSession.updateOne({ _id: session._id }, { $unset: { deletedAt: 1 }, $set: { lessonNo: plan.newNo } }, { session: tx })
+      })
+    } finally { await tx.endSession() }
+  } else {
+    session.deletedAt = undefined
+    await session.save()
+  }
+  await writeAudit(req, { action: 'session.restore', resource: 'ClassSession', resourceId: String(session._id), metadata: { lessonNo: restoredNo } })
+  const restored = await ClassSession.findById(session._id)
+  ok(res, restored)
 }
 
 /** POST /api/sessions/batch-renumber — đổi số buổi HÀNG LOẠT trong 1 giao

@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ClassData } from '@/types'
 import { C } from '@/constants/colors'
 import { viDate } from '@/utils/format'
 import { isMongoid } from '@/utils/mongoid'
-import { sortSessionsByDate, sequentialNumbering } from '@/business/resequence'
+import { sortSessionsByDate, sequentialNumbering, numberingProblemOf, lessonNoFromLabel, renumberAfterRemoval } from '@/business/resequence'
+import { periodPositionOf, sessionLabelOf } from '@/business/tuition'
 import { appendOrphans, orphanForLocalDelete } from '@/business/sync'
 import { useAppStore } from '@/store/appStore'
 import { sessionService } from '@/services/sessions'
@@ -18,6 +19,10 @@ interface Props {
   update: (fn: (c: ClassData) => void) => void
   onClose: () => void
 }
+
+/** Ô nhập của 1 buổi: "Tháng k · Buổi m" (m trong 1..8 hoặc 1..12) — giáo viên không phải tự
+ *  cộng ra số buổi thật (VD "Buổi 13"), không gõ được "Buổi 9" ở lớp 8 buổi/tháng. */
+interface Draft { k: string; m: string }
 
 interface Applied {
   sessionId: string
@@ -58,13 +63,22 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
   const student = cls.students.find((s) => s.id === studentId)
   const sorted = sortSessionsByDate(student?.sessions ?? [])
 
-  const [drafts, setDrafts] = useState<Record<string, string>>(() =>
-    Object.fromEntries(sorted.map((s) => [s.id, String(s.no)])),
+  const perMonth = cls.perMonth
+  const size = perMonth === 8 ? 8 : 12
+  const offset = student?.sessionOffset ?? 0
+  const draftOf = (no: number): Draft => {
+    const { period, displayNo } = periodPositionOf(no, perMonth, offset)
+    return { k: String(period), m: String(displayNo) }
+  }
+  const [drafts, setDrafts] = useState<Record<string, Draft>>(() =>
+    Object.fromEntries(sorted.map((s) => [s.id, draftOf(s.no)])),
   )
   const [saving, setSaving] = useState(false)
   const [lastApplied, setLastApplied] = useState<Applied[] | null>(() => loadUndo(studentId))
   const [error, setError] = useState('')
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  // Khóa đồng bộ (không chờ vẽ lại) — 2 cú bấm liền trong cùng 1 lượt vẫn thấy `saving` cũ = false.
+  const busyRef = useRef(false)
 
   useEffect(() => {
     saveUndo(studentId, lastApplied)
@@ -74,7 +88,7 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
 
   function suggestByDate() {
     const byId = sequentialNumbering(student!.sessions)
-    setDrafts(Object.fromEntries(sorted.map((s) => [s.id, String(byId[s.id])])))
+    setDrafts(Object.fromEntries(sorted.map((s) => [s.id, draftOf(byId[s.id])])))
     setError('')
   }
 
@@ -89,9 +103,15 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
    *  Đổi chéo số (VD Buổi 2 ↔ Buổi 3) cũng an toàn: server không cần "dọn
    *  chỗ tạm" nữa vì cả batch ghi trong cùng 1 giao dịch, MongoDB không ép
    *  ràng buộc duy nhất `lessonNo` giữa chừng (xem sessionRenumberService.ts). */
-  async function applyChanges(targets: { sessionId: string; newNo: number }[], successMsg: (n: number) => string) {
+  async function applyChanges(targets: { sessionId: string; newNo: number }[], successMsg: (n: number) => string): Promise<boolean> {
     const changed = targets.filter((t) => student!.sessions.find((s) => s.id === t.sessionId)?.no !== t.newNo)
-    if (!changed.length) return
+    if (!changed.length) return true
+    if (busyRef.current) return false
+    busyRef.current = true
+    try { return await applyChangesLocked(changed, successMsg) } finally { busyRef.current = false }
+  }
+
+  async function applyChangesLocked(changed: { sessionId: string; newNo: number }[], successMsg: (n: number) => string): Promise<boolean> {
     const trueOldNo = Object.fromEntries(changed.map((t) => [t.sessionId, student!.sessions.find((s) => s.id === t.sessionId)!.no]))
     const synced = changed.filter((t) => isMongoid(t.sessionId))
 
@@ -105,7 +125,7 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
         // Giao dịch atomic — lỗi nghĩa là CHƯA ĐỔI GÌ CẢ, không có buổi nào bị
         // kẹt nửa chừng, cứ thử lại nguyên lần nữa là an toàn.
         setError(msg ?? 'Lỗi khi lưu — CHƯA đổi gì cả (giao dịch an toàn), thử lại.')
-        return
+        return false
       }
     }
 
@@ -122,48 +142,65 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
     logActivity('session.resequence', { className: cls.name, studentName: student!.name, count: changed.length }, 'ClassSession')
     setLastApplied(changed.map((t) => ({ sessionId: t.sessionId, oldNo: trueOldNo[t.sessionId], newNo: t.newNo })))
     toast.success(successMsg(changed.length))
+    setDrafts((d) => ({ ...d, ...Object.fromEntries(changed.map((t) => [t.sessionId, draftOf(t.newNo)])) }))
+    return true
+  }
+
+  /** Số buổi thật của từng ô, hoặc lỗi của ô đầu tiên gõ sai. */
+  function readDrafts(): { targets: { sessionId: string; newNo: number }[] } | { error: string } {
+    const targets: { sessionId: string; newNo: number }[] = []
+    for (const s of sorted) {
+      const d = drafts[s.id]
+      const r = lessonNoFromLabel(Number(d?.k), Number(d?.m), perMonth, offset)
+      if (!r.ok) return { error: `Buổi ngày ${viDate(s.date)}: ${r.reason}.` }
+      targets.push({ sessionId: s.id, newNo: r.no })
+    }
+    return { targets }
   }
 
   async function handleSave() {
+    if (saving) return
     setError('')
-    const targets = sorted.map((s) => ({ sessionId: s.id, newNo: Number(drafts[s.id]) }))
-    if (targets.some((t) => !Number.isFinite(t.newNo) || t.newNo < 1)) {
-      setError('Số buổi phải là số nguyên ≥ 1.')
-      return
-    }
-    const seen = new Map<number, number>()
-    targets.forEach((t) => seen.set(t.newNo, (seen.get(t.newNo) ?? 0) + 1))
-    const dupNos = [...seen.entries()].filter(([, count]) => count > 1).map(([no]) => no)
-    if (dupNos.length) {
-      setError(`Số buổi ${dupNos.join(', ')} đang bị gán cho 2 buổi trở lên — mỗi buổi phải có số riêng, sửa lại trước khi lưu.`)
+    const read = readDrafts()
+    if ('error' in read) { setError(read.error); return }
+    // Quy định 10/11: mỗi em trong 1 lớp có đúng các buổi 1..n — không trùng, không để trống số,
+    // không nhảy số. Kiểm tra cả dãy TRƯỚC khi gửi (server kiểm tra lại y hệt).
+    const problem = numberingProblemOf(read.targets.map((t) => t.newNo), perMonth, offset)
+    if (problem) {
+      setError(`Chưa lưu: ${problem}. Bấm "💡 Gợi ý" để điền đúng theo ngày học, hoặc sửa lại các ô.`)
       return
     }
     // Không tự đóng màn hình sau khi lưu — để nút "↩️ Hoàn tác" kịp hiện ra
     // ngay, lỡ tay sửa sai còn trả lại được ngay tại chỗ.
-    await applyChanges(targets, (n) => `Đã lưu ${n} buổi thay đổi cho ${student!.name}.`)
+    await applyChanges(read.targets, (n) => `Đã lưu ${n} buổi thay đổi cho ${student!.name}.`)
   }
 
   async function handleUndo() {
-    if (!lastApplied) return
+    if (!lastApplied || saving) return
     const targets = lastApplied.map((a) => ({ sessionId: a.sessionId, newNo: a.oldNo }))
-    await applyChanges(targets, (n) => `Đã hoàn tác, trả lại số cũ cho ${n} buổi.`)
-    setLastApplied(null)
+    const ok = await applyChanges(targets, (n) => `Đã hoàn tác, trả lại số cũ cho ${n} buổi.`)
+    if (ok) setLastApplied(null)
   }
 
   /** Xóa thẳng 1 buổi "dư"/sai hẳn ngay tại đây (không chỉ lệch số) — soft
    *  delete (xem sessionController.deleteSession), không mất hẳn, khôi phục
    *  lại được qua "🗑️ Buổi đã xóa" nếu lỡ tay. */
   async function handleDelete(ss: { id: string; no: number; date: string }) {
+    if (busyRef.current) return
     const full = student!.sessions.find((s) => s.id === ss.id)
     // Buổi CHƯA lên server: trước đây xóa là MẤT HẲN (không xóa mềm, không
     // nhật ký) dù hộp xác nhận ghi "vẫn khôi phục được" — nghi là đường mất
     // các buổi 17/10 kẹt trên máy Lớp 3/4/5 (trông như buổi thừa/trùng nên bị
     // xóa). Giờ có dữ liệu thì chuyển vào kho giữ lại, admin vẫn xem được.
     const orphan = full ? orphanForLocalDelete(cls, student!, full) : null
+    const label = sessionLabelOf(ss.no, perMonth, offset)
+    const later = isMongoid(ss.id) ? renumberAfterRemoval(student!.sessions, ss.id).length : 0
+    const shiftNote = later ? ` ${later} buổi phía sau sẽ lùi lên 1 số để không bị trống số.` : ''
     const msg = orphan
-      ? `Buổi ${ss.no} (${viDate(ss.date)}) của ${student!.name} CHƯA lên server và CÓ điểm/điểm danh. Xóa sẽ chuyển buổi này vào "kho giữ lại" (admin xem được ở Sao lưu → Dữ liệu kẹt), KHÔNG khôi phục bằng "🗑️ Buổi đã xóa" được. Vẫn xóa?`
-      : `Xóa hẳn Buổi ${ss.no} (${viDate(ss.date)}) của ${student!.name}? Vẫn khôi phục lại được sau qua "🗑️ Buổi đã xóa".`
+      ? `${label} (${viDate(ss.date)}) của ${student!.name} CHƯA lên server và CÓ điểm/điểm danh. Xóa sẽ chuyển buổi này vào "kho giữ lại" (admin xem được ở Sao lưu → Dữ liệu kẹt), KHÔNG khôi phục bằng "🗑️ Buổi đã xóa" được.${shiftNote} Vẫn xóa?`
+      : `Xóa hẳn ${label} (${viDate(ss.date)}) của ${student!.name}?${shiftNote} Vẫn khôi phục lại được sau qua "🗑️ Buổi đã xóa".`
     if (!confirm(msg)) return
+    busyRef.current = true
     setDeletingId(ss.id)
     try {
       if (isMongoid(ss.id)) await sessionService.remove(ss.id)
@@ -171,24 +208,42 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
         useAppStore.getState().setData((d) => { d.orphans = appendOrphans(d.orphans, [orphan]) })
         logActivity('session.deleteLocal', { className: cls.name, studentName: student!.name, sessionNo: ss.no, date: ss.date }, 'ClassSession')
       }
+      // Server đã lùi số các buổi phía sau trong CÙNG giao dịch xóa — máy làm y hệt để không
+      // hiện số trống cho tới lần đồng bộ sau. Buổi chỉ có trên máy: server không biết, không lùi.
+      const shifts = isMongoid(ss.id) ? renumberAfterRemoval(student!.sessions, ss.id) : []
       update((cData) => {
         const stu = cData.students.find((s) => s.id === studentId)
-        if (stu) stu.sessions = stu.sessions.filter((s) => s.id !== ss.id)
+        if (!stu) return
+        stu.sessions = stu.sessions.filter((s) => s.id !== ss.id)
+        for (const sh of shifts) {
+          const x = stu.sessions.find((s) => s.id === sh.id)
+          if (x) x.no = sh.to
+        }
       })
       setDrafts((d) => {
         const next = { ...d }
         delete next[ss.id]
+        for (const sh of shifts) next[sh.id] = draftOf(sh.to)
         return next
       })
-      toast.success(`Đã xóa Buổi ${ss.no} của ${student!.name}.`)
+      // Số buổi đã đổi sau lần sửa trước → hoàn tác cũ không còn đúng.
+      setLastApplied(null)
+      toast.success(`Đã xóa ${label} của ${student!.name}.`)
     } catch (err) {
       toast.error((err as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Lỗi khi xóa — thử lại.', { persist: true })
     } finally {
+      busyRef.current = false
       setDeletingId(null)
     }
   }
 
-  const changedCount = sorted.filter((s) => Number(drafts[s.id]) !== s.no).length
+  const draftNo = (id: string) => {
+    const d = drafts[id]
+    const r = lessonNoFromLabel(Number(d?.k), Number(d?.m), perMonth, offset)
+    return r.ok ? r.no : NaN
+  }
+  const changedCount = sorted.filter((s) => draftNo(s.id) !== s.no).length
+  const currentProblem = numberingProblemOf(sorted.map((s) => s.no), perMonth, offset)
 
   return (
     <div
@@ -216,9 +271,15 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
           )}
         </div>
         <div className="text-xs" style={{ color: C.muted }}>
-          Tự gõ đúng số buổi mong muốn cho từng buổi — đổi chéo số cho nhau (VD Buổi 2 ↔ Buổi 3) cũng
-          làm được. Chỉ đổi nhãn số, không đụng điểm/bài tập/ghi chú/điểm danh của buổi nào cả.
+          Gõ tháng và buổi trong tháng cho từng buổi (lớp này <b>{size} buổi/tháng</b>, nên buổi trong tháng
+          chỉ từ 1 tới {size}). Các buổi phải nối nhau liền mạch, không trùng, không bỏ trống. Đổi chéo
+          (VD Buổi 2 ↔ Buổi 3) cũng làm được. Chỉ đổi số, không đụng điểm/bài tập/ghi chú/điểm danh.
         </div>
+        {currentProblem && (
+          <div data-testid="reseq-current-problem" className="rounded-lg px-3 py-2 text-xs font-semibold" style={{ background: C.red + '12', color: C.red }}>
+            ⚠ Số buổi hiện tại đang sai: {currentProblem}. Bấm "💡 Gợi ý" rồi Lưu để sửa.
+          </div>
+        )}
 
         <button type="button" onClick={suggestByDate} className="text-xs font-semibold" style={{ color: C.board2 }}>
           💡 Gợi ý: điền sẵn theo thứ tự ngày học (có thể sửa lại sau khi điền)
@@ -226,21 +287,34 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
 
         <div className="space-y-1">
           {sorted.map((s) => {
-            const changed = Number(drafts[s.id]) !== s.no
+            const changed = draftNo(s.id) !== s.no
+            const d = drafts[s.id] ?? { k: '', m: '' }
+            const setField = (f: keyof Draft, v: string) => setDrafts((x) => ({ ...x, [s.id]: { ...d, [f]: v } }))
+            const mBad = d.m !== '' && (Number(d.m) > size || Number(d.m) < 1)
             return (
               <div
                 key={s.id}
-                className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm"
+                data-sess={s.id}
+                className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg px-3 py-1.5 text-sm"
                 style={{ border: `1px solid ${changed ? C.gold : C.line}`, background: changed ? C.gold + '0f' : C.paper }}
               >
-                <span style={{ color: C.muted }}>Buổi</span>
+                <span style={{ color: C.muted }}>Tháng</span>
                 <input
-                  type="number" min={1}
-                  value={drafts[s.id] ?? ''}
-                  onChange={(e) => setDrafts((d) => ({ ...d, [s.id]: e.target.value }))}
-                  className="w-14 rounded-lg px-2 py-1 text-center font-bold"
+                  type="number" min={1} inputMode="numeric" aria-label="Tháng" data-field="k"
+                  value={d.k}
+                  onChange={(e) => setField('k', e.target.value)}
+                  className="w-12 rounded-lg px-1 py-1 text-center font-bold"
                   style={{ border: `1px solid ${C.line}` }}
                 />
+                <span style={{ color: C.muted }}>· Buổi</span>
+                <input
+                  type="number" min={1} max={size} inputMode="numeric" aria-label="Buổi trong tháng" data-field="m"
+                  value={d.m}
+                  onChange={(e) => setField('m', e.target.value)}
+                  className="w-12 rounded-lg px-1 py-1 text-center font-bold"
+                  style={{ border: `1px solid ${mBad ? C.red : C.line}` }}
+                />
+                <span style={{ color: C.muted }}>/{size}</span>
                 <span className="flex-1 truncate" style={{ color: C.muted }}>{viDate(s.date)}</span>
                 {s.homework && (
                   <span className="max-w-[40%] truncate text-xs" style={{ color: C.muted }} title={s.homework}>

@@ -20,7 +20,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useClasses, useClassStudents, useSessions, useClassScores, usePwaInstall, useTuitionUnpaidCount, STUDENT_KEYS } from '@/hooks'
 import { isMongoid } from '@/utils/mongoid'
 import {
-  pruneGoneFromServer, syncStudentsFromServer, adoptServerSession, markSessionSaved, markConflict, detachDeletedSession, toSessionEntry, maxesToBackfill,
+  pruneGoneFromServer, syncStudentsFromServer, adoptServerSession, makeRoomForServerNo, markSessionSaved, markConflict, detachDeletedSession, toSessionEntry, maxesToBackfill,
   collectOrphans, appendOrphans, unsentSessionCount, latestSessionOf, notesToSend, baseForSave, resolveSameDateTemp, type ServerScoreForSync,
 } from '@/business/sync'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
@@ -228,7 +228,7 @@ async function autoSyncStrandedScores(
           placeByDate: true,
         })
         await scoreService.upsert({ classId: job.classId, sessionId: apiSession._id, studentId: job.studentId, ...job.entry, total: job.total, ifAbsent: true })
-        onStudent(job, (st) => adoptServerSession(st, job.sessionLocalId, apiSession._id, apiSession.lessonNo, sent))
+        onStudent(job, (st) => { adoptServerSession(st, job.sessionLocalId, apiSession._id, apiSession.lessonNo, sent); makeRoomForServerNo(st, apiSession._id, apiSession.lessonNo) })
         recovered++
       } catch (err) {
         const resp = (err as { response?: { status?: number; data?: { code?: string; data?: { existingId?: string; lessonNo?: number } } } }).response
@@ -264,7 +264,7 @@ async function autoSyncStrandedScores(
           await sessionService.update(existingId, { notes: job.homework, notesIfAbsent: true })
         }
         const lessonNo = resp.data.data.lessonNo
-        onStudent(job, (st) => adoptServerSession(st, job.sessionLocalId, existingId, lessonNo, sent))
+        onStudent(job, (st) => { adoptServerSession(st, job.sessionLocalId, existingId, lessonNo, sent); makeRoomForServerNo(st, existingId, lessonNo) })
         if (!res.skipped) recovered++
       }
     } catch {

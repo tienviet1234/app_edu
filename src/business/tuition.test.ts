@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { billingPeriodsOf, sessionsBilledOf, currentProgressOf, periodPositionOf, sessionLabelOf, unbilledSessionsOf, duePeriodsOf, effectiveRateOf, studentTuitionNote, duplicateDatesIn, periodDuplicateDates } from './tuition'
+import { sessionLabel as serverSessionLabel } from '../../server/src/utils/dataRules'
 import { emptyEntry } from './seed'
 import type { AttendanceKey, Session, Student } from '@/types'
 
@@ -90,17 +91,25 @@ describe('periodPositionOf', () => {
 })
 
 describe('sessionLabelOf', () => {
-  it('kỳ 1 → chỉ "Buổi N", không có hậu tố tháng', () => {
-    expect(sessionLabelOf(5, 12)).toBe('Buổi 5')
+  it('luôn có tháng + số buổi/kỳ: "Tháng 1 · Buổi 5/12"', () => {
+    expect(sessionLabelOf(5, 12)).toBe('Tháng 1 · Buổi 5/12')
+    expect(sessionLabelOf(8, 8)).toBe('Tháng 1 · Buổi 8/8')
   })
 
-  it('kỳ 2 trở đi → có hậu tố "· T.K"', () => {
-    expect(sessionLabelOf(13, 12)).toBe('Buổi 1 · T.2')
-    expect(sessionLabelOf(25, 12)).toBe('Buổi 1 · T.3')
+  it('kỳ 2 trở đi: số sau "Buổi" quay về 1, không bao giờ vượt 8/12', () => {
+    expect(sessionLabelOf(13, 12)).toBe('Tháng 2 · Buổi 1/12')
+    expect(sessionLabelOf(25, 12)).toBe('Tháng 3 · Buổi 1/12')
+    expect(sessionLabelOf(16, 8)).toBe('Tháng 2 · Buổi 8/8')
   })
 
-  it('offset=9: buổi thật thứ 13 (buổi app thứ 4) → "Buổi 1 · T.2"', () => {
-    expect(sessionLabelOf(4, 12, 9)).toBe('Buổi 1 · T.2')
+  it('offset=9: buổi thật thứ 13 (buổi app thứ 4) → "Tháng 2 · Buổi 1/12"', () => {
+    expect(sessionLabelOf(4, 12, 9)).toBe('Tháng 2 · Buổi 1/12')
+  })
+
+  it('Y HỆT nhãn server (sessionLabel, dataRules.ts) — 2 phía không bao giờ hiện khác nhau', () => {
+    for (const per of [8, 12]) for (const off of [0, 3, 9]) for (let no = 1; no <= 40; no++) {
+      expect(sessionLabelOf(no, per, off)).toBe(serverSessionLabel(no, per, off))
+    }
   })
 })
 

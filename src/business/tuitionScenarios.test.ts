@@ -264,10 +264,10 @@ describe('Kịch bản học phí trọn vòng đời (hàm thật app + server)
     expect(c.drift()).toEqual([{ billed: 7, chargeableNow: 6, diffAmount: -75000 }])
   })
 
-  it('S15 Nhãn buổi không lệch giữa các kỳ: Buổi 13 của lớp 12 buổi/kỳ là "Buổi 1 · T.2"', () => {
-    expect(sessionLabelOf(12, 12)).toBe('Buổi 12')
-    expect(sessionLabelOf(13, 12)).toBe('Buổi 1 · T.2')
-    expect(sessionLabelOf(9, 8)).toBe('Buổi 1 · T.2')
+  it('S15 Nhãn buổi không lệch giữa các kỳ: Buổi 13 của lớp 12 buổi/kỳ là "Tháng 2 · Buổi 1/12"', () => {
+    expect(sessionLabelOf(12, 12)).toBe('Tháng 1 · Buổi 12/12')
+    expect(sessionLabelOf(13, 12)).toBe('Tháng 2 · Buổi 1/12')
+    expect(sessionLabelOf(9, 8)).toBe('Tháng 2 · Buổi 1/8')
   })
 
   it('S16 Ngẫu nhiên 300 lượt thao tác (thêm/vắng/gửi/xóa phiếu/xóa buổi/học bù): bất biến (1)–(4) luôn đúng', () => {

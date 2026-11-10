@@ -610,3 +610,82 @@ export function planClassTransfer(input: {
     move: target.map((s, i) => ({ id: s.id, date: s.date, newNo: i + 1, source: s.source })),
   }
 }
+
+// ── Số buổi: luôn 1..n liên tục trong MỖI lớp (quy định admin 10/11) ─────────────────────────
+// Mỗi kỳ học phí 8 buổi (Cấp 1) hoặc 12 buổi (Cấp 2–3); số buổi THẬT (`lessonNo`) đếm liên tục,
+// màn hình hiện "Tháng k · Buổi m/8" (m không bao giờ vượt 8/12). Trước 10/11 có thể để TRỐNG số
+// (Linh Đan thiếu Buổi 8) hoặc NHẢY số ("Buổi 15" khi mới có 14 buổi) — dễ nhầm buổi 8 của kỳ 8
+// với buổi 8 của kỳ 12. Giờ mọi đường ghi số đi qua các hàm dưới đây.
+
+/** Số buổi/kỳ của 1 lớp — Y HỆT công thức frontend (`level ?? autoLevel(name)`). */
+export function perMonthOfClass(cls: { name: string; level?: string | null }): 8 | 12 {
+  const m = String(cls.name).match(/\d+/)
+  const g = m ? Number(m[0]) : 0
+  const level = cls.level ?? (g >= 1 && g <= 5 ? 'primary' : 'secondary')
+  return level === 'primary' ? 8 : 12
+}
+
+/** Nhãn dễ đọc — Y HỆT `sessionLabelOf` ở frontend (business/tuition.ts): "Tháng 2 · Buổi 1/8". */
+export function sessionLabel(no: number, perMonth: number, offset = 0): string {
+  const size = perMonth === 8 ? 8 : 12
+  const conceptual = no + offset
+  const period = Math.max(1, Math.ceil(conceptual / size))
+  return `Tháng ${period} · Buổi ${conceptual - (period - 1) * size}/${size}`
+}
+
+/** Dãy số buổi của 1 em trong 1 lớp có đúng 1..n không (không trùng, không trống, không vượt). */
+export function numberingProblem(nos: number[], perMonth: number, offset = 0): string | null {
+  const n = nos.length
+  const seen = new Map<number, number>()
+  for (const x of nos) seen.set(x, (seen.get(x) ?? 0) + 1)
+  const dup = [...seen].filter(([, c]) => c > 1).map(([x]) => x).sort((a, b) => a - b)
+  if (dup.length) return `có 2 buổi cùng số ${dup.map((x) => sessionLabel(x, perMonth, offset)).join(', ')}`
+  const out = nos.filter((x) => !Number.isInteger(x) || x < 1 || x > n).sort((a, b) => a - b)
+  const missing = Array.from({ length: n }, (_, i) => i + 1).filter((x) => !seen.has(x))
+  if (out.length || missing.length) {
+    return `số buổi phải liên tục từ 1 tới ${n}${missing.length ? ` — đang thiếu ${missing.map((x) => sessionLabel(x, perMonth, offset)).join(', ')}` : ''}${out.length ? ` — vượt quá: ${out.map((x) => sessionLabel(x, perMonth, offset)).join(', ')}` : ''}`
+  }
+  return null
+}
+
+/** Chèn 1 buổi mới: số gõ tay (1..n+1) hoặc theo NGÀY (sau mọi buổi có ngày ≤ ngày mới). Các buổi
+ *  từ vị trí đó trở đi lùi 1 số — không bao giờ để trống hay trùng số, giữ nguyên thứ tự giáo viên
+ *  đã tự xếp (trước 10/11 tạo theo ngày ĐÁNH LẠI CẢ DÃY theo ngày, xóa mất số giáo viên tự gõ). */
+export function planInsertSession(
+  existing: Array<{ id: string; no: number; date: string }>,
+  input: { date: string; requestedNo?: number | null },
+  perMonth: number, offset = 0,
+): { ok: true; newNo: number; shifts: Array<{ id: string; from: number; to: number }> } | { ok: false; reason: string } {
+  const n = existing.length
+  const broken = numberingProblem(existing.map((s) => s.no), perMonth, offset)
+  if (broken) return { ok: false, reason: `dãy số buổi hiện tại đang sai (${broken}) — sửa ở "Sửa số buổi" trước` }
+  let newNo: number
+  if (input.requestedNo != null) {
+    if (!Number.isInteger(input.requestedNo) || input.requestedNo < 1 || input.requestedNo > n + 1) {
+      return { ok: false, reason: `số buổi phải từ ${sessionLabel(1, perMonth, offset)} tới ${sessionLabel(n + 1, perMonth, offset)}` }
+    }
+    newNo = input.requestedNo
+  } else {
+    const ordered = [...existing].sort((a, b) => a.no - b.no)
+    const before = ordered.filter((s) => s.date <= input.date)
+    newNo = before.length ? Math.max(...before.map((s) => s.no)) + 1 : 1
+  }
+  return { ok: true, newNo, shifts: existing.filter((s) => s.no >= newNo).sort((a, b) => b.no - a.no).map((s) => ({ id: s.id, from: s.no, to: s.no + 1 })) }
+}
+
+/** Bỏ 1 buổi (xóa mềm): các buổi phía sau lùi 1 số — không để trống. */
+export function planRemoveFromNumbering(existing: Array<{ id: string; no: number }>, removeId: string): Array<{ id: string; from: number; to: number }> {
+  const gone = existing.find((s) => s.id === removeId)
+  if (!gone) return []
+  return existing.filter((s) => s.id !== removeId && s.no > gone.no).sort((a, b) => a.no - b.no).map((s) => ({ id: s.id, from: s.no, to: s.no - 1 }))
+}
+
+/** Sửa dữ liệu cũ đang sai số buổi (trống / trùng / nhảy số): GIỮ NGUYÊN thứ tự hiện có (theo số
+ *  buổi, cùng số thì theo ngày) và chỉ khép lại thành 1..n — không xếp lại theo ngày (giáo viên có
+ *  thể đã tự xếp). VD Linh Đan Starters 1..15, 17 → buổi 17 thành 16. Trả về đúng các buổi đổi số. */
+export function planCompactNumbering(existing: Array<{ id: string; no: number; date: string }>): Array<{ id: string; from: number; to: number }> {
+  return [...existing]
+    .sort((a, b) => a.no - b.no || a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+    .map((s, i) => ({ id: s.id, from: s.no, to: i + 1 }))
+    .filter((x) => x.from !== x.to)
+}

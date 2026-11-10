@@ -1,10 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { AttendanceKey, ClassData } from '@/types'
 import { C } from '@/constants/colors'
 import { todayISO, viDate, viDateTime } from '@/utils/format'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
-import { uid } from '@/utils/uid'
 import { emptyEntry } from '@/business/seed'
 import { isMongoid } from '@/utils/mongoid'
 import { sessionService } from '@/services/sessions'
@@ -12,6 +11,9 @@ import { toast } from '@/store/toastStore'
 import { useAppStore } from '@/store/appStore'
 import { appendOrphans, orphanForLocalDelete } from '@/business/sync'
 import { dateChangeCheck } from '@/business/sessionDates'
+import { removeSessionLocally, insertNoByDate } from '@/business/resequence'
+import { sessionLabelOf, periodPositionOf } from '@/business/tuition'
+import { makeRoomForServerNo } from '@/business/sync'
 import { DateCommitInput } from '@/components/molecules/DateCommitInput'
 import { logActivity } from '@/services/activity'
 
@@ -84,7 +86,8 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
   const [expandedNos, setExpandedNos] = useState<Set<number>>(new Set())
   const [showAdd, setShowAdd] = useState(false)
   const [addStudentId, setAddStudentId] = useState(cls.students[0]?.id ?? '')
-  const [addNo, setAddNo] = useState(1)
+  const [adding, setAdding] = useState(false)
+  const addingRef = useRef(false) // khóa ngay (2 cú bấm liền vẫn thấy `adding` cũ)
   const [addDate, setAddDate] = useState(todayISO())
 
   // Tháng gần nhất THỰC SỰ có buổi học — độc lập với `month` đang chọn. Dùng
@@ -267,9 +270,10 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
     const full = stu?.sessions.find((y) => y.id === row.sessionId)
     // Buổi còn dữ liệu CHƯA lên server → vào kho giữ lại, không mất trắng.
     const orphan = stu && full ? orphanForLocalDelete(cls, stu, full) : null
+    const label = sessionLabelOf(row.no, cls.perMonth, stu?.sessionOffset)
     const msg = orphan
-      ? `Buổi ${row.no} (${viDate(row.date)}) của ${row.studentName} CHƯA lên server và CÓ điểm/điểm danh. Xóa sẽ chuyển buổi này vào "kho giữ lại" (admin xem được ở Sao lưu → Dữ liệu kẹt). Vẫn xóa?`
-      : `Xóa Buổi ${row.no} (${viDate(row.date)}) của ${row.studentName}? Điểm buổi này sẽ mất.`
+      ? `${label} (${viDate(row.date)}) của ${row.studentName} CHƯA lên server và CÓ điểm/điểm danh. Xóa sẽ chuyển buổi này vào "kho giữ lại" (admin xem được ở Sao lưu → Dữ liệu kẹt). Vẫn xóa?`
+      : `Xóa ${label} (${viDate(row.date)}) của ${row.studentName}? Các buổi phía sau lùi lên 1 số để không trống số. Khôi phục lại được ở Lớp học → "🗑️ Buổi đã xóa".`
     if (!confirm(msg)) return
     if (isMongoid(row.sessionId)) {
       try {
@@ -283,64 +287,65 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
       useAppStore.getState().setData((d) => { d.orphans = appendOrphans(d.orphans, [orphan]) })
       logActivity('session.deleteLocal', { className: cls.name, studentName: row.studentName, sessionNo: row.no, date: row.date }, 'ClassSession')
     }
-    toast.success(`Đã xóa Buổi ${row.no} của ${row.studentName}`)
+    toast.success(`Đã xóa ${label} của ${row.studentName}`)
     update((c) => {
       const s = c.students.find((y) => y.id === row.studentId)
       if (!s) return
-      // Không đánh lại số buổi còn lại — "Buổi N" là do giáo viên CHỌN, không
-      // tự tăng theo thứ tự (xem EntryScreen.tsx findOrCreateSession). Đánh
-      // lại số ở đây chỉ đổi cục bộ, không đồng bộ lessonNo lên server, nên
-      // sẽ lệch dữ liệu thật ngay khi tải lại/đổi thiết bị.
-      s.sessions = s.sessions.filter((y) => y.id !== row.sessionId)
+      // Server đã lùi số các buổi phía sau trong cùng giao dịch xóa (10/11: số buổi luôn 1..n).
+      removeSessionLocally(s, row.sessionId, isMongoid(row.sessionId))
     })
   }
 
+  /** Thêm 1 buổi cho 1 em: server xếp buổi vào ĐÚNG vị trí theo ngày (các buổi sau lùi 1 số) —
+   *  không gõ số tay nữa (10/11: số buổi luôn 1..n; gõ "Buổi 15" khi em mới 13 buổi từng tạo số
+   *  nhảy cóc). Chỉ hiện trên máy SAU KHI server xác nhận. */
   async function handleAddSession() {
+    if (addingRef.current) return
     const student = cls.students.find((s) => s.id === addStudentId)
     if (!student) return
-    if (student.sessions.some((s) => s.no === addNo)) {
-      toast.error(`${student.name} đã có sẵn Buổi ${addNo} rồi — chọn số buổi khác.`)
-      return
-    }
-    // 1 học sinh chỉ nên có 1 buổi/1 ngày — cảnh báo rõ nếu ngày này trùng
-    // với 1 buổi khác em đã có, nhưng vẫn cho tạo (có thể cố ý, VD học bù).
-    const sameDateOther = student.sessions.find((s) => s.date === addDate)
     // Trước 09/11 chỉ cảnh báo rồi vẫn tạo → 2 buổi cùng ngày, kỳ học phí đếm dư
     // buổi. Giờ chặn hẳn (server cũng chặn — dateMoveBlockReason).
+    const sameDateOther = student.sessions.find((s) => s.date === addDate)
     if (sameDateOther) {
       toast.error(
-        `${student.name} đã có Buổi ${sameDateOther.no} ngày ${viDate(addDate)} rồi — 1 em không học 2 buổi cùng ngày. Chưa tạo gì. Sai ngày thì sửa ngày buổi kia.`,
+        `${student.name} đã có ${sessionLabelOf(sameDateOther.no, cls.perMonth, student.sessionOffset)} ngày ${viDate(addDate)} rồi — 1 em không học 2 buổi cùng ngày. Chưa tạo gì. Sai ngày thì sửa ngày buổi kia.`,
         { persist: true },
       )
       return
     }
     const dayCheck = dateChangeCheck(cls.students, addStudentId, null, addDate)
     if (dayCheck.confirm && !confirm(dayCheck.confirm)) return
-    const localId = uid()
-    update((c) => {
-      const s = c.students.find((y) => y.id === addStudentId)
-      if (!s) return
-      s.sessions.push({ id: localId, no: addNo, date: addDate, homework: '', entry: emptyEntry() })
-      s.sessions.sort((a, b) => a.no - b.no)
-    })
-    if (isMongoid(cls.id) && isMongoid(addStudentId)) {
-      try {
-        const apiSession = await sessionService.create({
-          classId: cls.id, studentId: addStudentId, title: `Buổi ${addNo}`,
-          lessonNo: addNo, scheduledAt: `${addDate}T00:00:00.000Z`,
-        })
-        update((c) => {
-          const s = c.students.find((y) => y.id === addStudentId)
-          const ss = s?.sessions.find((y) => y.id === localId)
-          if (ss) { ss.id = apiSession._id; ss.savedAt = Date.now() }
-        })
-      } catch {
-        toast.error(`Đã tạo Buổi ${addNo} cho ${student.name} trên máy, nhưng lỗi khi lưu lên server. Thử lại.`, { persist: true })
-      }
+    const willBe = insertNoByDate(student.sessions, addDate)
+    const later = student.sessions.filter((s) => s.no >= willBe).length
+    if (later && !confirm(`Buổi ngày ${viDate(addDate)} sẽ là ${sessionLabelOf(willBe, cls.perMonth, student.sessionOffset)} của ${student.name}. ${later} buổi sau ngày này lùi xuống 1 số. Thêm?`)) return
+    if (!isMongoid(cls.id) || !isMongoid(addStudentId)) {
+      toast.error('Lớp/học sinh này chưa lên server — chưa thêm buổi được.', { persist: true })
+      return
     }
-    toast.success(`Đã thêm Buổi ${addNo} cho ${student.name} (${viDate(addDate)})`)
-    setShowAdd(false)
-    setAddNo(1)
+    addingRef.current = true
+    setAdding(true)
+    try {
+      const apiSession = await sessionService.create({
+        classId: cls.id, studentId: addStudentId, title: `Buổi ${willBe}`,
+        lessonNo: willBe, scheduledAt: `${addDate}T00:00:00.000Z`, placeByDate: true,
+      })
+      const no = apiSession.lessonNo ?? willBe
+      update((c) => {
+        const s = c.students.find((y) => y.id === addStudentId)
+        if (!s) return
+        s.sessions.push({ id: apiSession._id, no, date: addDate, homework: '', entry: emptyEntry(), savedAt: Date.now() })
+        makeRoomForServerNo(s, apiSession._id, no)
+      })
+      logActivity('session.create', { className: cls.name, sessionNo: no, studentName: student.name }, 'ClassSession')
+      toast.success(`Đã thêm ${sessionLabelOf(no, cls.perMonth, student.sessionOffset)} cho ${student.name} (${viDate(addDate)})`)
+      setShowAdd(false)
+    } catch (err) {
+      const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message
+      toast.error(`${msg ?? 'Lỗi khi lưu lên server.'} Chưa thêm buổi nào — thử lại.`, { persist: true })
+    } finally {
+      addingRef.current = false
+      setAdding(false)
+    }
   }
 
   return (
@@ -401,6 +406,7 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
               <div style={{ color: C.muted }}>Học sinh</div>
               <select
                 value={addStudentId}
+                aria-label="Học sinh thêm buổi"
                 onChange={(x) => setAddStudentId(x.target.value)}
                 className="mt-1 rounded-lg px-2 py-1.5 text-sm"
                 style={{ border: `1px solid ${C.line}` }}
@@ -411,26 +417,27 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
               </select>
             </label>
             <label className="text-xs">
-              <div style={{ color: C.muted }}>Buổi số</div>
-              <input
-                type="number" min="1"
-                value={addNo}
-                onChange={(x) => setAddNo(Math.max(1, Number(x.target.value)))}
-                className="mt-1 w-20 rounded-lg px-2 py-1.5 text-center text-sm font-bold"
-                style={{ border: `1px solid ${C.line}` }}
-              />
-            </label>
-            <label className="text-xs">
               <div style={{ color: C.muted }}>Ngày</div>
               <input
                 type="date"
                 value={addDate}
+                aria-label="Ngày buổi thêm"
                 onChange={(x) => setAddDate(x.target.value)}
                 className="mt-1 rounded-lg px-2 py-1.5 text-sm"
                 style={{ border: `1px solid ${C.line}` }}
               />
             </label>
-            <Btn kind="solid" onClick={handleAddSession} disabled={!addStudentId}>Thêm</Btn>
+            {(() => {
+              const stu = cls.students.find((s) => s.id === addStudentId)
+              if (!stu || !addDate) return null
+              const willBe = insertNoByDate(stu.sessions, addDate)
+              return (
+                <div className="pb-2 text-xs" style={{ color: C.muted }} data-testid="add-will-be">
+                  → sẽ là <b style={{ color: C.ink }}>{sessionLabelOf(willBe, cls.perMonth, stu.sessionOffset)}</b> (xếp theo ngày)
+                </div>
+              )
+            })()}
+            <Btn kind="solid" onClick={handleAddSession} disabled={!addStudentId || adding} loading={adding}>Thêm</Btn>
             <Btn kind="ghost" onClick={() => setShowAdd(false)}>Hủy</Btn>
           </div>
         )}
@@ -529,7 +536,7 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
                     style={{ background: C.paper }}
                   >
                     <span className="text-sm font-bold" style={{ color: C.ink }}>
-                      {isOpen ? '▾' : '▸'} Buổi {g.no}
+                      {isOpen ? '▾' : '▸'} {sessionLabelOf(g.no, cls.perMonth)}
                     </span>
                     <span className="text-xs" style={{ color: C.muted }}>
                       {totalStudents} em · {g.dates.map((d) => viDate(d.date)).join(' · ')}
@@ -562,7 +569,11 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
                                     style={{ width: 70, color: r.no !== g.no ? C.gold : C.ink }}
                                     title={r.no !== g.no ? `Buổi riêng của em này (${r.no}) khác buổi chính (${g.no}) của ngày này` : undefined}
                                   >
-                                    B{r.no}{r.no !== g.no ? ' *' : ''}
+                                    {(() => {
+                                      const off = cls.students.find((x) => x.id === r.studentId)?.sessionOffset
+                                      const { period, displayNo, blockSize } = periodPositionOf(r.no, cls.perMonth, off)
+                                      return `T${period}·B${displayNo}/${blockSize}`
+                                    })()}{r.no !== g.no ? ' *' : ''}
                                   </td>
                                   <td className="py-2 px-2" style={{ width: 132 }}>
                                     <DateCommitInput

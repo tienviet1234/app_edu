@@ -28,6 +28,8 @@ export interface HealthInput {
   lonelyDays?: string[]
   /** Học sinh không còn trong danh sách lớp mà còn buổi chưa thu (biến khỏi màn học phí). */
   leftWithUnbilled?: string[]
+  /** Em có số buổi không đúng 1..n trong 1 lớp (trống / trùng / nhảy số) — 10/11. */
+  numberingBroken?: string[]
 }
 
 export interface SessionForCheck { className: string; studentName: string; date: string; notes?: string; maxes?: Record<string, number> | null }
@@ -165,6 +167,11 @@ export function summarizeDataHealth(i: HealthInput): { level: HealthLevel; items
     key: 'leftUnbilled', level: i.leftWithUnbilled?.length ? 'warn' : 'ok', title: 'Học sinh đã rời lớp còn buổi chưa thu',
     detail: i.leftWithUnbilled?.length ? `${i.leftWithUnbilled.length} em không còn trong danh sách lớp nên không hiện ở màn Học phí — đã thu ngoài app hay cần chốt buổi?` : 'Không có.',
     lines: i.leftWithUnbilled,
+  })
+  items.push({
+    key: 'numbering', level: i.numberingBroken?.length ? 'bad' : 'ok', title: 'Số buổi không liền mạch',
+    detail: i.numberingBroken?.length ? `${i.numberingBroken.length} em có số buổi trống / trùng / nhảy số — mở "Sửa số buổi" của em đó, bấm "💡 Gợi ý" rồi Lưu.` : 'Mọi em đều có số buổi 1..n liền mạch.',
+    lines: i.numberingBroken,
   })
   items.push({
     key: 'lonelyDays', level: i.lonelyDays?.length ? 'warn' : 'ok', title: 'Ngày chỉ vài em có buổi (30 ngày)',

@@ -12,7 +12,7 @@ import { useAppStore } from '@/store/appStore'
 import { getClassRubric } from '@/constants/rubrics'
 import { applyPercentToComp, rescaleComp, sessionScore } from '@/business/scoring'
 import { emptyEntry } from '@/business/seed'
-import { adoptServerSession, markSessionSaved, detachDeletedSession } from '@/business/sync'
+import { adoptServerSession, makeRoomForServerNo, markSessionSaved, detachDeletedSession } from '@/business/sync'
 import { isMongoid } from '@/utils/mongoid'
 import { uid } from '@/utils/uid'
 import { todayISO, viDate } from '@/utils/format'
@@ -208,6 +208,8 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
         } else {
           ss2.entry = saved
         }
+        // Server có thể vừa chèn buổi này vào giữa (lùi các buổi sau 1 số) — máy làm y hệt.
+        makeRoomForServerNo(st2, sessionId, lessonNo)
         // Server vừa xác nhận đúng bản này.
         markSessionSaved(st2, sessionId, { entry: saved, homework: ss2.homework, maxes: ss2.maxes })
       }))

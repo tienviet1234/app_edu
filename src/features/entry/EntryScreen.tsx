@@ -12,7 +12,7 @@ import { emptyEntry } from '@/business/seed'
 import { dateChangeCheck } from '@/business/sessionDates'
 import { DateCommitInput } from '@/components/molecules/DateCommitInput'
 import {
-  resolvePlausibleNo, pendingSessionsOf, adoptServerSession, markSessionSaved, markConflict, resolveConflict, detachDeletedSession,
+  resolvePlausibleNo, nextNoOf, pendingSessionsOf, adoptServerSession, makeRoomForServerNo, markSessionSaved, markConflict, resolveConflict, detachDeletedSession,
   toSessionEntry, sameDateClash, navChoiceOf, unsentCountOf, latestSessionOf, siblingDefaultsFor, notesToSend, baseForSave, takeServerCopy, appendOrphans, homeworkToBackfill, type ServerScoreForSync,
 } from '@/business/sync'
 import { useAppStore } from '@/store/appStore'
@@ -77,8 +77,10 @@ function loadPersistedView(classId: string): PersistedView {
  *  học sinh có chuỗi buổi RIÊNG nên số buổi đang xem cũng phải riêng từng em
  *  — không dùng chung cả lớp. */
 function defaultNoFor(student: { sessions: { no: number }[]; sessionOffset?: number } | undefined): number {
+  // Chưa có buổi nào → Buổi 1 (số trong app; "đã học trước khi vào app" chỉ cộng khi HIỂN THỊ).
+  // Trước 10/11 trả `sessionOffset + 1` — em có offset 5 mở ra "Buổi 6" (hiện thành buổi 11).
   const nos = student?.sessions.map((ss) => ss.no) ?? []
-  return nos.length ? Math.max(...nos) : (student?.sessionOffset ?? 0) + 1
+  return nos.length ? Math.max(...nos) : 1
 }
 
 /** Tìm buổi số N của đúng học sinh này; nếu chưa có thì tạo mới với ngày
@@ -209,17 +211,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   // số cũ trở lại mỗi khi xóa hết ô để gõ số mới (input là controlled).
   const [maxDrafts, setMaxDrafts] = useState<Record<string, string>>({})
 
-  // Đổi số Buổi CỦA BUỔI ĐANG XEM — sửa trực tiếp đúng bản ghi hiện có (giữ
-  // nguyên điểm/bài tập/điểm danh đã chấm), khác với việc chọn số buổi khác
-  // ở select bên trên (mở/tạo 1 buổi KHÁC, không di chuyển dữ liệu buổi cũ).
-  const [renamingNo, setRenamingNo] = useState(false)
-  const [renameDraft, setRenameDraft] = useState('')
-
   const st = cls.students[cur]
-  // Mốc "xa nhất hợp lý" cả lớp đã chạm tới — dùng để thẩm định số buổi lưu
-  // sẵn trên máy (noByStudent) VÀ để tính maxNo cho dropdown bên dưới, tránh
-  // lệch công thức giữa 2 chỗ.
-  const classWideMaxNo = Math.max(cls.perMonth, ...cls.students.flatMap((s) => s.sessions.map((ss) => ss.no)))
   /** Số buổi đang xem của 1 học sinh bất kỳ (riêng từng em). `noByStudent`
    *  lưu RAW SỐ (không phải id buổi) vào localStorage — nếu buổi đó đã bị
    *  xếp lại số (resequence/sửa dữ liệu lệch) thì số cũ lưu sẵn trên máy này
@@ -233,7 +225,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
    *  Tháng 1 vì lúc đó buổi Tháng 2 chưa có bản ghi nào để khớp). */
   const noOf = (studentId: string): number => {
     const student = cls.students.find((s) => s.id === studentId)
-    const resolved = resolvePlausibleNo(noByStudent[studentId], student?.sessions.map((s) => s.no) ?? [], classWideMaxNo)
+    const resolved = resolvePlausibleNo(noByStudent[studentId], student?.sessions.map((s) => s.no) ?? [])
     return resolved ?? defaultNoFor(student)
   }
   const selectedNo = st ? noOf(st.id) : 1
@@ -283,58 +275,15 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
     return true
   }
 
-  /** Đổi số Buổi của buổi ĐANG CÓ (session hiện tại) sang số khác — sửa
-   *  đúng bản ghi đó (giữ nguyên điểm/bài tập/điểm danh), rồi theo dõi luôn
-   *  sang số mới. Chặn nếu học sinh này đã có sẵn 1 buổi khác trùng số. */
-  function commitRenameSessionNo() {
-    if (!st || !session) return
-    const newNo = Number(renameDraft)
-    if (!renameDraft.trim() || !Number.isFinite(newNo) || newNo < 1) {
-      toast.error('Số buổi không hợp lệ')
-      return
-    }
-    if (newNo === session.no) {
-      setRenamingNo(false)
-      return
-    }
-    if (st.sessions.some((s) => s.id !== session.id && s.no === newNo)) {
-      toast.error(`${st.name} đã có sẵn Buổi ${newNo} rồi — chọn số khác.`)
-      return
-    }
-    const oldNo = session.no
-    const sessionId = session.id
-    const studentId = st.id
-    update((c) => {
-      const stu = c.students.find((s) => s.id === studentId)
-      const found = stu?.sessions.find((s) => s.id === sessionId)
-      if (found) found.no = newNo
-      stu?.sessions.sort((a, b) => a.no - b.no)
-    })
-    if (isMongoid(sessionId)) {
-      sessionService.update(sessionId, { lessonNo: newNo }).catch(() => {
-        toast.error(`Lỗi khi lưu số Buổi mới lên server — đã khôi phục số cũ`, { persist: true })
-        update((c) => {
-          const stu = c.students.find((s) => s.id === studentId)
-          const found = stu?.sessions.find((s) => s.id === sessionId)
-          if (found) found.no = oldNo
-          stu?.sessions.sort((a, b) => a.no - b.no)
-        })
-      })
-    }
-    setSelectedNo(newNo)
-    setRenamingNo(false)
-    setRenameDraft('')
-    toast.success(`Đã đổi Buổi ${oldNo} → Buổi ${newNo} cho ${st.name} — điểm/bài tập vẫn giữ nguyên`)
-  }
-
   // Luôn chừa sẵn Ít NHẤT 1 lựa chọn "buổi tiếp theo" ngay sau buổi cao nhất
   // CỦA CHÍNH học sinh đang xem — trước đây chỉ tính theo max(perMonth, cả
   // lớp) nên hễ 1 em là người đầu tiên của lớp chạm mốc perMonth (VD 12) mà
   // chưa bạn nào khác vượt qua, dropdown chỉ liệt kê tới đúng buổi hiện có,
   // giáo viên không chọn được buổi kế tiếp để nhập tiếp ("hết chỗ" trong
   // dropdown) — đã gặp thật, phải tạm dùng lại 1 số buổi cũ để nhập cho qua.
-  const myMaxNo = Math.max(0, ...(st?.sessions.map((ss) => ss.no) ?? []))
-  const maxNo = Math.max(classWideMaxNo, selectedNo, myMaxNo + 1)
+  // 10/11: chỉ tới buổi kế tiếp (n+1) của CHÍNH em đó — trước đây tới mốc xa nhất cả lớp nên em
+  // 14 buổi chọn được "Buổi 16" (số nhảy cóc). Server cũng xếp buổi mới theo ngày, không theo số chọn.
+  const maxNo = nextNoOf(st?.sessions.map((ss) => ss.no) ?? [])
 
   // Session-level overrides (comp max + ratio totals) — áp dụng cho ngày đang chọn
   const sessionMaxes = session?.maxes ?? {}
@@ -420,7 +369,9 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
         const newId = sessionId
         update((c) => {
           const stu = c.students.find((s) => s.id === studentId)
-          if (stu) adoptServerSession(stu, localId, newId, finalNo)
+          if (!stu) return
+          adoptServerSession(stu, localId, newId, finalNo)
+          makeRoomForServerNo(stu, newId, finalNo)
         })
         if (finalNo !== target.no) {
           setNoByStudent((prev) => ({ ...prev, [studentId]: finalNo }))
@@ -1005,7 +956,8 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                 }
                 return (
                   <>
-                    {periodsSeen.length > 1 && (
+                    {/* Luôn hiện ô Tháng (10/11): "Buổi 8" một mình dễ nhầm giữa lớp 8 và 12 buổi/tháng. */}
+                    {(
                       <select
                         value={currentPeriod}
                         onChange={(x) => {
@@ -1035,7 +987,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                     >
                       {opts.filter((o) => o.period === currentPeriod).map((o) => (
                         <option key={o.no} value={o.no}>
-                          Buổi {o.displayNo} — {o.existing ? viDate(o.existing.date) : 'chưa có'}
+                          Buổi {o.displayNo}/{cls.perMonth === 8 ? 8 : 12} — {o.existing ? viDate(o.existing.date) : 'buổi mới'}
                         </option>
                       ))}
                     </select>
@@ -1050,52 +1002,16 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                 style={{ border: `1px solid ${C.line}` }}
               />
               {session && (
-                renamingNo ? (
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs" style={{ color: C.muted }}>Đổi thành Buổi</span>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      autoFocus
-                      value={renameDraft}
-                      onChange={(x) => setRenameDraft(x.target.value.replace(/\D/g, ''))}
-                      onKeyDown={(x) => {
-                        if (x.key === 'Enter') commitRenameSessionNo()
-                        if (x.key === 'Escape') { setRenamingNo(false); setRenameDraft('') }
-                      }}
-                      className="w-14 rounded-lg px-2 py-1.5 text-center text-sm font-bold"
-                      style={{ border: `1px solid ${C.line}` }}
-                    />
-                    {renameDraft.trim() && Number.isFinite(Number(renameDraft)) && (
-                      <span className="text-xs" style={{ color: C.muted }}>
-                        → sẽ hiện là: {sessionLabelOf(Number(renameDraft), cls.perMonth, st?.sessionOffset)}
-                      </span>
-                    )}
-                    <button
-                      onClick={commitRenameSessionNo}
-                      className="rounded-lg px-2.5 py-1.5 text-xs font-bold"
-                      style={{ background: C.emerald, color: '#fff' }}
-                    >
-                      Lưu
-                    </button>
-                    <button
-                      onClick={() => { setRenamingNo(false); setRenameDraft('') }}
-                      className="rounded-lg px-2 py-1.5 text-xs"
-                      style={{ color: C.muted }}
-                    >
-                      Hủy
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => { setRenamingNo(true); setRenameDraft(String(selectedNo)) }}
-                    title="Đổi số Buổi này — giữ nguyên điểm/bài tập/điểm danh đã chấm, chỉ đổi nhãn số"
-                    className="rounded-xl px-2.5 py-2 text-xs font-bold"
-                    style={{ color: C.board2, border: `1px dashed ${C.board2}66` }}
-                  >
-                    ✎ Đổi số buổi
-                  </button>
-                )
+                // Đổi số 1 buổi lẻ làm trống/trùng số (quy định 10/11: số buổi luôn 1..n) — mở hộp
+                // "Sửa số buổi" để đổi cả dãy cùng lúc, có kiểm tra trước khi lưu.
+                <button
+                  onClick={() => setShowResequence(true)}
+                  title="Mở hộp Sửa số buổi — đổi số cả dãy cùng lúc, giữ nguyên điểm/bài tập/điểm danh"
+                  className="rounded-xl px-2.5 py-2 text-xs font-bold"
+                  style={{ color: C.board2, border: `1px dashed ${C.board2}66` }}
+                >
+                  ✎ Đổi số buổi
+                </button>
               )}
               <button
                 onClick={() => setEditingWhen(false)}
@@ -1218,7 +1134,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                     <td className="py-1.5 px-3 text-center font-semibold" style={{ color: C.board }}>
                       {(() => {
                         const { period, displayNo } = periodPositionOf(no, cls.perMonth, student.sessionOffset)
-                        return period > 1 ? `B${displayNo}·T${period}` : `B${displayNo}`
+                        return `T${period} · B${displayNo}/${cls.perMonth === 8 ? 8 : 12}`
                       })()}
                     </td>
                     <td className="py-1.5 px-3 text-center" style={{ color: C.muted }}>

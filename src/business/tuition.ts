@@ -35,15 +35,17 @@ export function periodPositionOf(
   return { period, displayNo, blockSize }
 }
 
-/** Nhãn ngắn gọn cho 1 buổi, dùng ở mọi nơi hiển thị "Buổi N" cho giáo
- *  viên/phụ huynh (dropdown chọn buổi, bảng điểm, Excel...) — "Buổi 1 · T.2"
- *  khi đã qua kỳ 2 trở đi, chỉ "Buổi N" ở kỳ đầu (đỡ rối cho ca thường gặp
- *  nhất). KHÔNG dùng ở các công cụ sửa/đối chiếu dữ liệu (resequence, sửa
+/** Nhãn cho 1 buổi, dùng ở mọi nơi hiển thị buổi cho giáo viên/phụ huynh:
+ *  "Tháng 2 · Buổi 1/8" — luôn có tháng + số buổi/kỳ (10/11: "Buổi 8" từng dễ
+ *  nhầm giữa lớp 8 buổi/kỳ và lớp 12 buổi/kỳ; số sau dấu / không bao giờ vượt
+ *  8/12). Y HỆT `sessionLabel` ở server (`dataRules.ts`) — có test đối chiếu. KHÔNG dùng ở các công cụ sửa/đối chiếu dữ liệu (resequence, sửa
  *  buổi thật, đối chiếu lệch buổi...) — những chỗ đó cần thấy đúng số thật
  *  liên tục, xem ghi chú ở từng màn hình. */
 export function sessionLabelOf(no: number, perMonth: number, offset = 0): string {
-  const { period, displayNo } = periodPositionOf(no, perMonth, offset)
-  return period > 1 ? `Buổi ${displayNo} · T.${period}` : `Buổi ${displayNo}`
+  const size = perMonth === 8 ? 8 : 12
+  const conceptual = no + offset
+  const period = Math.max(1, Math.ceil(conceptual / size))
+  return `Tháng ${period} · Buổi ${conceptual - (period - 1) * size}/${size}`
 }
 
 /** Mốc TÍNH HỌC PHÍ — CHỈ đúng mốc "cuối 8 buổi" (perMonth=8) hoặc "cuối 12

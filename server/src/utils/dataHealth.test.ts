@@ -121,3 +121,13 @@ describe('mục "Học sinh đã rời lớp còn buổi chưa thu" (10/11)', ()
     expect(morningAlertFrom(h)).toBeNull()
   })
 })
+
+describe('Số buổi không liền mạch (10/11)', () => {
+  const base = { now: Date.now(), latestBackupAt: Date.now(), backupCount: 60, usedBytes: 1, limitBytes: 512e6, devices: [], rejected: [], clicksWithoutSession: [], sameDatePairs: [], futureSessions: [], scoresWithoutSession: 0, scoresOnDeletedSession: 0, stuckNumbers: 0, snapshotFailures: 0, suspectInherited: [], billedMismatches: [] }
+  it('không có em nào → ok', () => expect(summarizeDataHealth(base).items.find((x) => x.key === 'numbering')?.level).toBe('ok'))
+  it('có em trống số → cần xử lý ngay, có trong chuông sáng', () => {
+    const h = summarizeDataHealth({ ...base, numberingBroken: ['Starters · Linh Đan: số buổi phải liên tục từ 1 tới 8 — đang thiếu Tháng 1 · Buổi 8/8'] })
+    expect(h.items.find((x) => x.key === 'numbering')).toMatchObject({ level: 'bad' })
+    expect(morningAlertFrom(h)?.body).toContain('Số buổi không liền mạch')
+  })
+})

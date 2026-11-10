@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason, billedDeleteBlockReason, planBilledFlagRepair, noticeCoverage, planSessionRemoval, reviewFixResult, changedFields, noticeAttendanceDrift, billedMismatchKind, billedChangeBlockReason, dateMoveBlockReason, lonelyClassDays, planClassTransfer } from './dataRules.js'
+import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason, billedDeleteBlockReason, planBilledFlagRepair, noticeCoverage, planSessionRemoval, reviewFixResult, changedFields, noticeAttendanceDrift, billedMismatchKind, billedChangeBlockReason, dateMoveBlockReason, lonelyClassDays, planClassTransfer, perMonthOfClass, sessionLabel, numberingProblem, planInsertSession, planRemoveFromNumbering, planCompactNumbering } from './dataRules.js'
 
 describe('billedDeleteBlockReason (xóa buổi đã thu làm buổi khác bị tính tiền lần 2)', () => {
   it('buổi đã thu: chặn, nói rõ cách làm', () => {
@@ -609,5 +609,70 @@ describe('planClassTransfer ("Chuyển lớp": lịch sử lớp cũ ở lại l
   it('admin nhập ngày chuyển sớm hơn buổi đầu ở lớp mới', () => {
     const r = planClassTransfer({ oldSessions: lop2, newSessions: starters, transferDate: '2026-10-07' })
     expect(r.ok && [r.stay.length, r.move.map((x) => x.id)]).toEqual([4, ['e', 'f', 'n1', 'n2']])
+  })
+})
+
+describe('Số buổi luôn 1..n trong mỗi lớp (10/11)', () => {
+  it('perMonthOfClass: Cấp 1 = 8, Cấp 2–3 = 12, chọn tay thắng tên lớp', () => {
+    expect(perMonthOfClass({ name: 'Lớp 2' })).toBe(8)
+    expect(perMonthOfClass({ name: 'Lớp 7' })).toBe(12)
+    expect(perMonthOfClass({ name: 'Lớp Starters', level: 'primary' })).toBe(8)
+  })
+  it('sessionLabel: "Tháng k · Buổi m/8", m không bao giờ vượt 8/12', () => {
+    expect(sessionLabel(8, 8)).toBe('Tháng 1 · Buổi 8/8')
+    expect(sessionLabel(9, 8)).toBe('Tháng 2 · Buổi 1/8')
+    expect(sessionLabel(9, 12)).toBe('Tháng 1 · Buổi 9/12')
+    expect(sessionLabel(13, 12)).toBe('Tháng 2 · Buổi 1/12')
+    expect(sessionLabel(3, 8, 5)).toBe('Tháng 1 · Buổi 8/8')
+  })
+  it('numberingProblem: đúng 1..n → null; ca Linh Đan thiếu Buổi 8 → báo thiếu, nêu nhãn dễ đọc', () => {
+    expect(numberingProblem([3, 1, 2], 8)).toBeNull()
+    expect(numberingProblem([1, 2, 3, 4, 5, 6, 7, 9], 8)).toContain('thiếu Tháng 1 · Buổi 8/8')
+  })
+  it('numberingProblem: trùng số / nhảy số ("Buổi 15" khi mới có 14 buổi) → báo', () => {
+    expect(numberingProblem([1, 2, 2], 12)).toContain('2 buổi cùng số Tháng 1 · Buổi 2/12')
+    expect(numberingProblem([...Array.from({ length: 13 }, (_, i) => i + 1), 15], 12)).toContain('vượt quá: Tháng 2 · Buổi 3/12')
+  })
+  const ex = [{ id: 'a', no: 1, date: '2026-10-01' }, { id: 'b', no: 2, date: '2026-10-03' }, { id: 'c', no: 3, date: '2026-10-08' }]
+  it('planInsertSession theo ngày: chèn giữa, các buổi sau lùi 1 số', () => {
+    expect(planInsertSession(ex, { date: '2026-10-05' }, 8)).toEqual({ ok: true, newNo: 3, shifts: [{ id: 'c', from: 3, to: 4 }] })
+    expect(planInsertSession(ex, { date: '2026-10-10' }, 8)).toEqual({ ok: true, newNo: 4, shifts: [] })
+    expect(planInsertSession([], { date: '2026-10-10' }, 8)).toEqual({ ok: true, newNo: 1, shifts: [] })
+  })
+  it('planInsertSession giữ thứ tự giáo viên tự xếp (không đánh lại cả dãy theo ngày)', () => {
+    const manual = [{ id: 'a', no: 1, date: '2026-10-01' }, { id: 'x', no: 2, date: '2026-10-20' }, { id: 'b', no: 3, date: '2026-10-03' }]
+    const r = planInsertSession(manual, { date: '2026-10-25' }, 8)
+    expect(r).toEqual({ ok: true, newNo: 4, shifts: [] })
+  })
+  it('planInsertSession số gõ tay: trong 1..n+1 thì chèn, ngoài khoảng thì từ chối bằng nhãn dễ đọc', () => {
+    expect(planInsertSession(ex, { date: '2026-10-30', requestedNo: 2 }, 8)).toEqual({ ok: true, newNo: 2, shifts: [{ id: 'c', from: 3, to: 4 }, { id: 'b', from: 2, to: 3 }] })
+    const r = planInsertSession(ex, { date: '2026-10-30', requestedNo: 9 }, 8)
+    expect(r).toMatchObject({ ok: false })
+    expect(!r.ok && r.reason).toContain('Tháng 1 · Buổi 4/8')
+  })
+  it('planInsertSession: dãy hiện tại đã sai → từ chối, không chèn chồng lên', () => {
+    expect(planInsertSession([{ id: 'a', no: 1, date: '2026-10-01' }, { id: 'b', no: 3, date: '2026-10-03' }], { date: '2026-10-05' }, 8)).toMatchObject({ ok: false })
+  })
+  it('planRemoveFromNumbering: xóa giữa → các buổi sau lùi 1 số, không để trống', () => {
+    expect(planRemoveFromNumbering(ex, 'b')).toEqual([{ id: 'c', from: 3, to: 2 }])
+    expect(planRemoveFromNumbering(ex, 'c')).toEqual([])
+  })
+})
+
+describe('planCompactNumbering — sửa dữ liệu cũ sai số buổi (10/11)', () => {
+  it('Linh Đan Starters 1..15, 17 → chỉ buổi 17 thành 16', () => {
+    const ss = Array.from({ length: 15 }, (_, i) => ({ id: `s${i + 1}`, no: i + 1, date: `2026-10-${String(i + 1).padStart(2, '0')}` }))
+    expect(planCompactNumbering([...ss, { id: 'x', no: 17, date: '2026-11-10' }])).toEqual([{ id: 'x', from: 17, to: 16 }])
+    expect(numberingProblem([...ss.map((s) => s.no), 16], 8)).toBeNull()
+  })
+  it('em đã rời lớp, 1 buổi mang số 2 → thành 1', () => {
+    expect(planCompactNumbering([{ id: 'a', no: 2, date: '2026-09-17' }])).toEqual([{ id: 'a', from: 2, to: 1 }])
+  })
+  it('trùng số: buổi ngày sớm hơn giữ số, buổi sau và các buổi phía sau lùi 1; giữ thứ tự giáo viên tự xếp', () => {
+    expect(planCompactNumbering([{ id: 'a', no: 1, date: '2026-10-01' }, { id: 'c', no: 2, date: '2026-10-09' }, { id: 'b', no: 2, date: '2026-10-05' }, { id: 'd', no: 3, date: '2026-10-02' }]))
+      .toEqual([{ id: 'c', from: 2, to: 3 }, { id: 'd', from: 3, to: 4 }])
+  })
+  it('dãy đã đúng → không đổi gì (chạy lại lần 2 không làm gì)', () => {
+    expect(planCompactNumbering([{ id: 'a', no: 1, date: '2026-10-01' }, { id: 'b', no: 2, date: '2026-10-03' }])).toEqual([])
   })
 })

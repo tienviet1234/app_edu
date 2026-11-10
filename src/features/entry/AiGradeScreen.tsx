@@ -10,7 +10,7 @@ import { emptyEntry } from '@/business/seed'
 import { sessionScore } from '@/business/scoring'
 import { matchStudentsByName, normalizeViName, type StudentMatch } from '@/business/aiMatch'
 import { matchAiErrorTags } from '@/business/aiErrorTags'
-import { adoptServerSession, markSessionSaved, detachDeletedSession } from '@/business/sync'
+import { adoptServerSession, makeRoomForServerNo, markSessionSaved, detachDeletedSession } from '@/business/sync'
 import { checkImageQuality, type ImageQuality } from '@/utils/imageQuality'
 import { aiGradingService, type AiGradeResult } from '@/services/aiGrading'
 import { AiSolveBox } from './AiSolveBox'
@@ -518,6 +518,8 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
         } else {
           ss2.entry = entry
         }
+        // Server có thể vừa chèn buổi này vào giữa (lùi các buổi sau 1 số) — máy làm y hệt.
+        makeRoomForServerNo(st2, sessionId, lessonNo)
         // Server vừa xác nhận đúng bản này.
         markSessionSaved(st2, sessionId, { entry, homework: ss2.homework, maxes: ss2.maxes }, saved.updatedAt)
       }))

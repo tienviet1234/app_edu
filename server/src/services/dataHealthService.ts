@@ -1,6 +1,6 @@
 import mongoose from 'mongoose'
 import { listR2Keys } from './storageService.js'
-import { billedMismatchKind, lonelyClassDays, navClicksWithoutSession, noticeAttendanceDrift, noticeCoverage } from '../utils/dataRules.js'
+import { billedMismatchKind, lonelyClassDays, navClicksWithoutSession, noticeAttendanceDrift, noticeCoverage, numberingProblem, perMonthOfClass } from '../utils/dataRules.js'
 import { morningAlertFrom, summarizeDataHealth, suspectInherited } from '../utils/dataHealth.js'
 import { Notification } from '../models/Notification.js'
 import { User } from '../models/User.js'
@@ -49,9 +49,9 @@ export async function readDataHealth() {
   }
 
   const stats = await db.stats()
-  const users = await db.collection('users').find({}, { projection: { name: 1 } }).toArray()
+  const users = await db.collection('users').find({}, { projection: { name: 1, sessionOffset: 1 } }).toArray()
   const nameOf = (id: unknown) => users.find((u) => String(u._id) === String(id))?.name ?? 'Không rõ'
-  const classes = await db.collection('classes').find({}, { projection: { name: 1, studentIds: 1 } }).toArray()
+  const classes = await db.collection('classes').find({}, { projection: { name: 1, level: 1, studentIds: 1 } }).toArray()
   const classOf = (id: unknown) => classes.find((c) => String(c._id) === String(id))?.name ?? 'Lớp đã xóa'
 
   // Bản chụp mới nhất từng máy, bỏ bản gửi tay từ "Bản sao lưu trên máy" (-bk…).
@@ -130,6 +130,17 @@ export async function readDataHealth() {
     className: c.name, rosterSize: c.studentIds.length, sinceDate: since,
     sessions: live.filter((s) => String(s.classId) === String(c._id)).map((s) => ({ date: utcDay(s.scheduledAt), studentName: nameOf(s.studentId) })),
   }))
+  // Số buổi mỗi em trong mỗi lớp phải đúng 1..n (quy định 10/11) — trống/trùng/nhảy số.
+  const nosBy = new Map<string, number[]>()
+  for (const s of live) { if (!classIdSet.has(String(s.classId))) continue; const k = `${s.classId}|${s.studentId}`; nosBy.set(k, [...(nosBy.get(k) ?? []), s.lessonNo ?? 0]) }
+  const numberingBroken: string[] = []
+  for (const [k, nos] of nosBy) {
+    const [cid, sid] = k.split('|')
+    const c = classes.find((x) => String(x._id) === cid)
+    const off = (users.find((u) => String(u._id) === sid) as { sessionOffset?: number } | undefined)?.sessionOffset ?? 0
+    const p = c ? numberingProblem(nos, perMonthOfClass({ name: c.name, level: c.level }), off) : null
+    if (p) numberingBroken.push(`${classOf(cid)} · ${nameOf(sid)}: ${p}`)
+  }
   const known = (id: string) => liveIds.has(id) || deleted.has(id)
 
   return summarizeDataHealth({
@@ -143,6 +154,7 @@ export async function readDataHealth() {
     clicksWithoutSession: missing,
     sameDatePairs: [...perDay].filter(([, n]) => n > 1).map(([k]) => k),
     leftWithUnbilled: [...leftUnbilled].map(([k, n]) => `${k}: ${n} buổi chưa thu`),
+    numberingBroken,
     futureSessions: live.filter((s) => new Date(s.scheduledAt).getTime() > now + 2 * DAY).map((s) => `${classOf(s.classId)} · ${nameOf(s.studentId)} · ${utcDay(s.scheduledAt)} (ngày tương lai)`),
     scoresWithoutSession: scores.filter((s) => !known(String(s.sessionId))).length,
     scoresOnDeletedSession: scores.filter((s) => deleted.has(String(s.sessionId))).length,

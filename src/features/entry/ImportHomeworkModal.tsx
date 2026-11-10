@@ -7,6 +7,7 @@ import { emptyEntry } from '@/business/seed'
 import { parseSessionImportFile, type ImportedSessionRow } from '@/utils/excelImport'
 import { sessionService } from '@/services/sessions'
 import { scoreService } from '@/services/scores'
+import { makeRoomForServerNo } from '@/business/sync'
 import { logActivity } from '@/services/activity'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
@@ -138,6 +139,9 @@ export function ImportHomeworkModal({ cls, studentId, teacherName, update, onClo
           lessonNo: r.no,
           scheduledAt: `${r.date}T00:00:00.000Z`,
           notes: r.homeworkText || undefined,
+          // 10/11: server xếp buổi theo NGÀY (số buổi luôn 1..n) — số trong file chỉ để xem trước,
+          // gửi thẳng số đó (VD "Buổi 20" khi em mới 5 buổi) sẽ bị từ chối.
+          placeByDate: true,
         })
         await scoreService.upsert({
           classId: cls.id, sessionId: apiSession._id, studentId,
@@ -155,6 +159,7 @@ export function ImportHomeworkModal({ cls, studentId, teacherName, update, onClo
             synced: true, // vừa được server xác nhận
             savedAt: Date.now(),
           })
+          makeRoomForServerNo(stu, apiSession._id, apiSession.lessonNo ?? r.no)
           stu.sessions.sort((a, b) => a.no - b.no)
         })
         okCount += 1

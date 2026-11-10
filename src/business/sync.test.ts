@@ -3,7 +3,7 @@ import {
   pruneGoneFromServer, resolvePlausibleNo, syncStudentsFromServer, adoptServerSession, pendingSessionsOf, markSessionSaved,
   markConflict, resolveConflict, collectOrphans, appendOrphans, sameDateClash, detachDeletedSession,
   orphanForLocalDelete, rescueOtherTabSessions, maxesToBackfill, takeServerCopy, countUnsaved, homeworkToBackfill,
-  navChoiceOf, unsentCountOf, unsentSessionCount, latestSessionOf, siblingDefaultsFor, notesToSend, baseForSave, resolveSameDateTemp,
+  navChoiceOf, unsentCountOf, unsentSessionCount, latestSessionOf, siblingDefaultsFor, notesToSend, baseForSave, resolveSameDateTemp, makeRoomForServerNo,
   type ServerSessionForSync, type ServerScoreForSync,
 } from './sync'
 import { emptyEntry, normalize } from './seed'
@@ -129,35 +129,37 @@ describe('pruneGoneFromServer', () => {
 
 describe('resolvePlausibleNo', () => {
   it('khớp đúng 1 buổi đã có sẵn thì giữ nguyên', () => {
-    expect(resolvePlausibleNo(5, [1, 2, 3, 4, 5], 12)).toBe(5)
+    expect(resolvePlausibleNo(5, [1, 2, 3, 4, 5])).toBe(5)
   })
 
   it('cho phép buổi KẾ TIẾP chưa tạo (VD vừa chọn "Tháng 2") — bug thật đã gặp: trước đây bị validate rớt, tự nhảy về Tháng 1', () => {
     // Học sinh đang có 12 buổi (1..12), vừa chọn Tháng 2 → buổi 13 (chưa tạo)
-    expect(resolvePlausibleNo(13, Array.from({ length: 12 }, (_, i) => i + 1), 12)).toBe(13)
+    expect(resolvePlausibleNo(13, Array.from({ length: 12 }, (_, i) => i + 1))).toBe(13)
   })
 
-  it('cho phép buổi kế tiếp xa hơn 1 bậc nếu cả lớp đã chạm mốc đó (classWideMaxNo)', () => {
+  it('KHÔNG cho chọn xa hơn buổi kế tiếp, kể cả khi cả lớp đã tới đó (10/11: em 14 buổi không có "Buổi 16")', () => {
     // Em này mới có 5 buổi, nhưng cả lớp đã có bạn tới buổi 20 — chọn Tháng 2 (buổi 13) vẫn hợp lệ
-    expect(resolvePlausibleNo(13, [1, 2, 3, 4, 5], 20)).toBe(13)
+    expect(resolvePlausibleNo(13, [1, 2, 3, 4, 5])).toBeNull()
+    expect(resolvePlausibleNo(6, [1, 2, 3, 4, 5])).toBe(6)
+    expect(resolvePlausibleNo(16, Array.from({ length: 14 }, (_, i) => i + 1))).toBeNull()
   })
 
   it('gỡ số RÁC bị kẹt từ trước (VD "1014" ở Lớp 7) — vượt xa mốc hợp lý', () => {
-    expect(resolvePlausibleNo(1014, [1, 2, 3, 4, 5], 12)).toBeNull()
+    expect(resolvePlausibleNo(1014, [1, 2, 3, 4, 5])).toBeNull()
   })
 
   it('không có số lưu sẵn (chưa từng mở học sinh này) trả về null', () => {
-    expect(resolvePlausibleNo(undefined, [1, 2, 3], 12)).toBeNull()
-    expect(resolvePlausibleNo(null, [1, 2, 3], 12)).toBeNull()
+    expect(resolvePlausibleNo(undefined, [1, 2, 3])).toBeNull()
+    expect(resolvePlausibleNo(null, [1, 2, 3])).toBeNull()
   })
 
   it('số 0 hoặc âm luôn là rác dù trong mốc hợp lý', () => {
-    expect(resolvePlausibleNo(0, [], 12)).toBeNull()
-    expect(resolvePlausibleNo(-1, [], 12)).toBeNull()
+    expect(resolvePlausibleNo(0, [])).toBeNull()
+    expect(resolvePlausibleNo(-1, [])).toBeNull()
   })
 
   it('học sinh chưa có buổi nào, chọn buổi 1 (kế tiếp) vẫn hợp lệ', () => {
-    expect(resolvePlausibleNo(1, [], 8)).toBe(1)
+    expect(resolvePlausibleNo(1, [])).toBe(1)
   })
 })
 
@@ -985,5 +987,20 @@ describe('rescueOtherTabSessions (app mở 2 tab — tab cũ ghi đè mất bu�
     const reordered = { entry: old10.entry, date: old10.date, no: old10.no, id: old10.id, homework: old10.homework } as Session
     const mine = data([reordered])
     expect(rescueOtherTabSessions(mine, data([edited(old10, 9)]), data([old10]))).toEqual({ kept: 1, conflicts: 0 })
+  })
+})
+describe('makeRoomForServerNo (server chèn buổi vào giữa — 10/11)', () => {
+  const nos = (st: { sessions: Session[] }) => st.sessions.map((s) => [s.id, s.no])
+  it('nhập lùi ngày: server cho buổi mới số 3 → buổi 3 cũ thành 4, không còn 2 buổi cùng số', () => {
+    const st = { sessions: [sess({ id: 'a', no: 1 }), sess({ id: 'b', no: 2 }), sess({ id: 'c', no: 3 }), sess({ id: SV2, no: 3 })] }
+    makeRoomForServerNo(st, SV2, 3)
+    expect(nos(st)).toEqual([['a', 1], ['b', 2], [SV2, 3], ['c', 4]])
+  })
+  it('buổi nối cuối / máy đã khớp server → không đổi gì', () => {
+    const st = { sessions: [sess({ id: 'a', no: 1 }), sess({ id: SV2, no: 2 }), sess({ id: 't', no: 4 })] }
+    makeRoomForServerNo(st, SV2, 2)
+    expect(nos(st)).toEqual([['a', 1], [SV2, 2], ['t', 4]])
+    makeRoomForServerNo(st, SV2, undefined)
+    expect(nos(st)).toEqual([['a', 1], [SV2, 2], ['t', 4]])
   })
 })

@@ -35,9 +35,10 @@ export function pruneGoneFromServer<T extends { id: string }>(
  *   1. Khớp đúng 1 buổi đã có sẵn của học sinh đó.
  *   2. Là buổi KẾ TIẾP CHƯA TẠO (VD vừa bấm "Chọn tháng" sang kỳ sau) — buổi
  *      này chưa có bản ghi nào cho tới khi giáo viên thật sự nhập điểm, nên
- *      không được coi là "số rác" chỉ vì chưa khớp buổi có sẵn. Cho phép tới
- *      mốc xa nhất CẢ LỚP đã chạm (classWideMaxNo) hoặc buổi kế tiếp của
- *      chính em đó, tùy cái nào xa hơn.
+ *      không được coi là "số rác" chỉ vì chưa khớp buổi có sẵn. CHỈ đúng 1 buổi
+ *      kế tiếp của chính em đó (n+1). Trước 10/11 cho tới mốc xa nhất CẢ LỚP:
+ *      em mới 14 buổi chọn được "Buổi 15", "Buổi 16" — số nhảy cóc, dễ nhầm
+ *      (quy định 10/11: số buổi mỗi em luôn 1..n, không nhảy số).
  *
  * Ngoài 2 trường hợp trên (VD số cũ đã bị xóa/xếp lại, như "1014" từng gặp ở
  * Lớp 7) thì coi là rác, trả về `null`.
@@ -49,13 +50,16 @@ export function pruneGoneFromServer<T extends { id: string }>(
 export function resolvePlausibleNo(
   stored: number | undefined | null,
   existingNos: number[],
-  classWideMaxNo: number,
 ): number | null {
   if (stored == null) return null
   if (existingNos.includes(stored)) return stored
-  const myMaxNo = existingNos.length ? Math.max(...existingNos) : 0
-  const plausibleBound = Math.max(classWideMaxNo, myMaxNo + 1)
-  return stored >= 1 && stored <= plausibleBound ? stored : null
+  return stored >= 1 && stored <= nextNoOf(existingNos) ? stored : null
+}
+
+/** Số của buổi KẾ TIẾP (buổi mới) của 1 em: n+1. Dãy đang lỗi (trống số) thì sau số lớn nhất —
+ *  vẫn luôn có đúng 1 chỗ để nhập buổi mới, không bao giờ cho chọn xa hơn. */
+export function nextNoOf(existingNos: number[]): number {
+  return Math.max(existingNos.length, ...existingNos, 0) + 1
 }
 
 /** 1 buổi (theo học sinh) như server trả về — đủ field để đồng bộ xuống máy. */
@@ -741,4 +745,16 @@ export function pendingSessionsOf(students: Array<{ id: string; sessions: Sessio
     for (const s of st.sessions) if (s.dirty === true && !s.conflict) out.push({ studentId: st.id, sessionId: s.id })
   }
   return out
+}
+
+/** Sau khi server CHÈN 1 buổi vào giữa (tạo theo ngày, lùi các buổi sau 1 số — quy định 10/11:
+ *  số buổi luôn 1..n), máy làm y hệt: buổi khác đang giữ đúng số đó và mọi buổi phía sau lùi 1
+ *  số. Không làm thì máy có 2 buổi CÙNG số cho tới lần đồng bộ sau, chọn "Buổi 3" mở nhầm buổi
+ *  khác ("nhập đúng mà lưu sai"). Không có buổi nào giữ số đó → không đổi gì (buổi nối cuối,
+ *  hoặc máy đã khớp server). Lần đồng bộ sau vẫn lấy số của server làm chuẩn. */
+export function makeRoomForServerNo(student: { sessions: Session[] }, sessionId: string, no: number | undefined | null): void {
+  if (!no) return
+  if (!student.sessions.some((s) => s.id !== sessionId && s.no === no)) return
+  for (const s of student.sessions) if (s.id !== sessionId && s.no >= no) s.no += 1
+  student.sessions.sort((a, b) => a.no - b.no)
 }

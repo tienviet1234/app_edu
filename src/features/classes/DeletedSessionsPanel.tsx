@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ClassData } from '@/types'
 import { C } from '@/constants/colors'
 import { viDate } from '@/utils/format'
@@ -8,6 +8,8 @@ import { scoreService } from '@/services/scores'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { toast } from '@/store/toastStore'
+import { makeRoomForServerNo } from '@/business/sync'
+import { sessionLabelOf } from '@/business/tuition'
 
 interface Props {
   cls: ClassData
@@ -24,6 +26,7 @@ export function DeletedSessionsPanel({ cls, studentId, edit, onClose }: Props) {
   const student = cls.students.find((s) => s.id === studentId)
   const [items, setItems] = useState<ApiSession[] | null>(null)
   const [restoringId, setRestoringId] = useState<string | null>(null)
+  const busyRef = useRef(false) // khóa ngay, không chờ vẽ lại
 
   useEffect(() => {
     sessionService
@@ -35,9 +38,14 @@ export function DeletedSessionsPanel({ cls, studentId, edit, onClose }: Props) {
   if (!student) return null
 
   async function handleRestore(as: ApiSession) {
+    if (busyRef.current) return
+    busyRef.current = true
     setRestoringId(as._id)
     try {
-      await sessionService.restore(as._id)
+      // Server khôi phục VÀO ĐÚNG vị trí theo ngày (10/11: các buổi sau lùi 1 số, số buổi luôn
+      // 1..n) — số cũ lúc xóa có thể đã thuộc buổi khác, nên dùng số server trả về.
+      const restored = await sessionService.restore(as._id)
+      const no = restored?.lessonNo ?? as.lessonNo ?? student!.sessions.length + 1
       const scores = await scoreService.sessionSummary(as._id)
       const score = scores.find((s) => s.studentId === studentId) ?? scores[0]
       edit((c) => {
@@ -45,7 +53,7 @@ export function DeletedSessionsPanel({ cls, studentId, edit, onClose }: Props) {
         if (!stu || stu.sessions.some((s) => s.id === as._id)) return
         stu.sessions.push({
           id: as._id,
-          no: as.lessonNo ?? stu.sessions.length + 1,
+          no,
           date: as.scheduledAt.slice(0, 10),
           homework: as.notes ?? '',
           entry: score
@@ -58,13 +66,16 @@ export function DeletedSessionsPanel({ cls, studentId, edit, onClose }: Props) {
           createdByName: as.createdBy && typeof as.createdBy === 'object' ? as.createdBy.name : undefined,
           recordedAt: as.createdAt,
         })
+        makeRoomForServerNo(stu, as._id, no)
         stu.sessions.sort((a, b) => a.no - b.no)
       })
       setItems((prev) => prev?.filter((x) => x._id !== as._id) ?? null)
-      toast.success(`Đã khôi phục Buổi ${as.lessonNo ?? '?'} (${viDate(as.scheduledAt.slice(0, 10))}) cho ${student!.name}`)
-    } catch {
-      toast.error('Lỗi khôi phục buổi này — thử lại.', { persist: true })
+      toast.success(`Đã khôi phục ${sessionLabelOf(no, cls.perMonth, student!.sessionOffset)} (${viDate(as.scheduledAt.slice(0, 10))}) cho ${student!.name}`)
+    } catch (err) {
+      const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message
+      toast.error(msg ?? 'Lỗi khôi phục buổi này — thử lại.', { persist: true })
     } finally {
+      busyRef.current = false
       setRestoringId(null)
     }
   }

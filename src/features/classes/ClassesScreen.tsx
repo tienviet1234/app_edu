@@ -19,6 +19,9 @@ import { isMongoid } from '@/utils/mongoid'
 import { toast } from '@/store/toastStore'
 import { appendOrphans, orphanForLocalDelete } from '@/business/sync'
 import { dateChangeCheck } from '@/business/sessionDates'
+import { removeSessionLocally } from '@/business/resequence'
+import { sessionLabelOf } from '@/business/tuition'
+import { ResequenceSessionsModal } from '@/features/entry/ResequenceSessionsModal'
 import { DateCommitInput } from '@/components/molecules/DateCommitInput'
 import { logActivity } from '@/services/activity'
 import { DeletedSessionsPanel } from './DeletedSessionsPanel'
@@ -65,9 +68,8 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
   const [joinCodeLoading, setJoinCodeLoading] = useState(false)
   const [sessionTab, setSessionTab] = useState<'students' | 'sessions'>('students')
   const [sessionStudentIdx, setSessionStudentIdx] = useState(0)
-  // Bản nháp đang gõ cho ô "Buổi số" — tách khỏi giá trị đã lưu, chỉ áp dụng
-  // lúc rời ô (blur/Enter), tránh vừa gõ số 2 chữ số đã bị coi là đổi buổi.
-  const [noDrafts, setNoDrafts] = useState<Record<string, string>>({})
+  // Em đang mở hộp "Sửa số buổi" (nút ✎ ở bảng Buổi học) — đổi số cả dãy cùng lúc.
+  const [reseqStudentId, setReseqStudentId] = useState<string | null>(null)
   const [showDeletedSessions, setShowDeletedSessions] = useState(false)
   const [mergeStudent, setMergeStudent] = useState<{ id: string; name: string } | null>(null)
   const [importError, setImportError] = useState('')
@@ -76,38 +78,6 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
   const cls = data.classes[current]
   const edit = (fn: (c: ClassData) => void) => setData(produce((d) => fn(d.classes[current])))
 
-  /** Đổi số Buổi của 1 buổi ĐÃ CÓ — giữ nguyên id, ngày, điểm, bài tập... của
-   *  buổi đó, chỉ đổi nhãn số hiển thị. Khác hẳn việc chọn buổi khác ở màn
-   *  Nhập điểm (tạo/mở 1 bản ghi RIÊNG) — ở đây là sửa lại đúng bản ghi cũ,
-   *  dùng khi giáo viên lỡ đặt sai số buổi lúc chấm. */
-  function commitSessionNo(studentId: string, studentName: string, sessionId: string, oldNo: number, raw: string) {
-    setNoDrafts((d) => { const next = { ...d }; delete next[sessionId]; return next })
-    const newNo = Number(raw)
-    if (!raw.trim() || !Number.isFinite(newNo) || newNo < 1 || newNo === oldNo) return
-    const stu = cls?.students.find((s) => s.id === studentId)
-    if (stu?.sessions.some((s) => s.id !== sessionId && s.no === newNo)) {
-      toast.error(`${studentName} đã có sẵn Buổi ${newNo} rồi — chọn số khác.`)
-      return
-    }
-    edit((c) => {
-      const s = c.students.find((y) => y.id === studentId)
-      const found = s?.sessions.find((y) => y.id === sessionId)
-      if (found) found.no = newNo
-      s?.sessions.sort((a, b) => a.no - b.no)
-    })
-    if (isMongoid(sessionId)) {
-      sessionService.update(sessionId, { lessonNo: newNo }).catch(() => {
-        toast.error(`Lỗi khi lưu số Buổi mới lên server — đã khôi phục số cũ`, { persist: true })
-        edit((c) => {
-          const s = c.students.find((y) => y.id === studentId)
-          const found = s?.sessions.find((y) => y.id === sessionId)
-          if (found) found.no = oldNo
-          s?.sessions.sort((a, b) => a.no - b.no)
-        })
-      })
-    }
-    toast.success(`Đã đổi Buổi ${oldNo} → Buổi ${newNo} cho ${studentName}`)
-  }
   const preview = useMemo(() => parseBulk(bulk), [bulk])
 
   const { data: apiStudents } = useClassStudents(cls && isMongoid(cls.id) ? cls.id : '')
@@ -720,20 +690,22 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                                 return (
                                   <tr key={ss.id} style={{ borderTop: `1px solid ${C.line}` }}>
                                     <td className="py-2 px-3">
-                                      <div className="flex items-center gap-1">
-                                        <span className="font-bold" style={{ color: C.muted }}>B</span>
-                                        <input
-                                          type="text"
-                                          inputMode="numeric"
-                                          value={noDrafts[ss.id] ?? String(ss.no)}
-                                          onFocus={(x) => x.target.select()}
-                                          onChange={(x) => setNoDrafts((d) => ({ ...d, [ss.id]: x.target.value.replace(/\D/g, '') }))}
-                                          onBlur={(x) => commitSessionNo(stu.id, stu.name, ss.id, ss.no, x.target.value)}
-                                          onKeyDown={(x) => { if (x.key === 'Enter') x.currentTarget.blur() }}
-                                          title="Sửa số Buổi — giữ nguyên điểm/bài tập đã chấm, chỉ đổi nhãn số"
-                                          className="w-12 rounded-lg px-1.5 py-1 text-center text-sm font-bold"
-                                          style={{ border: `1px solid ${C.line}` }}
-                                        />
+                                      {/* 10/11: không sửa số lẻ từng buổi ở đây (làm trống/trùng số) — "✎" mở
+                                          hộp Sửa số buổi, đổi cả dãy cùng lúc, có kiểm tra 1..n trước khi lưu. */}
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="whitespace-nowrap font-bold" style={{ color: C.ink }}>
+                                          {sessionLabelOf(ss.no, cls.perMonth, stu.sessionOffset)}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => setReseqStudentId(stu.id)}
+                                          title="Sửa số buổi của em này — mở hộp Sửa số buổi"
+                                          aria-label={`Sửa số buổi của ${stu.name}`}
+                                          className="text-xs font-bold"
+                                          style={{ color: C.board2 }}
+                                        >
+                                          ✎
+                                        </button>
                                       </div>
                                     </td>
                                     <td className="py-2 px-3">
@@ -782,8 +754,8 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                                           // Buổi còn dữ liệu CHƯA lên server → vào kho giữ lại, không mất trắng.
                                           const orphan = orphanForLocalDelete(cls, stu, ss)
                                           const msg = orphan
-                                            ? `Buổi ${ss.no} (${viDate(ss.date)}) của ${stu.name} CHƯA lên server và CÓ điểm/điểm danh. Xóa sẽ chuyển buổi này vào "kho giữ lại" (admin xem được ở Sao lưu → Dữ liệu kẹt). Vẫn xóa?`
-                                            : `Xóa buổi ${ss.no} (${viDate(ss.date)}) của ${stu.name}? (có thể khôi phục lại sau ở nút "🗑️ Buổi đã xóa")`
+                                            ? `${sessionLabelOf(ss.no, cls.perMonth, stu.sessionOffset)} (${viDate(ss.date)}) của ${stu.name} CHƯA lên server và CÓ điểm/điểm danh. Xóa sẽ chuyển buổi này vào "kho giữ lại" (admin xem được ở Sao lưu → Dữ liệu kẹt). Vẫn xóa?`
+                                            : `Xóa ${sessionLabelOf(ss.no, cls.perMonth, stu.sessionOffset)} (${viDate(ss.date)}) của ${stu.name}? Các buổi phía sau lùi lên 1 số để không trống số. (Khôi phục lại được ở nút "🗑️ Buổi đã xóa")`
                                           if (!confirm(msg)) return
                                           if (isMongoid(ss.id)) {
                                             try {
@@ -801,13 +773,9 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                                           edit((c) => {
                                             const s = c.students.find((y) => y.id === stu.id)
                                             if (!s) return
-                                            // KHÔNG đánh lại số các buổi còn lại — "Buổi N" là do giáo
-                                            // viên tự chọn, không phải số thứ tự (xem EntryScreen.tsx
-                                            // findOrCreateSession). Đánh lại ở đây chỉ đổi cục bộ, không
-                                            // đồng bộ lessonNo lên server, khiến buổi đã chấm điểm bị
-                                            // "đổi tên" trên máy này nhưng server vẫn giữ số cũ — mở máy
-                                            // khác/tải lại dữ liệu sẽ thấy lệch số, tưởng nhầm là mất điểm.
-                                            s.sessions = s.sessions.filter((y) => y.id !== ss.id)
+                                            // Server đã lùi số các buổi phía sau trong cùng giao dịch xóa (10/11:
+                                            // số buổi luôn 1..n) — máy làm y hệt.
+                                            removeSessionLocally(s, ss.id, isMongoid(ss.id))
                                           })
                                         }}
                                       >
@@ -830,6 +798,14 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                     studentId={cls.students[Math.min(sessionStudentIdx, cls.students.length - 1)].id}
                     edit={edit}
                     onClose={() => setShowDeletedSessions(false)}
+                  />
+                )}
+                {reseqStudentId && cls.students.some((s) => s.id === reseqStudentId) && (
+                  <ResequenceSessionsModal
+                    cls={cls}
+                    studentId={reseqStudentId}
+                    update={(fn) => { const id = cls.id; setData(produce((d: AppData) => { const c = d.classes.find((x) => x.id === id); if (c) fn(c) })) }}
+                    onClose={() => setReseqStudentId(null)}
                   />
                 )}
                 {mergeStudent && (
