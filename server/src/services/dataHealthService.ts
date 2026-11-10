@@ -82,8 +82,19 @@ export async function readDataHealth() {
     live.map((s) => ({ className: classOf(s.classId), studentName: nameOf(s.studentId), date: utcDay(s.scheduledAt) })),
   )
 
+  // Chỉ xét lớp CÒN TỒN TẠI: buổi của lớp đã xóa (trước khi có chốt chặn xóa lớp) không hiện ở
+  // màn nào, liệt kê vào đây chỉ gây nhiễu ("vẫn thấy ngày trùng" — 10/11).
+  const classIdSet = new Set(classes.map((c) => String(c._id)))
   const perDay = new Map<string, number>()
-  for (const s of live) { const k = `${classOf(s.classId)} · ${nameOf(s.studentId)} · ${utcDay(s.scheduledAt)}`; perDay.set(k, (perDay.get(k) ?? 0) + 1) }
+  for (const s of live) { if (!classIdSet.has(String(s.classId))) continue; const k = `${classOf(s.classId)} · ${nameOf(s.studentId)} · ${utcDay(s.scheduledAt)}`; perDay.set(k, (perDay.get(k) ?? 0) + 1) }
+  // Học sinh đã rời lớp (không còn trong danh sách) mà còn buổi chưa thu → biến khỏi màn học phí.
+  const leftUnbilled = new Map<string, number>()
+  for (const s of live) {
+    const c = classes.find((x) => String(x._id) === String(s.classId))
+    if (!c || s.billed || (c.studentIds ?? []).some((x: unknown) => String(x) === String(s.studentId))) continue
+    const k = `${c.name} · ${nameOf(s.studentId)}`
+    leftUnbilled.set(k, (leftUnbilled.get(k) ?? 0) + 1)
+  }
 
   const scores = await db.collection('scores').find({}, { projection: { sessionId: 1, attendance: 1 } }).toArray()
   const notices = await db.collection('tuitionnotices').find({}, { projection: { classId: 1, studentId: 1, sessionsBilled: 1, sessionIds: 1, periodFrom: 1, periodTo: 1, ratePerSession: 1, amount: 1, finalAmount: 1, paymentStatus: 1, periodLabel: 1 } }).toArray()
@@ -131,6 +142,7 @@ export async function readDataHealth() {
     rejected: rejected.map((r) => ({ code: String(r._id ?? 'KHÁC'), count: r.count })),
     clicksWithoutSession: missing,
     sameDatePairs: [...perDay].filter(([, n]) => n > 1).map(([k]) => k),
+    leftWithUnbilled: [...leftUnbilled].map(([k, n]) => `${k}: ${n} buổi chưa thu`),
     futureSessions: live.filter((s) => new Date(s.scheduledAt).getTime() > now + 2 * DAY).map((s) => `${classOf(s.classId)} · ${nameOf(s.studentId)} · ${utcDay(s.scheduledAt)} (ngày tương lai)`),
     scoresWithoutSession: scores.filter((s) => !known(String(s.sessionId))).length,
     scoresOnDeletedSession: scores.filter((s) => deleted.has(String(s.sessionId))).length,

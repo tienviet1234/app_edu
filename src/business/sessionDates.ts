@@ -37,3 +37,11 @@ export function dateChangeCheck(
       `Đây là buổi HỌC BÙ RIÊNG của ${st.name}? Bấm OK để vẫn dùng ngày này, Hủy để giữ ngày cũ.`,
   }
 }
+
+/** Ngày đã gõ XONG, được phép lưu: đúng dạng YYYY-MM-DD, là ngày có thật, năm ≥ 2000
+ *  (đang gõ dở năm thì trình duyệt cho ra "0002-…", "0202-…"). */
+export function isCommittableDate(d: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || Number(d.slice(0, 4)) < 2000) return false
+  const t = new Date(`${d}T00:00:00Z`)
+  return !Number.isNaN(t.getTime()) && t.toISOString().slice(0, 10) === d
+}

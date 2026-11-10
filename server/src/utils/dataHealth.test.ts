@@ -109,3 +109,15 @@ describe('summarizeDataHealth', () => {
     expect(summarizeDataHealth({ ...healthy, futureSessions: ['x'], scoresWithoutSession: 1 }).level).toBe('bad')
   })
 })
+
+describe('mục "Học sinh đã rời lớp còn buổi chưa thu" (10/11)', () => {
+  const healthy0 = summarizeDataHealth({ now: Date.now(), latestBackupAt: Date.now(), backupCount: 60, usedBytes: 1, limitBytes: 512e6, devices: [], rejected: [], clicksWithoutSession: [], sameDatePairs: [], futureSessions: [], scoresWithoutSession: 0, scoresOnDeletedSession: 0, stuckNumbers: 0, snapshotFailures: 0, suspectInherited: [], billedMismatches: [] })
+  it('không có em nào → ok', () => expect(healthy0.items.find((x) => x.key === 'leftUnbilled')?.level).toBe('ok'))
+  it('có em → cần xem (không làm chuông sáng reo), nêu đúng em', () => {
+    const h = summarizeDataHealth({ now: Date.now(), latestBackupAt: Date.now(), backupCount: 60, usedBytes: 1, limitBytes: 512e6, devices: [], rejected: [], clicksWithoutSession: [], sameDatePairs: [], futureSessions: [], scoresWithoutSession: 0, scoresOnDeletedSession: 0, stuckNumbers: 0, snapshotFailures: 0, suspectInherited: [], billedMismatches: [], leftWithUnbilled: ['Lớp 10 · Linh Chi: 18 buổi chưa thu'] })
+    const it2 = h.items.find((x) => x.key === 'leftUnbilled')!
+    expect(it2.level).toBe('warn')
+    expect(it2.lines).toEqual(['Lớp 10 · Linh Chi: 18 buổi chưa thu'])
+    expect(morningAlertFrom(h)).toBeNull()
+  })
+})

@@ -14,6 +14,8 @@ export interface MergeSessionRow {
   oldLessonNo: number | null
   newLessonNo: number
   source: 'old' | 'new'
+  /** Sau khi chuyển: 'old' = ở lại lớp cũ (trước ngày chuyển), 'new' = lớp mới. */
+  target: 'old' | 'new'
   billed: boolean
 }
 

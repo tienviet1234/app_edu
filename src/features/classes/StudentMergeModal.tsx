@@ -95,7 +95,7 @@ export function StudentMergeModal({ fromClassId, fromClassName, studentId, stude
         toClassId: selected.currentClass.classId,
       })
       setResult(res)
-      toast.success(`Đã gộp xong — "${selected.currentClass.className}" giờ có đủ ${res.plan.rows.length} buổi của ${studentName}.`)
+      toast.success(`Đã chuyển xong — "${selected.currentClass.className}" có ${res.plan.rows.filter((r) => r.target === 'new').length} buổi của ${studentName}; ${res.plan.rows.filter((r) => r.target === 'old').length} buổi trước ngày chuyển ở lại lớp cũ.`)
       // Làm mới cache học sinh/buổi/điểm của CẢ 2 lớp — không đợi F5, và
       // tránh đúng race condition đã gặp (cache cũ hiển thị học sinh trùng).
       await Promise.all([
@@ -141,9 +141,9 @@ export function StudentMergeModal({ fromClassId, fromClassName, studentId, stude
         {result ? (
           <div className="space-y-2 rounded-lg p-3" style={{ background: '#ECFDF5' }}>
             <div className="text-sm font-semibold" style={{ color: '#065F46' }}>
-              ✅ Đã gộp xong {result.plan.rows.length} buổi của {studentName} vào lớp "{result.plan.toClassName}".
-              "{fromClassName}" vẫn còn giữ tài khoản cũ trong danh sách — vào tab Lớp học kiểm tra lớp mới ổn rồi tự xóa
-              khỏi "{fromClassName}" (nút Xóa cạnh tên học sinh).
+              ✅ Đã chuyển {studentName} sang "{result.plan.toClassName}": {result.plan.rows.filter((r) => r.target === 'new').length} buổi ở lớp mới,
+              {' '}{result.plan.rows.filter((r) => r.target === 'old').length} buổi trước ngày chuyển ở lại "{fromClassName}" (tính học phí theo giá lớp cũ).
+              Em vẫn nằm trong danh sách "{fromClassName}" để giữ lịch sử và học phí cũ — đừng xóa khỏi lớp cũ khi còn buổi chưa thu.
             </div>
             <button className="text-xs underline" style={{ color: C.muted }} onClick={downloadBackup}>
               ⬇ Tải về bản sao lưu dữ liệu trước khi gộp (JSON)
@@ -224,7 +224,7 @@ export function StudentMergeModal({ fromClassId, fromClassName, studentId, stude
                       <tr style={{ background: C.paper }}>
                         <th className="py-1.5 px-2 text-left font-semibold" style={{ color: C.muted }}>Buổi mới</th>
                         <th className="py-1.5 px-2 text-left font-semibold" style={{ color: C.muted }}>Ngày</th>
-                        <th className="py-1.5 px-2 text-left font-semibold" style={{ color: C.muted }}>Nguồn</th>
+                        <th className="py-1.5 px-2 text-left font-semibold" style={{ color: C.muted }}>Sau khi chuyển nằm ở</th>
                         <th className="py-1.5 px-2 text-center font-semibold" style={{ color: C.muted }}>Đã thu?</th>
                       </tr>
                     </thead>
@@ -233,7 +233,7 @@ export function StudentMergeModal({ fromClassId, fromClassName, studentId, stude
                         <tr key={r.sessionId} style={{ borderTop: `1px solid ${C.line}` }}>
                           <td className="py-1.5 px-2 font-semibold">Buổi {r.newLessonNo}</td>
                           <td className="py-1.5 px-2">{vi(r.scheduledAt)}</td>
-                          <td className="py-1.5 px-2">{r.source === 'old' ? fromClassName : selected?.currentClass?.className}</td>
+                          <td className="py-1.5 px-2">{r.target === 'old' ? `${fromClassName} (ở lại)` : selected?.currentClass?.className}</td>
                           <td className="py-1.5 px-2 text-center">{r.billed ? '✅' : '—'}</td>
                         </tr>
                       ))}
@@ -243,13 +243,12 @@ export function StudentMergeModal({ fromClassId, fromClassName, studentId, stude
 
                 {plan.notices.length > 0 && (
                   <div className="text-xs" style={{ color: C.muted }}>
-                    Khoản học phí sẽ chuyển nguyên trạng thái ({plan.notices.length}):
+                    Khoản học phí ở lại lớp cũ, không đổi ({plan.notices.length}):
                     {plan.notices.map((n, i) => (
                       <div key={i}>
                         "{n.periodLabel}" — {n.finalAmount.toLocaleString('vi-VN')}đ — {n.paymentStatus} — gửi {vi(n.sentAt)}
                       </div>
                     ))}
-                    → {plan.billedCount}/{plan.rows.length} buổi được đánh dấu đã thu (không bị thu lại).
                   </div>
                 )}
 

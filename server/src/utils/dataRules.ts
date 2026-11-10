@@ -574,3 +574,39 @@ export function lonelyClassDays(input: {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([d, names]) => `${input.className} ${d.slice(8, 10)}/${d.slice(5, 7)}: chỉ ${names.length}/${input.rosterSize} em có buổi (${names.join(', ')})`)
 }
+
+/** "Chuyển lớp" (gộp tài khoản cũ ở lớp cũ với tài khoản mới tạo ở lớp mới). Trước 10/11
+ *  dời TOÀN BỘ buổi + phiếu học phí của lớp cũ sang lớp mới: buổi Lớp 2 của Linh Đan
+ *  (18/09–09/10) thành "Buổi 1–7" của Starters (lớp mở 13/10), tính theo giá Starters,
+ *  và 30/09 thành 2 buổi. Giờ: buổi TRƯỚC ngày chuyển ở lại lớp cũ (cùng phiếu, công nợ
+ *  — tính đúng giá lớp cũ, như Việt An); chỉ dời buổi lỡ ghi ở lớp cũ TỪ ngày chuyển trở
+ *  đi. Ngày chuyển = buổi đầu tiên ở lớp mới (hoặc admin nhập). Từ chối thay vì đoán:
+ *  2 buổi cùng ngày sau khi gộp, hoặc buổi đã thu tiền ở lớp cũ nằm sau ngày chuyển. */
+export function planClassTransfer(input: {
+  oldSessions: Array<{ id: string; date: string; billed?: boolean }>
+  newSessions: Array<{ id: string; date: string; billed?: boolean }>
+  transferDate?: string | null
+}): { ok: true; transferDate: string | null; stay: Array<{ id: string; date: string; newNo: number }>; move: Array<{ id: string; date: string; newNo: number; source: 'old' | 'new' }> }
+  | { ok: false; reason: string } {
+  const byDate = (a: { date: string; id: string }, b: { date: string; id: string }) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id)
+  const firstNew = [...input.newSessions].sort(byDate)[0]?.date ?? null
+  const transferDate = input.transferDate ?? firstNew
+  const stayOld = transferDate ? input.oldSessions.filter((s) => s.date < transferDate) : [...input.oldSessions]
+  const moveOld = transferDate ? input.oldSessions.filter((s) => s.date >= transferDate) : []
+  const billedMoving = moveOld.filter((s) => s.billed)
+  if (billedMoving.length) return { ok: false, reason: `${billedMoving.length} buổi ở lớp cũ từ ngày chuyển trở đi đã thu tiền (${billedMoving.map((s) => s.date).join(', ')}) — xử lý học phí lớp cũ trước` }
+  const target = [...moveOld.map((s) => ({ ...s, source: 'old' as const })), ...input.newSessions.map((s) => ({ ...s, source: 'new' as const }))].sort(byDate)
+  const seen = new Map<string, number>()
+  for (const s of target) seen.set(s.date, (seen.get(s.date) ?? 0) + 1)
+  const dup = [...seen].filter(([, n]) => n > 1).map(([d]) => d)
+  if (dup.length) return { ok: false, reason: `sau khi gộp sẽ có 2 buổi cùng ngày ${dup.join(', ')} ở lớp mới — xóa/sửa ngày buổi thừa trước` }
+  const oldDup = new Map<string, number>()
+  for (const s of stayOld) oldDup.set(s.date, (oldDup.get(s.date) ?? 0) + 1)
+  const dupOld = [...oldDup].filter(([, n]) => n > 1).map(([d]) => d)
+  if (dupOld.length) return { ok: false, reason: `lớp cũ đang có 2 buổi cùng ngày ${dupOld.join(', ')} — xử lý trước khi chuyển` }
+  return {
+    ok: true, transferDate,
+    stay: [...stayOld].sort(byDate).map((s, i) => ({ id: s.id, date: s.date, newNo: i + 1 })),
+    move: target.map((s, i) => ({ id: s.id, date: s.date, newNo: i + 1, source: s.source })),
+  }
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason, billedDeleteBlockReason, planBilledFlagRepair, noticeCoverage, planSessionRemoval, reviewFixResult, changedFields, noticeAttendanceDrift, billedMismatchKind, billedChangeBlockReason, dateMoveBlockReason, lonelyClassDays } from './dataRules.js'
+import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason, billedDeleteBlockReason, planBilledFlagRepair, noticeCoverage, planSessionRemoval, reviewFixResult, changedFields, noticeAttendanceDrift, billedMismatchKind, billedChangeBlockReason, dateMoveBlockReason, lonelyClassDays, planClassTransfer } from './dataRules.js'
 
 describe('billedDeleteBlockReason (xóa buổi đã thu làm buổi khác bị tính tiền lần 2)', () => {
   it('buổi đã thu: chặn, nói rõ cách làm', () => {
@@ -572,5 +572,42 @@ describe('lonelyClassDays (ngày chỉ vài em có buổi)', () => {
   it('lớp nhỏ (< 4 em) hoặc lớp chưa có ngày đông → không báo', () => {
     expect(lonelyClassDays({ className: 'X', rosterSize: 3, sessions: day('2026-10-24', ['A']) })).toEqual([])
     expect(lonelyClassDays({ className: 'X', rosterSize: 10, sessions: [...day('2026-10-24', ['A']), ...day('2026-10-25', ['B'])] })).toEqual([])
+  })
+})
+
+describe('planClassTransfer ("Chuyển lớp": lịch sử lớp cũ ở lại lớp cũ)', () => {
+  const s = (id: string, date: string, billed = false) => ({ id, date, billed })
+  // Ca thật Linh Đan: Lớp 2 học 18/09–09/10, Starters mở 13/10.
+  const lop2 = [s('a', '2026-09-18'), s('b', '2026-09-23'), s('c', '2026-09-25'), s('d', '2026-09-30'), s('e', '2026-10-07'), s('f', '2026-10-09')]
+  const starters = [s('n1', '2026-10-13'), s('n2', '2026-10-15')]
+  it('ca thật Linh Đan: 6 buổi Lớp 2 ở lại Lớp 2 (Buổi 1–6), Starters bắt đầu Buổi 1 = 13/10', () => {
+    const r = planClassTransfer({ oldSessions: lop2, newSessions: starters })
+    expect(r).toMatchObject({ ok: true, transferDate: '2026-10-13' })
+    if (!r.ok) return
+    expect(r.stay.map((x) => [x.id, x.newNo])).toEqual([['a', 1], ['b', 2], ['c', 3], ['d', 4], ['e', 5], ['f', 6]])
+    expect(r.move.map((x) => [x.id, x.newNo, x.source])).toEqual([['n1', 1, 'new'], ['n2', 2, 'new']])
+  })
+  it('buổi lỡ ghi ở lớp cũ SAU ngày chuyển được dời sang lớp mới, xếp theo ngày', () => {
+    const r = planClassTransfer({ oldSessions: [...lop2, s('late', '2026-10-14')], newSessions: starters })
+    expect(r.ok && r.move.map((x) => [x.id, x.newNo])).toEqual([['n1', 1], ['late', 2], ['n2', 3]])
+  })
+  it('sau khi gộp có 2 buổi cùng ngày ở lớp mới (ca 30/09 cũ) → từ chối, nêu ngày', () => {
+    const r = planClassTransfer({ oldSessions: lop2, newSessions: [s('x', '2026-09-30'), ...starters], transferDate: '2026-09-30' })
+    expect(r).toMatchObject({ ok: false })
+    expect(!r.ok && r.reason).toContain('2026-09-30')
+  })
+  it('lớp cũ đang có 2 buổi cùng ngày → từ chối', () => {
+    expect(planClassTransfer({ oldSessions: [...lop2, s('d2', '2026-09-30')], newSessions: starters })).toMatchObject({ ok: false })
+  })
+  it('buổi đã thu tiền ở lớp cũ nằm sau ngày chuyển → từ chối (không dời tiền giữa 2 lớp)', () => {
+    expect(planClassTransfer({ oldSessions: [...lop2, s('paid', '2026-10-14', true)], newSessions: starters })).toMatchObject({ ok: false })
+  })
+  it('tài khoản mới chưa có buổi nào: mọi buổi cũ ở lại lớp cũ, không dời gì', () => {
+    const r = planClassTransfer({ oldSessions: lop2, newSessions: [] })
+    expect(r.ok && [r.stay.length, r.move.length, r.transferDate]).toEqual([6, 0, null])
+  })
+  it('admin nhập ngày chuyển sớm hơn buổi đầu ở lớp mới', () => {
+    const r = planClassTransfer({ oldSessions: lop2, newSessions: starters, transferDate: '2026-10-07' })
+    expect(r.ok && [r.stay.length, r.move.map((x) => x.id)]).toEqual([4, ['e', 'f', 'n1', 'n2']])
   })
 })

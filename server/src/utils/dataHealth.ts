@@ -26,6 +26,8 @@ export interface HealthInput {
   attendanceDrift?: string[]
   /** Ngày chỉ ≤ 25% số em có buổi trong 30 ngày gần nhất (lonelyClassDays). */
   lonelyDays?: string[]
+  /** Học sinh không còn trong danh sách lớp mà còn buổi chưa thu (biến khỏi màn học phí). */
+  leftWithUnbilled?: string[]
 }
 
 export interface SessionForCheck { className: string; studentName: string; date: string; notes?: string; maxes?: Record<string, number> | null }
@@ -158,6 +160,11 @@ export function summarizeDataHealth(i: HealthInput): { level: HealthLevel; items
     key: 'attendanceDrift', level: i.attendanceDrift?.length ? 'bad' : 'ok', title: 'Điểm danh bị sửa sau khi gửi phiếu',
     detail: i.attendanceDrift?.length ? `${i.attendanceDrift.length} phiếu: số tiền trên phiếu không còn khớp điểm danh hiện tại.` : 'Không có.',
     lines: i.attendanceDrift,
+  })
+  items.push({
+    key: 'leftUnbilled', level: i.leftWithUnbilled?.length ? 'warn' : 'ok', title: 'Học sinh đã rời lớp còn buổi chưa thu',
+    detail: i.leftWithUnbilled?.length ? `${i.leftWithUnbilled.length} em không còn trong danh sách lớp nên không hiện ở màn Học phí — đã thu ngoài app hay cần chốt buổi?` : 'Không có.',
+    lines: i.leftWithUnbilled,
   })
   items.push({
     key: 'lonelyDays', level: i.lonelyDays?.length ? 'warn' : 'ok', title: 'Ngày chỉ vài em có buổi (30 ngày)',

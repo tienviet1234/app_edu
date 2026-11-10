@@ -19,6 +19,7 @@ import { isMongoid } from '@/utils/mongoid'
 import { toast } from '@/store/toastStore'
 import { appendOrphans, orphanForLocalDelete } from '@/business/sync'
 import { dateChangeCheck } from '@/business/sessionDates'
+import { DateCommitInput } from '@/components/molecules/DateCommitInput'
 import { logActivity } from '@/services/activity'
 import { DeletedSessionsPanel } from './DeletedSessionsPanel'
 import { StudentMergeModal } from './StudentMergeModal'
@@ -736,15 +737,14 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                                       </div>
                                     </td>
                                     <td className="py-2 px-3">
-                                      <input
-                                        type="date"
+                                      <DateCommitInput
                                         value={ss.date}
-                                        onChange={(x) => {
-                                          const newDate = x.target.value
+                                        ariaLabel={`Ngày Buổi ${ss.no} của ${stu.name}`}
+                                        onCommit={(newDate) => {
                                           const oldDate = ss.date
                                           const chk = dateChangeCheck(cls.students, stu.id, ss.id, newDate)
-                                          if (chk.block) { toast.error(chk.block, { persist: true }); return }
-                                          if (chk.confirm && !confirm(chk.confirm)) return
+                                          if (chk.block) { toast.error(chk.block, { persist: true }); return false }
+                                          if (chk.confirm && !confirm(chk.confirm)) return false
                                           edit((c) => {
                                             const s = c.students.find((y) => y.id === stu.id)
                                             const found = s?.sessions.find((y) => y.id === ss.id)

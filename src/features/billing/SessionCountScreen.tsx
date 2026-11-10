@@ -12,6 +12,7 @@ import { toast } from '@/store/toastStore'
 import { useAppStore } from '@/store/appStore'
 import { appendOrphans, orphanForLocalDelete } from '@/business/sync'
 import { dateChangeCheck } from '@/business/sessionDates'
+import { DateCommitInput } from '@/components/molecules/DateCommitInput'
 import { logActivity } from '@/services/activity'
 
 interface SessionCountScreenProps {
@@ -235,11 +236,11 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
     })
   }
 
-  function handleDateChange(row: DetailRow, newDate: string) {
+  function handleDateChange(row: DetailRow, newDate: string): boolean {
     const oldDate = row.date
     const chk = dateChangeCheck(cls.students, row.studentId, row.sessionId, newDate)
-    if (chk.block) { toast.error(chk.block, { persist: true }); return }
-    if (chk.confirm && !confirm(chk.confirm)) return
+    if (chk.block) { toast.error(chk.block, { persist: true }); return false }
+    if (chk.confirm && !confirm(chk.confirm)) return false
     update((c) => {
       const s = c.students.find((y) => y.id === row.studentId)
       const ss = s?.sessions.find((y) => y.id === row.sessionId)
@@ -258,6 +259,7 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
           })
         })
     }
+    return true
   }
 
   async function handleDeleteRow(row: DetailRow) {
@@ -563,10 +565,10 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
                                     B{r.no}{r.no !== g.no ? ' *' : ''}
                                   </td>
                                   <td className="py-2 px-2" style={{ width: 132 }}>
-                                    <input
-                                      type="date"
+                                    <DateCommitInput
                                       value={r.date}
-                                      onChange={(x) => handleDateChange(r, x.target.value)}
+                                      onCommit={(d) => handleDateChange(r, d)}
+                                      ariaLabel={`Ngày Buổi ${r.no} của ${r.studentName}`}
                                       className="w-full rounded-lg px-1.5 py-1 text-xs"
                                       style={{ border: `1px solid ${C.line}` }}
                                     />

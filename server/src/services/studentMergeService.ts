@@ -33,6 +33,7 @@
  * sách lớp).
  */
 import mongoose, { Types } from 'mongoose'
+import { planClassTransfer } from '../utils/dataRules.js'
 import { ClassSession, type IClassSession } from '../models/ClassSession.js'
 import { Score } from '../models/Score.js'
 import { Attendance } from '../models/Attendance.js'
@@ -47,6 +48,8 @@ export interface MergeParams {
   newStudentId: string
   fromClassId: string
   toClassId: string
+  /** Ngày chuyển (YYYY-MM-DD). Bỏ trống = buổi đầu tiên của tài khoản mới ở lớp mới. */
+  transferDate?: string
 }
 
 export interface MergeSessionRow {
@@ -55,6 +58,8 @@ export interface MergeSessionRow {
   oldLessonNo: number | null
   newLessonNo: number
   source: 'old' | 'new'
+  /** Buổi nằm ở đâu SAU khi chuyển: 'old' = ở lại lớp cũ (trước ngày chuyển), 'new' = lớp mới. */
+  target: 'old' | 'new'
   billed: boolean
 }
 
@@ -94,8 +99,8 @@ interface MergeContext {
   toClass: IClass
   oldSessions: IClassSession[]
   newSessions: IClassSession[]
-  renumbered: { session: IClassSession; newLessonNo: number; source: 'old' | 'new' }[]
-  billedIds: Set<string>
+  renumbered: { session: IClassSession; newLessonNo: number; source: 'old' | 'new'; target: 'old' | 'new' }[]
+  transferDate: string | null
   notices: ITuitionNotice[]
   debts: Array<{ _id: unknown }>
   reports: Array<{ _id: unknown }>
@@ -142,36 +147,30 @@ async function loadMergeContext(params: MergeParams): Promise<MergeContext> {
     throw new MergeValidationError('Không có buổi nào còn hiệu lực ở cả 2 tài khoản — không có gì để gộp.')
   }
 
-  // Hợp nhất + xếp theo NGÀY THẬT — không dùng lessonNo cũ (đang lộn xộn).
-  // Cùng ngày: giữ ổn định theo _id để preview/run luôn ra kết quả giống
-  // hệt nhau (không phụ thuộc thứ tự Mongo trả về).
-  const oldIds = new Set(oldSessions.map((s) => String(s._id)))
-  const merged = [...oldSessions, ...newSessions].sort((a, b) => {
-    const byDate = a.scheduledAt.getTime() - b.scheduledAt.getTime()
-    return byDate !== 0 ? byDate : String(a._id).localeCompare(String(b._id))
+  // Lịch sử TRƯỚC ngày chuyển ở lại lớp cũ; chỉ buổi từ ngày chuyển trở đi về lớp mới
+  // (planClassTransfer, dataRules.ts, có test). Trùng ngày → từ chối, không gộp bừa.
+  const day = (d: Date) => d.toISOString().slice(0, 10)
+  const plan = planClassTransfer({
+    oldSessions: oldSessions.map((x) => ({ id: String(x._id), date: day(x.scheduledAt), billed: !!x.billed })),
+    newSessions: newSessions.map((x) => ({ id: String(x._id), date: day(x.scheduledAt), billed: !!x.billed })),
+    transferDate: params.transferDate || null,
   })
-  const renumbered = merged.map((session, i) => ({
-    session,
-    newLessonNo: i + 1,
-    source: (oldIds.has(String(session._id)) ? 'old' : 'new') as 'old' | 'new',
-  }))
+  if (!plan.ok) throw new MergeValidationError(`Không chuyển được: ${plan.reason}.`)
+  const byId = new Map([...oldSessions, ...newSessions].map((x) => [String(x._id), x]))
+  const oldIds = new Set(oldSessions.map((x) => String(x._id)))
+  const renumbered = [
+    ...plan.stay.map((r) => ({ session: byId.get(r.id)!, newLessonNo: r.newNo, source: 'old' as const, target: 'old' as const })),
+    ...plan.move.map((r) => ({ session: byId.get(r.id)!, newLessonNo: r.newNo, source: (oldIds.has(r.id) ? 'old' : 'new') as 'old' | 'new', target: 'new' as const })),
+  ]
 
-  // Khoản học phí đã gửi của tài khoản CŨ — đánh dấu billed=true cho TẤT
-  // CẢ buổi (sau hợp nhất) có ngày <= ngày gửi khoản đó.
+  // Phiếu học phí, công nợ, báo cáo của lớp cũ Ở LẠI lớp cũ (chỉ đọc để xem trước).
   const notices = await TuitionNotice.find({ classId: fromClassId, studentId: oldStudentId }).sort({ sentAt: 1 })
-  const billedIds = new Set<string>()
-  for (const n of notices) {
-    renumbered.forEach(({ session }) => {
-      if (session.scheduledAt.getTime() <= n.sentAt.getTime()) billedIds.add(String(session._id))
-    })
-  }
-
   const [debts, reports] = await Promise.all([
     Debt.find({ classId: fromClassId, studentId: oldStudentId }).lean(),
     Report.find({ classId: fromClassId, studentId: oldStudentId }).lean(),
   ])
 
-  return { fromClass, toClass, oldSessions, newSessions, renumbered, billedIds, notices, debts, reports }
+  return { fromClass, toClass, oldSessions, newSessions, renumbered, transferDate: plan.transferDate, notices, debts, reports }
 }
 
 function toPlan(ctx: MergeContext, params: MergeParams): MergePlan {
@@ -182,13 +181,14 @@ function toPlan(ctx: MergeContext, params: MergeParams): MergePlan {
     toClassName: ctx.toClass.name,
     oldStudentId: params.oldStudentId,
     newStudentId: params.newStudentId,
-    rows: ctx.renumbered.map(({ session, newLessonNo, source }) => ({
+    rows: ctx.renumbered.map(({ session, newLessonNo, source, target }) => ({
       sessionId: String(session._id),
       scheduledAt: session.scheduledAt.toISOString(),
       oldLessonNo: session.lessonNo ?? null,
       newLessonNo,
       source,
-      billed: ctx.billedIds.has(String(session._id)),
+      target,
+      billed: !!session.billed,
     })),
     notices: ctx.notices.map((n) => ({
       periodLabel: n.periodLabel,
@@ -198,7 +198,7 @@ function toPlan(ctx: MergeContext, params: MergeParams): MergePlan {
     })),
     debtsCount: ctx.debts.length,
     reportsCount: ctx.reports.length,
-    billedCount: ctx.billedIds.size,
+    billedCount: 0,
   }
 }
 
@@ -241,19 +241,23 @@ export async function runStudentMerge(
   const newStudentId = new Types.ObjectId(params.newStudentId)
   const fromClassId = new Types.ObjectId(params.fromClassId)
   const toClassId = new Types.ObjectId(params.toClassId)
-  const sessionIds = ctx.renumbered.map((r) => r.session._id)
+  const movedIds = ctx.renumbered.filter((r) => r.target === 'new').map((r) => r.session._id)
   const hasCourse = !!ctx.toClass.courseId
 
   const mongoSession = await mongoose.startSession()
   try {
     await mongoSession.withTransaction(async () => {
-      for (const { session, newLessonNo } of ctx.renumbered) {
+      for (const { session, newLessonNo, target } of ctx.renumbered) {
+        if (target === 'old') {
+          // Ở lại lớp cũ: chỉ đánh lại số 1..n theo ngày, không đổi lớp, không đổi dấu "đã thu".
+          await ClassSession.updateOne({ _id: session._id }, { $set: { lessonNo: newLessonNo } }, { session: mongoSession })
+          continue
+        }
         await ClassSession.updateOne(
           { _id: session._id },
           {
             $set: {
               classId: toClassId, studentId: oldStudentId, lessonNo: newLessonNo,
-              billed: ctx.billedIds.has(String(session._id)),
               ...(hasCourse ? { courseId: ctx.toClass.courseId } : {}),
             },
             $unset: { lessonId: 1, ...(hasCourse ? {} : { courseId: 1 }) },
@@ -262,34 +266,19 @@ export async function runStudentMerge(
         )
       }
 
-      // Điểm/điểm danh của buổi "lớp mới" đang gắn studentId=newStudentId —
-      // phải đổi sang oldStudentId để gộp đúng 1 danh tính.
+      // Điểm/điểm danh của các buổi DỜI sang lớp mới đổi theo; buổi ở lại không đụng.
       await Score.updateMany(
-        { sessionId: { $in: sessionIds } },
+        { sessionId: { $in: movedIds } },
         { $set: { classId: toClassId, studentId: oldStudentId } },
         { session: mongoSession },
       )
       await Attendance.updateMany(
-        { sessionId: { $in: sessionIds } },
+        { sessionId: { $in: movedIds } },
         { $set: { classId: toClassId, studentId: oldStudentId } },
         { session: mongoSession },
       )
-
-      await TuitionNotice.updateMany(
-        { classId: fromClassId, studentId: oldStudentId },
-        { $set: { classId: toClassId } },
-        { session: mongoSession },
-      )
-      await Debt.updateMany(
-        { classId: fromClassId, studentId: oldStudentId },
-        { $set: { classId: toClassId } },
-        { session: mongoSession },
-      )
-      await Report.updateMany(
-        { classId: fromClassId, studentId: oldStudentId },
-        { $set: { classId: toClassId } },
-        { session: mongoSession },
-      )
+      // Phiếu học phí / công nợ / báo cáo của lớp cũ Ở LẠI lớp cũ (trước 10/11 bị dời sang
+      // lớp mới cùng toàn bộ buổi cũ — tính tiền buổi lớp cũ theo giá lớp mới).
 
       // MongoDB cấm $addToSet và $pull cùng tác động 1 field trong 1 lệnh
       // update (lỗi code 40 "would create a conflict") — phải tách 2 lệnh.
@@ -318,7 +307,8 @@ export async function runStudentMerge(
       oldStudentId: params.oldStudentId, newStudentId: params.newStudentId,
       fromClassId: params.fromClassId, toClassId: params.toClassId,
       oldSessions: ctx.oldSessions.length, newSessions: ctx.newSessions.length,
-      totalMerged: ctx.renumbered.length, sessionsMarkedBilled: ctx.billedIds.size,
+      totalMerged: ctx.renumbered.length, stayedInOldClass: ctx.renumbered.filter((r) => r.target === 'old').length,
+      movedToNewClass: movedIds.length, transferDate: ctx.transferDate,
       notices: ctx.notices.length, debts: ctx.debts.length, reports: ctx.reports.length,
     },
   })

@@ -10,6 +10,7 @@ import { sessionStatusFragments } from '@/business/report'
 import { periodPositionOf, sessionLabelOf } from '@/business/tuition'
 import { emptyEntry } from '@/business/seed'
 import { dateChangeCheck } from '@/business/sessionDates'
+import { DateCommitInput } from '@/components/molecules/DateCommitInput'
 import {
   resolvePlausibleNo, pendingSessionsOf, adoptServerSession, markSessionSaved, markConflict, resolveConflict, detachDeletedSession,
   toSessionEntry, sameDateClash, navChoiceOf, unsentCountOf, latestSessionOf, siblingDefaultsFor, notesToSend, baseForSave, takeServerCopy, appendOrphans, homeworkToBackfill, type ServerScoreForSync,
@@ -249,13 +250,13 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   const navChoice = navChoiceOf(st ?? { sessions: [] }, selectedNo, effectiveDate)
   const lastClashToastRef = useRef(0)
 
-  function handleDateChange(newDate: string) {
+  function handleDateChange(newDate: string): boolean {
     if (session) {
       // Đổi ngày buổi ĐÃ CÓ: chặn trùng ngày, hỏi lại nếu ngày đó cả lớp không học
       // (sự cố Lớp 7 24/10, 27/10). Ngày cho buổi MỚI (draftDate) đã có sameDateClash.
       const chk = st ? dateChangeCheck(cls.students, st.id, session.id, newDate) : {}
-      if (chk.block) { toast.error(chk.block, { persist: true }); return }
-      if (chk.confirm && !confirm(chk.confirm)) return
+      if (chk.block) { toast.error(chk.block, { persist: true }); return false }
+      if (chk.confirm && !confirm(chk.confirm)) return false
       update((c) => {
         const stu = c.students.find((s) => s.id === st?.id)
         const ss = stu?.sessions.find((y) => y.id === session.id)
@@ -279,6 +280,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
     } else {
       setDraftDate(newDate)
     }
+    return true
   }
 
   /** Đổi số Buổi của buổi ĐANG CÓ (session hiện tại) sang số khác — sửa
@@ -1040,10 +1042,9 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
                   </>
                 )
               })()}
-              <input
-                type="date"
+              <DateCommitInput
                 value={effectiveDate}
-                onChange={(x) => handleDateChange(x.target.value)}
+                onCommit={handleDateChange}
                 title="Ngày của buổi đang chọn"
                 className="rounded-xl px-3 py-2 text-sm font-semibold"
                 style={{ border: `1px solid ${C.line}` }}

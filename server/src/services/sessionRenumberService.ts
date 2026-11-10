@@ -76,16 +76,20 @@ export async function renumberSessions(
   // sinh (buổi chưa xóa, chưa fan-out) — giữ đúng tinh thần
   // findConflictingSession cũ nhưng kiểm tra 1 lần cho cả batch.
   const studentId = docs[0]?.studentId
+  const classId = docs[0]?.classId
   if (studentId) {
     const changingIds = new Set(updates.map((u) => u.sessionId))
     const others = await ClassSession.find(
-      { studentId, deletedAt: { $exists: false }, migratedAt: { $exists: false }, _id: { $nin: [...changingIds].map((id) => new Types.ObjectId(id)) } },
+      { studentId, classId, deletedAt: { $exists: false }, migratedAt: { $exists: false }, _id: { $nin: [...changingIds].map((id) => new Types.ObjectId(id)) } },
       'lessonNo scheduledAt',
     ).lean()
     const otherNos = new Set(others.map((o) => o.lessonNo).filter((n): n is number => n != null))
     const collide = updates.find((u) => otherNos.has(u.newNo))
     if (collide) {
-      throw new RenumberValidationError(`Buổi ${collide.newNo} đã có 1 buổi khác (ngoài lần đổi này) của học sinh này rồi — chọn số khác.`)
+      // Nêu đúng buổi đang giữ số đó (ảnh 10/11: "Buổi 15" là buổi 05/11 nằm cuối danh sách, giáo viên không thấy).
+      const holder = others.find((o) => o.lessonNo === collide.newNo)
+      const d = holder?.scheduledAt ? new Date(holder.scheduledAt) : null
+      throw new RenumberValidationError(`Buổi ${collide.newNo} đang là buổi ${d ? 'ngày ' + `${d.toISOString().slice(8, 10)}/${d.toISOString().slice(5, 7)}` : 'khác'} (không nằm trong lần đổi này) — đổi luôn số của buổi đó, hoặc chọn số khác.`)
     }
   }
 

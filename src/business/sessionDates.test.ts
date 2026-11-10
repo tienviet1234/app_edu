@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dateChangeCheck } from './sessionDates'
+import { dateChangeCheck, isCommittableDate } from './sessionDates'
 
 // Lớp 7 thu nhỏ: học thứ 3-5-7, đủ lớp các ngày 20/10, 22/10, 29/10.
 const lop7 = ['Kim Phụng', 'Vương Thắng', 'Tuấn', 'Hoàng', 'Vũ'].map((name, i) => ({
@@ -33,4 +33,13 @@ describe('dateChangeCheck (đổi ngày / thêm buổi tay)', () => {
   })
   it('đang gõ dở năm (0202-10-24) → không hỏi, không chặn', () => expect(dateChangeCheck(lop7, 'st0', 's0-2', '0202-10-24')).toEqual({}))
   it('thêm buổi tay (chưa có id) vào ngày em đã có → chặn', () => expect(dateChangeCheck(lop7, 'st0', null, '2026-10-20').block).toBeTruthy())
+})
+
+describe('isCommittableDate (ô ngày chỉ lưu ngày đã gõ xong)', () => {
+  it('ngày đầy đủ, có thật → lưu được', () => expect(isCommittableDate('2026-10-24')).toBe(true))
+  it('đang gõ dở năm / rỗng / ngày không có thật → không lưu', () => {
+    expect(isCommittableDate('0202-10-24')).toBe(false)
+    expect(isCommittableDate('')).toBe(false)
+    expect(isCommittableDate('2026-02-30')).toBe(false)
+  })
 })
