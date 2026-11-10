@@ -3,6 +3,7 @@ import {
   getAnalyticsOverview,
   getAttendanceTrend,
   getBillingReport,
+  getCenterOverview,
   getScoreHeatmap,
   getTeacherPerformance,
 } from '../controllers/analyticsController.js'
@@ -16,4 +17,5 @@ analyticsRouter.get('/overview',             authorize('teacher'), asyncHandler(
 analyticsRouter.get('/attendance-trend',     authorize('teacher'), asyncHandler(getAttendanceTrend))
 analyticsRouter.get('/score-heatmap',        authorize('teacher'), asyncHandler(getScoreHeatmap))
 analyticsRouter.get('/teacher-performance',  authorize('admin'),   asyncHandler(getTeacherPerformance))
+analyticsRouter.get('/center-overview',      authorize('teacher'), asyncHandler(getCenterOverview))
 analyticsRouter.get('/billing',              authorize('admin'),   asyncHandler(getBillingReport))

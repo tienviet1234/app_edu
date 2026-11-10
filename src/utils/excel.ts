@@ -7,7 +7,7 @@ import { statsOf } from '@/business/stats'
 import { rankingOf } from '@/business/ranking'
 import { buildComment, sessionDetailsOf, type SessionScoreItem } from '@/business/report'
 import { sessionScore, compScore, sessionComps } from '@/business/scoring'
-import { round1, viDate, viDateTime } from '@/utils/format'
+import { round1, todayISO, viDate, viDateTime } from '@/utils/format'
 import { periodPositionOf } from '@/business/tuition'
 
 export interface ExportPeriod {
@@ -542,4 +542,18 @@ export async function importStudentNames(file: File): Promise<string[]> {
   return rows
     .map((row) => String(row[0] ?? '').trim())
     .filter((name) => name.length > 1 && isNaN(Number(name)))
+}
+
+/** Học phí TOÀN TRUNG TÂM: mỗi học sinh-lớp 1 dòng, đúng như màn hình (đã lọc). */
+export function exportCenterTuition(rows: Array<{
+  className: string; studentName: string; status: string; dueSessions: number | ''; dueAmount: number | ''
+  debt: number | ''; progress: string; estimate: number | ''; lastNotice: string; rate: number
+}>): void {
+  const header = ['Lớp', 'Học sinh', 'Tình trạng', 'Kỳ đến hạn (buổi)', 'Tiền kỳ đến hạn', 'Còn nợ', 'Kỳ đang học', 'Tạm tính', 'Phiếu gần nhất', 'Giá/buổi']
+  const body = rows.map((r) => [r.className, r.studentName, r.status, r.dueSessions, r.dueAmount, r.debt, r.progress, r.estimate, r.lastNotice, r.rate])
+  const ws = XLSX.utils.aoa_to_sheet([header, ...body])
+  ws['!cols'] = [12, 22, 22, 10, 14, 14, 12, 14, 28, 10].map((wch) => ({ wch }))
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Học phí toàn trung tâm')
+  XLSX.writeFile(wb, `hocphi-toan-trung-tam_${todayISO()}.xlsx`)
 }

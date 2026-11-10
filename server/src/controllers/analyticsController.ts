@@ -10,6 +10,10 @@ import { User } from '../models/User.js'
 import { computeBillingReport } from '../services/billingService.js'
 import { badRequest, ok } from '../utils/response.js'
 import { gradedTotal } from '../utils/dataRules.js'
+import { TuitionNotice } from '../models/TuitionNotice.js'
+import { teacherScopeFilter } from '../utils/classAuth.js'
+import { buildCenterOverview, type OverviewRaw } from '../utils/centerOverview.js'
+import type { AuthRequest } from '../middleware/auth.js'
 
 export async function getAnalyticsOverview(_req: Request, res: Response): Promise<void> {
   const [
@@ -288,4 +292,26 @@ export async function getBillingReport(req: Request, res: Response): Promise<voi
   // riêng của cô đó (không phải ai cũng trả lương cùng 1 khoảng ngày), xem
   // ghi chú ở AdminBillingPage.tsx (mỗi giáo viên 1 bộ chọn ngày riêng).
   ok(res, await computeBillingReport(from, to, teacherId ? { teacherId } : undefined))
+}
+
+/** GET /api/analytics/center-overview — dữ liệu thô cho màn tổng quan toàn trung tâm
+ *  (Học phí, Điểm danh & Điểm). CHỈ ĐỌC. Admin: mọi lớp; giáo viên: lớp mình dạy (kể
+ *  cả giáo viên phụ). Phép tính học phí chạy ở máy bằng đúng hàm của màn theo lớp. */
+export async function getCenterOverview(req: Request, res: Response): Promise<void> {
+  const authReq = req as AuthRequest
+  const viewer = { id: String(authReq.userId), role: authReq.user?.role ?? '' }
+  const classes = await Class.find(viewer.role === 'admin' ? {} : teacherScopeFilter(viewer.id),
+    'name level teacherId assistantTeacherIds studentIds tuitionPerSession studentTuition').lean()
+  const classIds = classes.map((c) => c._id)
+  const sessions = await ClassSession.find(
+    { classId: { $in: classIds }, deletedAt: { $exists: false }, migratedAt: { $exists: false } },
+    'classId studentId lessonNo scheduledAt billed',
+  ).lean()
+  const [scores, notices, users] = await Promise.all([
+    Score.find({ sessionId: { $in: sessions.map((x) => x._id) } }, 'sessionId attendance total scores ticks parts choice ev').lean(),
+    TuitionNotice.find({ classId: { $in: classIds } },
+      'classId studentId periodFrom periodTo periodLabel sessionIds sessionsBilled ratePerSession finalAmount sentAt paymentStatus paidAt').lean(),
+    User.find({ _id: { $in: [...new Set(classes.flatMap((c) => [c.teacherId, ...(c.studentIds ?? [])]).filter(Boolean).map(String))] } }, 'name sessionOffset').lean(),
+  ])
+  ok(res, buildCenterOverview({ classes, sessions, scores, notices, users } as unknown as OverviewRaw, viewer))
 }

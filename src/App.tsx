@@ -57,8 +57,8 @@ const EntryScreen = lazy(() =>
   import('@/features/entry/EntryScreen').then((m) => ({ default: m.EntryScreen })))
 const HomeworkScreen = lazy(() =>
   import('@/features/entry/HomeworkScreen').then((m) => ({ default: m.HomeworkScreen })))
-const TuitionReportScreen = lazy(() =>
-  import('@/features/report/TuitionReportScreen').then((m) => ({ default: m.TuitionReportScreen })))
+const TuitionHubScreen = lazy(() =>
+  import('@/features/report/TuitionHubScreen').then((m) => ({ default: m.TuitionHubScreen })))
 const LeaderboardScreen = lazy(() =>
   import('@/features/leaderboard/LeaderboardScreen').then((m) => ({ default: m.LeaderboardScreen })))
 const LearnScreen = lazy(() =>
@@ -105,7 +105,7 @@ const ALL_TABS = [
   { key: 'my-debts', label: 'Nợ bài tập', icon: '📌', roles: ['student'] },
   { key: 'board', label: 'Xếp hạng', icon: '🏆', roles: ['teacher', 'admin', 'student'] },
   { key: 'report', label: 'Báo cáo', icon: '📊', roles: ['teacher', 'admin'] },
-  { key: 'tuition-report', label: 'Báo cáo + Học phí', icon: '💰', roles: ['teacher', 'admin'] },
+  { key: 'tuition-report', label: 'Học phí', icon: '💰', roles: ['teacher', 'admin'] },
   { key: 'billing', label: 'Thống kê buổi', icon: '📅', roles: ['teacher', 'admin'] },
   { key: 'parent', label: 'Phụ huynh', icon: '👨‍👩‍👧', roles: ['teacher', 'admin'] },
   { key: 'student', label: 'Học sinh', icon: '🎓', roles: ['teacher', 'admin'] },
@@ -880,7 +880,8 @@ export default function App() {
       <div className="flex">
         <Sidebar tabs={TABS} activeTab={activeTab} onTabChange={setTab} />
 
-        <main className="mx-auto min-w-0 max-w-5xl flex-1 p-4 pb-24 sm:pb-4">
+        {/* Màn tổng quan toàn trung tâm cần rộng hơn (bảng nhiều cột); các màn khác giữ 1024px. */}
+        <main className={`mx-auto min-w-0 flex-1 p-4 pb-24 sm:pb-4 ${activeTab === 'tuition-report' ? 'max-w-7xl' : 'max-w-5xl'}`}>
         <Suspense fallback={<TabLoading />}>
         {activeTab === 'dashboard' && (
           <DashboardScreen data={data} setTab={setTab} setCurrent={setCurrentClass} />
@@ -907,7 +908,9 @@ export default function App() {
         {activeTab === 'my-debts' && <StudentDebtScreen />}
         {cls && activeTab === 'board' && <LeaderboardScreen key={cls.id} cls={cls} update={updateClass} userId={user?.role === 'student' ? user.id : undefined} />}
         {cls && activeTab === 'report' && <ReportScreen key={cls.id} cls={cls} update={updateClass} />}
-        {cls && activeTab === 'tuition-report' && <TuitionReportScreen key={cls.id} cls={cls} update={updateClass} />}
+        {activeTab === 'tuition-report' && (
+          <TuitionHubScreen cls={cls ?? null} classes={data.classes} update={updateClass} setCurrentClass={setCurrentClass} isAdmin={user?.role === 'admin'} />
+        )}
         {cls && activeTab === 'billing' && (
           <SessionCountScreen
             key={cls.id}
