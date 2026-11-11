@@ -557,3 +557,19 @@ export function exportCenterTuition(rows: Array<{
   XLSX.utils.book_append_sheet(wb, ws, 'Học phí toàn trung tâm')
   XLSX.writeFile(wb, `hocphi-toan-trung-tam_${todayISO()}.xlsx`)
 }
+
+/** Xuất bảng "Điểm danh & Điểm — Toàn trung tâm": mỗi lớp 1 dòng × ngày ("em có buổi/sĩ số · điểm TB"). */
+export function exportAttendanceOverview(rows: Array<{
+  className: string; teacherName: string; roster: number; attendRate: number | null; avgScore: number | null; unexcused: number
+  cells: Record<string, { kind: string; count: number; roster: number; avg: number | null }>
+}>, days: string[]): void {
+  const header = ['Lớp', 'Giáo viên', 'Sĩ số', ...days.map((d) => `${d.slice(8, 10)}/${d.slice(5, 7)}`), 'Đi học %', 'Điểm TB', 'Vắng KP']
+  const body = rows.map((r) => [r.className, r.teacherName, r.roster,
+    ...days.map((d) => { const c = r.cells[d]; return !c ? '' : c.kind === 'missing' ? 'có lịch, chưa có buổi' : `${c.count}/${c.roster}${c.avg != null ? ` · ${c.avg}` : ''}` }),
+    r.attendRate ?? '', r.avgScore ?? '', r.unexcused])
+  const ws = XLSX.utils.aoa_to_sheet([header, ...body])
+  ws['!cols'] = [12, 20, 6, ...days.map(() => 10), 8, 8, 8].map((wch) => ({ wch }))
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Điểm danh toàn trung tâm')
+  XLSX.writeFile(wb, `diemdanh-toan-trung-tam_${todayISO()}.xlsx`)
+}

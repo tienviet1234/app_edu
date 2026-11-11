@@ -57,6 +57,8 @@ const EntryScreen = lazy(() =>
   import('@/features/entry/EntryScreen').then((m) => ({ default: m.EntryScreen })))
 const HomeworkScreen = lazy(() =>
   import('@/features/entry/HomeworkScreen').then((m) => ({ default: m.HomeworkScreen })))
+const AttendanceHubScreen = lazy(() =>
+  import('@/features/entry/AttendanceHubScreen').then((m) => ({ default: m.AttendanceHubScreen })))
 const TuitionHubScreen = lazy(() =>
   import('@/features/report/TuitionHubScreen').then((m) => ({ default: m.TuitionHubScreen })))
 const LeaderboardScreen = lazy(() =>
@@ -93,7 +95,7 @@ function TabLoading() {
 
 const ALL_TABS = [
   { key: 'dashboard', label: 'Tổng quan', icon: '📋', roles: ['teacher', 'admin'] },
-  { key: 'entry', label: 'Nhập điểm', icon: '✏️', roles: ['teacher', 'admin'] },
+  { key: 'entry', label: 'Điểm danh & Điểm', icon: '✅', roles: ['teacher', 'admin'] },
   // "Chấm bằng AI" tạm ẩn khỏi menu theo yêu cầu (không dùng tính năng này
   // nữa) — code/màn hình (AiGradeScreen) vẫn còn nguyên, chỉ không hiện tab
   // để dễ bật lại sau này nếu cần, không phải xóa hẳn.
@@ -881,24 +883,34 @@ export default function App() {
         <Sidebar tabs={TABS} activeTab={activeTab} onTabChange={setTab} />
 
         {/* Màn tổng quan toàn trung tâm cần rộng hơn (bảng nhiều cột); các màn khác giữ 1024px. */}
-        <main className={`mx-auto min-w-0 flex-1 p-4 pb-24 sm:pb-4 ${activeTab === 'tuition-report' ? 'max-w-7xl' : 'max-w-5xl'}`}>
+        <main className={`mx-auto min-w-0 flex-1 p-4 pb-24 sm:pb-4 ${activeTab === 'tuition-report' || activeTab === 'entry' ? 'max-w-7xl' : 'max-w-5xl'}`}>
         <Suspense fallback={<TabLoading />}>
         {activeTab === 'dashboard' && (
           <DashboardScreen data={data} setTab={setTab} setCurrent={setCurrentClass} />
         )}
         {/* "Chấm bằng AI" tạm ẩn — xem ghi chú ở ALL_TABS phía trên. */}
-        {cls && activeTab === 'entry' && (
-          // key={cls.id} on every class-scoped screen: without it, switching
-          // class kept the previous class's "current student" index — Lớp 10
-          // (10 HS) opened at index 12 from Lớp 7 showed no student, "Buổi 1
-          // — chưa có" and no entry form (real report 20/10).
-          <EntryScreen
-            key={cls.id}
-            cls={cls}
-            update={updateClass}
-            teacherName={user?.name}
-            initialTarget={entryJumpTarget}
-            onConsumeInitialTarget={() => setEntryJumpTarget(null)}
+        {activeTab === 'entry' && (
+          // Đợt 2 (11/11): "Điểm danh & Điểm" mặc định xem toàn trung tâm; "Theo lớp" là
+          // EntryScreen cũ GIỮ NGUYÊN. key={cls.id} on every class-scoped screen: without it,
+          // switching class kept the previous class's "current student" index — Lớp 10
+          // (10 HS) opened at index 12 from Lớp 7 showed no student (real report 20/10).
+          <AttendanceHubScreen
+            cls={cls ?? null}
+            classes={data.classes}
+            setCurrentClass={setCurrentClass}
+            isAdmin={user?.role === 'admin'}
+            forceClass={!!entryJumpTarget}
+            onJumpEntry={(studentId, no) => setEntryJumpTarget({ studentId, no })}
+            classView={cls && (
+              <EntryScreen
+                key={cls.id}
+                cls={cls}
+                update={updateClass}
+                teacherName={user?.name}
+                initialTarget={entryJumpTarget}
+                onConsumeInitialTarget={() => setEntryJumpTarget(null)}
+              />
+            )}
           />
         )}
         {cls && activeTab === 'homework' && <HomeworkScreen key={cls.id} cls={cls} />}
