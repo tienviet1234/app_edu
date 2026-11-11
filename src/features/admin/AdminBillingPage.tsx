@@ -8,6 +8,10 @@ import { C } from '@/constants/colors'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { toast } from '@/store/toastStore'
+import { useActionLock } from '@/hooks/useActionLock'
+
+const serverMsg = (err: unknown) => (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+const vnd = (n: number) => `${Math.round(n).toLocaleString('vi-VN')}đ`
 import { viDate } from '@/utils/format'
 
 const fmtVnd = (n: number) => `${n.toLocaleString('vi-VN')}đ`
@@ -54,7 +58,15 @@ function ClassRateRow({
     teacherPay !== String(row.teacherPayPerSession ?? '') ||
     teacherPayPerStudent !== String(row.teacherPayPerStudentSession ?? '')
 
-  async function save() {
+  const lock = useActionLock()
+  const save = () => lock.run('rate', saveLocked)
+  async function saveLocked() {
+    // Đổi học phí/buổi của lớp ảnh hưởng mọi kỳ CHƯA gửi phiếu → hỏi lại nêu giá cũ → mới.
+    const oldRate = row.tuitionPerSession ?? null
+    const newRate = tuition.trim() === '' ? null : Number(tuition)
+    if (newRate !== oldRate && !confirm(`Đổi học phí lớp ${row.className}: ${oldRate == null ? 'chưa đặt' : vnd(oldRate)} → ${newRate == null ? 'bỏ trống' : vnd(newRate)}/buổi?
+
+Áp dụng cho các kỳ CHƯA gửi phiếu. Phiếu đã gửi giữ nguyên số tiền.`)) return
     setSaving(true)
     try {
       await classService.update(row.classId, {
@@ -65,8 +77,8 @@ function ClassRateRow({
       })
       toast.success(`Đã lưu đơn giá cho ${row.className}`)
       onSaved()
-    } catch {
-      toast.error(`Lỗi khi lưu đơn giá cho ${row.className}. Thử lại.`, { persist: true })
+    } catch (err) {
+      toast.error(`${serverMsg(err) ?? `Lỗi khi lưu đơn giá cho ${row.className}.`} Chưa lưu — thử lại.`, { persist: true })
     } finally {
       setSaving(false)
     }
@@ -329,29 +341,35 @@ function TeacherPayAction({
   onChanged: () => void
 }) {
   const [saving, setSaving] = useState(false)
+  const lock = useActionLock()
 
-  async function confirmPaid() {
+  // Tiền lương: hỏi lại nêu số tiền + khoảng ngày; khóa bằng ref (2 cú bấm liền chỉ 1 lần).
+  const confirmPaid = () => lock.run('pay', confirmPaidLocked)
+  async function confirmPaidLocked() {
+    if (!confirm(`Ghi nhận ĐÃ TRẢ LƯƠNG cho ${teacherName}: ${vnd(suggestedAmount)} (${viDate(from)} – ${viDate(to)})?`)) return
     setSaving(true)
     try {
       await teacherPayService.markPaid({ teacherId, from, to, amount: suggestedAmount })
-      toast.success(`Đã đánh dấu trả lương cho ${teacherName}.`)
+      toast.success(`Đã ghi nhận trả lương ${vnd(suggestedAmount)} cho ${teacherName}.`)
       onChanged()
-    } catch {
-      toast.error('Lỗi — thử lại.')
+    } catch (err) {
+      toast.error(`${serverMsg(err) ?? 'Lỗi khi ghi nhận trả lương.'} Chưa ghi gì — thử lại.`, { persist: true })
     } finally {
       setSaving(false)
     }
   }
 
-  async function undo() {
+  const undo = () => lock.run('pay', undoLocked)
+  async function undoLocked() {
     if (!record) return
+    if (!confirm(`Hoàn tác "đã trả lương" ${vnd(record.amount)} cho ${teacherName} (${viDate(from)} – ${viDate(to)})? Chỉ dùng khi ghi nhầm.`)) return
     setSaving(true)
     try {
       await teacherPayService.remove(record._id)
-      toast.success('Đã hoàn tác.')
+      toast.success(`Đã hoàn tác trả lương cho ${teacherName}.`)
       onChanged()
-    } catch {
-      toast.error('Lỗi — thử lại.')
+    } catch (err) {
+      toast.error(`${serverMsg(err) ?? 'Lỗi khi hoàn tác.'} Chưa đổi gì — thử lại.`, { persist: true })
     } finally {
       setSaving(false)
     }

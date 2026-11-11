@@ -7,6 +7,9 @@ import { viDate } from '@/utils/format'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { toast } from '@/store/toastStore'
+import { useActionLock } from '@/hooks/useActionLock'
+
+const serverMsg = (err: unknown) => (err as { response?: { data?: { message?: string } } })?.response?.data?.message
 
 interface DebtScreenProps {
   cls: ClassData
@@ -26,8 +29,11 @@ function NewDebtForm({ cls, onCreated }: { cls: ClassData; onCreated: () => void
   const [kind, setKind] = useState<DebtKind>('other')
   const [label, setLabel] = useState('')
   const [saving, setSaving] = useState(false)
+  const lock = useActionLock()
 
-  async function save() {
+  // Khóa bằng ref: bấm "Ghi nợ" 2 lần liền không tạo 2 khoản nợ (+ 2 thông báo cho phụ huynh).
+  const save = () => lock.run('create', saveLocked)
+  async function saveLocked() {
     if (!studentId || !label.trim()) return
     setSaving(true)
     try {
@@ -35,8 +41,8 @@ function NewDebtForm({ cls, onCreated }: { cls: ClassData; onCreated: () => void
       setLabel('')
       toast.success('Đã ghi nợ — học sinh/phụ huynh sẽ nhận được thông báo.')
       onCreated()
-    } catch {
-      toast.error('Lỗi khi ghi nợ — thử lại.')
+    } catch (err) {
+      toast.error(`${serverMsg(err) ?? 'Lỗi khi ghi nợ.'} Chưa ghi gì — thử lại.`, { persist: true })
     } finally {
       setSaving(false)
     }
@@ -75,6 +81,7 @@ export function DebtScreen({ cls }: DebtScreenProps) {
   const [debts, setDebts] = useState<Debt[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | Debt['status']>('all')
+  const lock = useActionLock() // trước mọi `return` sớm (quy tắc hook)
 
   async function load() {
     setLoading(true)
@@ -103,14 +110,19 @@ export function DebtScreen({ cls }: DebtScreenProps) {
     cleared: debts.filter((d) => d.status === 'cleared').length,
   }
 
-  async function act(fn: () => Promise<unknown>, okMsg: string) {
-    try {
-      await fn()
-      toast.success(okMsg)
-      load()
-    } catch {
-      toast.error('Lỗi — thử lại.')
-    }
+  /** Mọi nút trên 1 khoản nợ dùng chung 1 khóa theo id (không bấm chồng "Xác nhận" + "Xoá").
+   *  Báo thành công chỉ SAU khi server xác nhận; lỗi thì nêu lời báo của server. */
+  async function act(id: string, fn: () => Promise<unknown>, okMsg: string, ask?: string) {
+    await lock.run(id, async () => {
+      if (ask && !confirm(ask)) return
+      try {
+        await fn()
+        toast.success(okMsg)
+        load()
+      } catch (err) {
+        toast.error(`${serverMsg(err) ?? 'Lỗi khi lưu.'} Chưa đổi gì — thử lại.`, { persist: true })
+      }
+    })
   }
 
   return (
@@ -176,18 +188,19 @@ export function DebtScreen({ cls }: DebtScreenProps) {
 
             <div className="mt-3 flex flex-wrap gap-2">
               {d.status !== 'cleared' && (
-                <Btn kind="ghost" size="sm" onClick={() => act(() => debtService.clear(d._id), 'Đã xác nhận xong.')}>
+                <Btn kind="ghost" size="sm" disabled={lock.isBusy(d._id)} onClick={() => act(d._id, () => debtService.clear(d._id), `Đã xác nhận ${studentName(d.studentId)} trả xong.`)}>
                   ✓ Xác nhận xong
                 </Btn>
               )}
               {d.status === 'submitted' && (
-                <Btn kind="ghost" size="sm" onClick={() => act(() => debtService.reject(d._id), 'Đã trả lại — chờ nộp lại.')}>
+                <Btn kind="ghost" size="sm" disabled={lock.isBusy(d._id)} onClick={() => act(d._id, () => debtService.reject(d._id), 'Đã trả lại — chờ nộp lại.')}>
                   ↩ Trả lại (chưa đạt)
                 </Btn>
               )}
               <button
                 className="text-xs" style={{ color: C.muted }}
-                onClick={() => act(() => debtService.remove(d._id), 'Đã xoá.')}
+                disabled={lock.isBusy(d._id)}
+                onClick={() => act(d._id, () => debtService.remove(d._id), 'Đã xoá.', `Xoá hẳn khoản nợ "${d.label}" của ${studentName(d.studentId)}? Học sinh/phụ huynh sẽ không còn thấy khoản này.`)}
               >
                 🗑 Xoá
               </button>

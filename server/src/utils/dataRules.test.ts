@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason, billedDeleteBlockReason, planBilledFlagRepair, noticeCoverage, planSessionRemoval, reviewFixResult, changedFields, noticeAttendanceDrift, billedMismatchKind, billedChangeBlockReason, dateMoveBlockReason, lonelyClassDays, planClassTransfer, perMonthOfClass, sessionLabel, numberingProblem, planInsertSession, planRemoveFromNumbering, planCompactNumbering } from './dataRules.js'
+import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason, billedDeleteBlockReason, planBilledFlagRepair, noticeCoverage, planSessionRemoval, reviewFixResult, changedFields, noticeAttendanceDrift, billedMismatchKind, billedChangeBlockReason, dateMoveBlockReason, lonelyClassDays, planClassTransfer, perMonthOfClass, sessionLabel, numberingProblem, planInsertSession, planRemoveFromNumbering, planCompactNumbering, noticeDeleteBlockReason, paymentChangeNeeded } from './dataRules.js'
 
 describe('billedDeleteBlockReason (xóa buổi đã thu làm buổi khác bị tính tiền lần 2)', () => {
   it('buổi đã thu: chặn, nói rõ cách làm', () => {
@@ -674,5 +674,20 @@ describe('planCompactNumbering — sửa dữ liệu cũ sai số buổi (10/11)
   })
   it('dãy đã đúng → không đổi gì (chạy lại lần 2 không làm gì)', () => {
     expect(planCompactNumbering([{ id: 'a', no: 1, date: '2026-10-01' }, { id: 'b', no: 2, date: '2026-10-03' }])).toEqual([])
+  })
+})
+
+describe('Phiếu học phí đã đóng / bấm 2 lần (11/11)', () => {
+  it('phiếu ĐÃ ĐÓNG không xóa thẳng được — phải chuyển lại chưa đóng trước', () => {
+    expect(noticeDeleteBlockReason({ paymentStatus: 'paid', periodLabel: 'Buổi 1–8' })).toContain('chuyển lại chưa đóng')
+    expect(noticeDeleteBlockReason({ paymentStatus: 'unpaid' })).toBeNull()
+    expect(noticeDeleteBlockReason({})).toBeNull()
+  })
+  it('bấm lại đúng trạng thái đang có → không ghi gì (giữ ngày đóng)', () => {
+    expect(paymentChangeNeeded('paid', 'paid')).toBe(false)
+    expect(paymentChangeNeeded('unpaid', 'unpaid')).toBe(false)
+    expect(paymentChangeNeeded(undefined, 'unpaid')).toBe(false)
+    expect(paymentChangeNeeded('unpaid', 'paid')).toBe(true)
+    expect(paymentChangeNeeded('paid', 'unpaid')).toBe(true)
   })
 })

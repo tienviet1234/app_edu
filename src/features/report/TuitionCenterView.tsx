@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react'
+import { useActionLock } from '@/hooks/useActionLock'
+import { markPaidConfirm } from '@/business/tuitionActions'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { C } from '@/constants/colors'
 import { Btn } from '@/components/atoms/Btn'
@@ -96,14 +98,20 @@ export function TuitionCenterView({ isAdmin, onOpenClass }: TuitionCenterViewPro
   const [query, setQuery] = useState('')
   const [openKey, setOpenKey] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const lock = useActionLock()
   const rows = useMemo(() => (data ? tuitionOverviewRows(data) : []), [data])
   const sum = useMemo(() => tuitionOverviewSummary(rows, todayISO().slice(0, 7)), [rows])
   const shown = useMemo(() => filterTuitionRows(rows, { status, classId, query }), [rows, status, classId, query])
   const open = rows.find((r) => r.key === openKey) ?? null
   const classes = data?.classes.filter((c) => c.students.length) ?? []
 
+  // Khóa theo phiếu bằng ref (useActionLock): 2 cú bấm liền không mở 2 hộp hỏi / gửi 2 lần.
   async function markPaid(row: TuitionOverviewRow, n: TuitionOverviewNotice) {
-    if (!confirm(`Ghi nhận ${row.studentName} (${row.className}) ĐÃ ĐÓNG phiếu "${n.label}" — ${money(n.amount)}?`)) return
+    await lock.run(`notice:${n.id}`, () => markPaidLocked(row, n))
+  }
+
+  async function markPaidLocked(row: TuitionOverviewRow, n: TuitionOverviewNotice) {
+    if (!confirm(markPaidConfirm(row.studentName, { periodLabel: n.label, finalAmount: n.amount }, row.className))) return
     setBusy(n.id)
     try {
       await tuitionNoticeService.markPaid(n.id)

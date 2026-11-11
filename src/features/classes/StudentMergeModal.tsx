@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useActionLock } from '@/hooks/useActionLock'
 import { useQueryClient } from '@tanstack/react-query'
 import { C } from '@/constants/colors'
 import { Card } from '@/components/atoms/Card'
@@ -84,7 +85,10 @@ export function StudentMergeModal({ fromClassId, fromClassName, studentId, stude
     }
   }
 
-  async function doRun() {
+  // Khóa bằng ref (useActionLock): 2 cú bấm liền không gửi 2 lần.
+  const lock_run = useActionLock()
+  const doRun = () => lock_run.run('run', () => doRunLocked())
+  async function doRunLocked() {
     if (!selected?.currentClass) return
     setRunning(true)
     try {

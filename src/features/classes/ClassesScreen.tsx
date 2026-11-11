@@ -17,7 +17,10 @@ import { useClassStudents } from '@/hooks'
 import { useAuthStore } from '@/store/authStore'
 import { isMongoid } from '@/utils/mongoid'
 import { toast } from '@/store/toastStore'
-import { appendOrphans, orphanForLocalDelete } from '@/business/sync'
+import { appendOrphans, orphanForLocalDelete, collectOrphans } from '@/business/sync'
+import { levelChangeConfirm, offsetChangeConfirm, removeStudentConfirm } from '@/business/classActions'
+import { useActionLock } from '@/hooks/useActionLock'
+import { NumberCommitInput } from '@/components/molecules/NumberCommitInput'
 import { dateChangeCheck } from '@/business/sessionDates'
 import { removeSessionLocally } from '@/business/resequence'
 import { sessionLabelOf } from '@/business/tuition'
@@ -82,9 +85,24 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
 
   const { data: apiStudents } = useClassStudents(cls && isMongoid(cls.id) ? cls.id : '')
 
-  async function syncFieldToApi(field: string, value: unknown) {
-    if (!cls || !isMongoid(cls.id)) return
-    try { await classService.update(cls.id, { [field]: value }) } catch { /* best effort */ }
+  const lock = useActionLock()
+  const serverMsg = (err: unknown) => (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+  // Giá trị lúc bắt đầu sửa ô tên lớp / giáo viên — lưu lỗi thì trả về giá trị này.
+  const focusValRef = useRef('')
+
+  /** Lưu 1 thuộc tính lớp lên server. Trước 11/11 nuốt lỗi im lặng ("best effort") — đổi CẤP LỚP
+   *  (8 ↔ 12 buổi/kỳ = đổi học phí) lỗi mà máy vẫn hiện giá trị mới. Giờ lỗi thì báo + trả lại. */
+  async function syncFieldToApi(field: string, value: unknown, revert: (c: ClassData) => void): Promise<boolean> {
+    if (!cls || !isMongoid(cls.id)) return true
+    const id = cls.id
+    try {
+      await classService.update(id, { [field]: value })
+      return true
+    } catch (err) {
+      toast.error(`${serverMsg(err) ?? 'Không lưu được lên server.'} Đã trả lại giá trị cũ.`, { persist: true })
+      setData(produce((d: AppData) => { const c = d.classes.find((x) => x.id === id); if (c) revert(c) }))
+      return false
+    }
   }
 
   async function syncStudentName(studentId: string, name: string) {
@@ -100,22 +118,39 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
    *  chừng, VD học xong 9 buổi ở sổ giấy rồi mới ghi app) — buổi đầu tiên ghi
    *  trong app sẽ tự đánh số tiếp theo (offset+1) và mốc tính đủ kỳ 8/12
    *  buổi cũng cộng dồn đúng, xem business/tuition.ts. */
-  async function syncStudentOffset(studentId: string, offset: number) {
-    edit((c) => {
-      const found = c.students.find((y) => y.id === studentId)
-      if (found) found.sessionOffset = offset
+  // Gõ xong mới lưu (NumberCommitInput), hỏi lại nêu buổi đầu sẽ thành gì; server xác nhận rồi mới
+  // đổi trên máy. Trước 11/11 lưu ở MỖI lần gõ và đổi trên máy trước, lỗi không trả lại.
+  async function syncStudentOffset(studentId: string, offset: number): Promise<boolean> {
+    const st = cls?.students.find((y) => y.id === studentId)
+    if (!cls || !st) return false
+    const r = await lock.run(`offset:${studentId}`, async () => {
+      if (!confirm(offsetChangeConfirm(st.name, st.sessionOffset ?? 0, offset, cls.perMonth))) return false
+      if (isMongoid(studentId)) {
+        try {
+          await studentService.update(studentId, { sessionOffset: offset })
+        } catch (err) {
+          toast.error(`${serverMsg(err) ?? 'Lưu số buổi đã học trước thất bại.'} Chưa đổi gì — thử lại.`, { persist: true })
+          return false
+        }
+      }
+      edit((c) => {
+        const found = c.students.find((y) => y.id === studentId)
+        if (found) found.sessionOffset = offset
+      })
+      toast.success(`Đã lưu: ${st.name} đã học ${offset} buổi trước khi vào app.`)
+      return true
     })
-    if (!isMongoid(studentId)) return
-    try {
-      await studentService.update(studentId, { sessionOffset: offset })
-    } catch {
-      toast.error('Lưu số buổi đã học trước thất bại, thử lại.')
-    }
+    return !r.skipped && r.value
   }
 
   async function handleDeleteClass(idx: number) {
+    await lock.run('deleteClass', () => handleDeleteClassLocked(idx))
+  }
+
+  async function handleDeleteClassLocked(idx: number) {
     const c = data.classes[idx]
-    if (!confirm(`Xóa lớp "${c.name}"? Toàn bộ dữ liệu lớp này sẽ bị xóa vĩnh viễn.`)) return
+    // Server chỉ cho xóa lớp CHƯA có buổi nào (classDeleteBlockReason) — lớp thôi học thì đổi trạng thái.
+    if (!confirm(`Xóa lớp "${c.name}"? Chỉ xóa được lớp chưa có buổi học nào trên server. Buổi chưa lên server (nếu có) chuyển vào "kho giữ lại".`)) return
     if (isMongoid(c.id)) {
       try {
         await classService.delete(c.id)
@@ -125,22 +160,41 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
         return // không xóa local nếu server thất bại — tránh lớp "hồi sinh" sau khi đồng bộ lại
       }
     }
-    setData(produce((d) => { d.classes.splice(idx, 1) }))
+    // Buổi chưa lên server không được mất trắng — vào kho giữ lại (collectOrphans).
+    const orphans = collectOrphans(c, 'all', 'classRemoved')
+    setData(produce((d: AppData) => {
+      if (orphans.length) d.orphans = appendOrphans(d.orphans, orphans)
+      d.classes.splice(idx, 1)
+    }))
     setCurrent(Math.max(0, idx > 0 ? idx - 1 : 0))
   }
 
   async function handleDeleteStudent(studentId: string, studentName: string) {
+    await lock.run(`removeStudent:${studentId}`, () => handleDeleteStudentLocked(studentId, studentName))
+  }
+
+  async function handleDeleteStudentLocked(studentId: string, studentName: string) {
     if (!cls) return
-    if (!confirm(`Xóa học sinh "${studentName}" khỏi lớp?`)) return
+    const st = cls.students.find((y) => y.id === studentId)
+    const orphans = collectOrphans(cls, new Set([studentId]), 'studentRemoved')
+    const unsent = orphans.reduce((n, o) => n + o.sessions.length, 0)
+    if (!confirm(removeStudentConfirm(studentName, cls.name, st?.sessions ?? [], unsent))) return
     if (isMongoid(cls.id) && isMongoid(studentId)) {
       try {
         await classService.removeStudent(cls.id, studentId)
-      } catch {
-        toast.error(`Xóa học sinh "${studentName}" thất bại, thử lại.`)
+      } catch (err) {
+        toast.error(`${serverMsg(err) ?? `Gỡ "${studentName}" thất bại.`} Chưa gỡ — thử lại.`, { persist: true })
         return
       }
     }
-    edit((c) => { c.students = c.students.filter((y) => y.id !== studentId) })
+    // Buổi chưa lên server của em này vào kho giữ lại — trước 11/11 lọc thẳng, mất trắng.
+    const id = cls.id
+    setData(produce((d: AppData) => {
+      if (orphans.length) d.orphans = appendOrphans(d.orphans, orphans)
+      const c = d.classes.find((x) => x.id === id)
+      if (c) c.students = c.students.filter((y) => y.id !== studentId)
+    }))
+    toast.success(`Đã gỡ ${studentName} khỏi ${cls.name}.`)
   }
 
   async function loadJoinCode() {
@@ -372,8 +426,9 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
               <div style={{ color: C.muted }}>Tên lớp</div>
               <input
                 value={cls.name}
+                onFocus={(x) => { focusValRef.current = x.target.value }}
                 onChange={(x) => edit((c) => { c.name = x.target.value })}
-                onBlur={(x) => void syncFieldToApi('name', x.target.value)}
+                onBlur={(x) => { const old = focusValRef.current; if (x.target.value !== old) void syncFieldToApi('name', x.target.value, (c) => { c.name = old }) }}
                 className="mt-1 w-full rounded-xl px-3 py-2"
                 style={{ border: `1px solid ${C.line}` }}
               />
@@ -382,8 +437,9 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
               <div style={{ color: C.muted }}>Giáo viên</div>
               <input
                 value={cls.teacher}
+                onFocus={(x) => { focusValRef.current = x.target.value }}
                 onChange={(x) => edit((c) => { c.teacher = x.target.value })}
-                onBlur={(x) => void syncFieldToApi('teacherName', x.target.value)}
+                onBlur={(x) => { const old = focusValRef.current; if (x.target.value !== old) void syncFieldToApi('teacherName', x.target.value, (c) => { c.teacher = old }) }}
                 className="mt-1 w-full rounded-xl px-3 py-2"
                 style={{ border: `1px solid ${C.line}` }}
               />
@@ -394,11 +450,14 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                 value={cls.level}
                 onChange={(x) => {
                   const lvl = x.target.value as 'primary' | 'secondary'
+                  const old = cls.level
+                  // Đổi cấp lớp = đổi 8 ↔ 12 buổi/kỳ = đổi học phí: hỏi lại, lỗi thì trả lại.
+                  if (!confirm(levelChangeConfirm(cls.name, lvl))) return
                   edit((c) => {
                     c.level = lvl
                     c.perMonth = lvl === 'primary' ? 8 : 12
                   })
-                  void syncFieldToApi('level', lvl)
+                  void syncFieldToApi('level', lvl, (c) => { c.level = old; c.perMonth = old === 'primary' ? 8 : 12 })
                 }}
                 className="mt-1 w-full rounded-xl px-3 py-2"
                 style={{ border: `1px solid ${C.line}` }}
@@ -602,11 +661,11 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                           title="Dùng khi học sinh chuyển vào giữa chừng — VD đã học 9 buổi ở sổ giấy trước khi dùng app thì điền 9, buổi đầu ghi trong app sẽ tự thành Buổi 10."
                         >
                           Buổi trước:
-                          <input
-                            type="number"
-                            min={0}
+                          <NumberCommitInput
                             value={st.sessionOffset ?? 0}
-                            onChange={(x) => void syncStudentOffset(st.id, Math.max(0, Number(x.target.value) || 0))}
+                            min={0}
+                            onCommit={(n) => syncStudentOffset(st.id, n)}
+                            ariaLabel={`Số buổi đã học trước của ${st.name}`}
                             className="w-12 rounded-lg px-1 py-1 text-center text-xs"
                             style={{ border: `1px solid ${C.line}`, background: '#fff' }}
                           />
@@ -750,7 +809,8 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                                       <button
                                         className="text-xs font-bold"
                                         style={{ color: C.red }}
-                                        onClick={async () => {
+                                        disabled={lock.isBusy(`delSession:${ss.id}`)}
+                                        onClick={() => void lock.run(`delSession:${ss.id}`, async () => {
                                           // Buổi còn dữ liệu CHƯA lên server → vào kho giữ lại, không mất trắng.
                                           const orphan = orphanForLocalDelete(cls, stu, ss)
                                           const msg = orphan
@@ -777,7 +837,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                                             // số buổi luôn 1..n) — máy làm y hệt.
                                             removeSessionLocally(s, ss.id, isMongoid(ss.id))
                                           })
-                                        }}
+                                        })}
                                       >
                                         Xóa
                                       </button>

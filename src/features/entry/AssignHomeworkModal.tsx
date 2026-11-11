@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useActionLock } from '@/hooks/useActionLock'
 import { C } from '@/constants/colors'
 import { Btn } from '@/components/atoms/Btn'
 import { assignmentService, type Assignment, type AssignmentSubmitType } from '@/services/assignments'
@@ -49,8 +50,13 @@ export function AssignHomeworkModal({ classId, className, teacherName, sessionId
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
-  async function handleSubmit(e: React.FormEvent) {
+  // Khóa bằng ref (useActionLock): 2 lần bấm/Enter liền không gửi 2 lần.
+  const lock_submit = useActionLock()
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    void lock_submit.run('submit', () => handleSubmitLocked())
+  }
+  async function handleSubmitLocked() {
     if (!title.trim()) { setErr('Vui lòng nhập tiêu đề bài tập'); return }
     if (submitType === 'quiz' && questions.length === 0) { setErr('Vui lòng thêm ít nhất 1 câu hỏi'); return }
     if (submitType === 'quiz' && questions.some((q) => !isQuestionComplete(q))) {

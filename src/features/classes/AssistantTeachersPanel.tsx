@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useActionLock } from '@/hooks/useActionLock'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { C } from '@/constants/colors'
 import { Btn } from '@/components/atoms/Btn'
@@ -64,13 +65,17 @@ export function AssistantTeachersPanel({ classId }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query])
 
-  async function save(nextIds: string[]) {
+  // Khóa bằng ref: thêm/gỡ giáo viên phụ bấm 2 lần không gửi chồng 2 danh sách.
+  const lock = useActionLock()
+  const save = (nextIds: string[]) => lock.run('save', () => saveLocked(nextIds))
+  async function saveLocked(nextIds: string[]) {
     setSaving(true)
     try {
       await classService.update(classId, { assistantTeacherIds: nextIds })
       await qc.invalidateQueries({ queryKey: CLASS_DETAIL_KEY(classId) })
-    } catch {
-      toast.error('Lỗi khi lưu — thử lại.', { persist: true })
+    } catch (err) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      toast.error(`${msg ?? 'Lỗi khi lưu.'} Chưa đổi gì — thử lại.`, { persist: true })
     } finally {
       setSaving(false)
     }

@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react'
+import { useActionLock } from '@/hooks/useActionLock'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { classService, type ApiClass } from '@/services/classes'
 import { adminService } from '@/services/admin'
@@ -94,7 +95,10 @@ function EditClassPanel({ cls, onDone }: { cls: ApiClass; onDone: () => void }) 
   const [deleting, setDeleting] = useState(false)
   const [msg, setMsg] = useState('')
 
-  async function handleSave() {
+  // Khóa bằng ref (useActionLock): 2 cú bấm liền không gửi 2 lần.
+  const lock_save = useActionLock()
+  const handleSave = () => lock_save.run('save', () => handleSaveLocked())
+  async function handleSaveLocked() {
     if (!name.trim()) return
     setSaving(true)
     setMsg('')
@@ -195,7 +199,10 @@ function CreateClassForm({ onCreated }: { onCreated: () => void }) {
   const [err, setErr] = useState('')
   const qc = useQueryClient()
 
-  async function handleCreate() {
+  // Khóa bằng ref (useActionLock): 2 cú bấm liền không gửi 2 lần.
+  const lock_create = useActionLock()
+  const handleCreate = () => lock_create.run('create', () => handleCreateLocked())
+  async function handleCreateLocked() {
     if (!name.trim()) { setErr('Vui lòng nhập tên lớp'); return }
     setCreating(true)
     setErr('')

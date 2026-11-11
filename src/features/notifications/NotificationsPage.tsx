@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useActionLock } from '@/hooks/useActionLock'
 import { C } from '@/constants/colors'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
@@ -35,19 +36,25 @@ function BroadcastComposer() {
   const [type, setType] = useState('announcement')
   const [sending, setSending] = useState(false)
   const [result, setResult] = useState<string | null>(null)
+  const lock = useActionLock()
 
   const apiClasses = (data?.classes ?? []).filter((c) => isMongoid(c.id))
 
-  async function send() {
+  // Gửi tới CẢ LỚP: hỏi lại nêu lớp + tiêu đề; khóa bằng ref (bấm 2 lần không gửi 2 thông báo).
+  const send = () => lock.run('send', sendLocked)
+  async function sendLocked() {
     if (!classId || !title.trim() || !body.trim()) return
+    const clsName = apiClasses.find((c) => c.id === classId)?.name ?? 'lớp này'
+    if (!confirm(`Gửi thông báo "${title.trim()}" tới mọi học sinh / phụ huynh ${clsName}? Gửi rồi không thu hồi được.`)) return
     setSending(true)
     setResult(null)
     try {
       const r = await notificationService.broadcast({ classId, title: title.trim(), body: body.trim(), type })
       setResult(`✓ Đã gửi tới ${r.sent} học sinh`)
       setTitle(''); setBody('')
-    } catch {
-      setResult('⚠ Gửi thất bại — kiểm tra kết nối')
+    } catch (err) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setResult(`⚠ ${msg ?? 'Gửi thất bại — kiểm tra kết nối'}. Chưa gửi — thử lại.`)
     } finally {
       setSending(false)
     }

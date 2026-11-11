@@ -7,6 +7,7 @@ import { asyncHandler } from '../utils/asyncHandler.js'
 import { idParamsSchema, listQuerySchema } from '../schemas/commonSchemas.js'
 import { objectIdSchema } from '../schemas/commonSchemas.js'
 import { z } from 'zod'
+import { studentPatchSchema } from '../schemas/lmsSchemas.js'
 
 export const teacherRouter = Router()
 export const studentRouter = Router()
@@ -23,7 +24,7 @@ studentRouter.get('/:id', authorize('teacher'), validate({ params: idParamsSchem
 studentRouter.patch(
   '/:id',
   authorize('teacher'),
-  validate({ params: idParamsSchema, body: z.object({ name: z.string().min(1).max(100).optional(), avatar: z.string().max(500).optional() }) }),
+  validate({ params: idParamsSchema, body: studentPatchSchema }),
   asyncHandler(updateManagedStudent),
 )
 

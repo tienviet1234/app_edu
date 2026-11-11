@@ -4,6 +4,7 @@ import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { toast } from '@/store/toastStore'
 import { classService } from '@/services/classes'
+import { useActionLock } from '@/hooks/useActionLock'
 import { effectiveRateOf, studentTuitionNote, type StudentTuitionRule } from '@/business/tuition'
 
 const vnd = (n: number) => `${n.toLocaleString('vi-VN')}đ`
@@ -29,6 +30,7 @@ export function StudentTuitionCard({ classId, classRate, students, rules, canEdi
   const [value, setValue] = useState('')
   const [reason, setReason] = useState('')
   const [saving, setSaving] = useState(false)
+  const lock = useActionLock() // 1 khóa chung cho thẻ: không lưu chồng 2 lệnh học phí riêng
 
   const nameOf = (id: string) => students.find((s) => s.id === id)?.name ?? '(học sinh đã rời lớp)'
   const num = Number(value.replace(/\s/g, '').replace(',', '.'))
@@ -47,7 +49,8 @@ export function StudentTuitionCard({ classId, classRate, students, rules, canEdi
 
   const fail = (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Lưu không được — thử lại.', { persist: true })
 
-  const save = async () => {
+  const save = () => lock.run('tuition', saveLocked)
+  const saveLocked = async () => {
     if (!studentId || classRate == null) return
     const v = mode === 'percent' ? num : Math.round(num)
     const desc = studentTuitionNote(classRate, { studentId, mode, value: v, reason: reason.trim() })
@@ -61,7 +64,8 @@ export function StudentTuitionCard({ classId, classRate, students, rules, canEdi
     } catch (e) { fail(e) } finally { setSaving(false) }
   }
 
-  const remove = async (id: string) => {
+  const remove = (id: string) => lock.run('tuition', () => removeLocked(id))
+  const removeLocked = async (id: string) => {
     if (!confirm(`Bỏ học phí riêng của ${nameOf(id)} — quay về giá lớp${classRate != null ? ` ${vnd(classRate)}/buổi` : ''}?\n\nPhiếu đã gửi giữ nguyên số tiền.`)) return
     setSaving(true)
     try {

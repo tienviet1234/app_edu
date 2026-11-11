@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useActionLock } from '@/hooks/useActionLock'
 import { classService } from '@/services/classes'
 import { sessionService } from '@/services/sessions'
 import { changeHistoryService, type FieldChange, type SessionHistory, type StudentChange } from '@/services/changeHistory'
@@ -46,6 +47,7 @@ export function ChangeHistoryCard() {
   const [sessionId, setSessionId] = useState('')
   const [hist, setHist] = useState<SessionHistory | null>(null)
   const [busy, setBusy] = useState(false)
+  const lock = useActionLock()
 
   const fail = (e: unknown) => toast.error((e as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Lỗi khi tải — thử lại.', { persist: true })
 
@@ -74,7 +76,9 @@ export function ChangeHistoryCard() {
     setBusy(true)
     try { setHist(await changeHistoryService.ofSession(id)) } catch (e) { fail(e) } finally { setBusy(false) }
   }
-  const restore = async (v: SessionHistory['scoreVersions'][number]) => {
+  // Khóa bằng ref: bấm "Khôi phục" 2 lần liền không khôi phục 2 lần / không hỏi 2 lần.
+  const restore = (v: SessionHistory['scoreVersions'][number]) => lock.run('restore', () => restoreLocked(v))
+  const restoreLocked = async (v: SessionHistory['scoreVersions'][number]) => {
     if (!hist) return
     const label = `Buổi ${hist.session.lessonNo} (${dm(vnDate(hist.session.scheduledAt))}) của ${students.find((s) => s._id === studentId)?.name ?? 'học sinh'}`
     if (!confirm(`Khôi phục điểm ${label} về đúng như TRƯỚC lần sửa lúc ${when(v.at)}?\n\nTổng điểm: ${hist.score?.total ?? '—'} → ${v.before.total}\n\nBản hiện tại được cất lại trong lịch sử — khôi phục nhầm vẫn quay lại được. Máy giáo viên tự cập nhật khi mở lớp (máy đang sửa dở đúng buổi này sẽ được hỏi giữ bản nào).`)) return

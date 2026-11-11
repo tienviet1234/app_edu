@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react'
+import { useActionLock } from '@/hooks/useActionLock'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { adminService, type ApiUser, type InviteToken } from '@/services/admin'
 import { C } from '@/constants/colors'
@@ -253,7 +254,8 @@ export function UsersPage() {
     staleTime: 30_000,
   })
 
-  const { mutate: updateUser, isPending } = useMutation({
+  const lock = useActionLock()
+  const { mutateAsync: updateUserAsync, isPending } = useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: Parameters<typeof adminService.updateUser>[1] }) =>
       adminService.updateUser(id, patch),
     onSuccess: () => {
@@ -274,7 +276,21 @@ export function UsersPage() {
   }
 
   function quickApprove(u: ApiUser) {
-    updateUser({ id: u._id, patch: { isActive: true } })
+    void lock.run(`user:${u._id}`, () => updateUserAsync({ id: u._id, patch: { isActive: true } }).catch(() => undefined))
+  }
+
+  /** Lưu sửa tài khoản: đổi VAI TRÒ (VD lên admin) hoặc tắt/bật hoạt động thì hỏi lại nêu rõ hậu quả;
+   *  khóa bằng ref (bấm 2 lần không gửi 2 lần). Lỗi đã báo ở onError. */
+  function saveEdit() {
+    if (!editing) return
+    const u = editing
+    void lock.run(`user:${u._id}`, async () => {
+      const changes: string[] = []
+      if (editState.role !== u.role) changes.push(`vai trò ${u.role} → ${editState.role}${editState.role === 'admin' ? ' (TOÀN QUYỀN: xem/sửa mọi lớp, học phí, sao lưu)' : ''}`)
+      if (editState.isActive !== u.isActive) changes.push(editState.isActive ? 'BẬT hoạt động (đăng nhập được)' : 'TẮT hoạt động (không đăng nhập được nữa)')
+      if (changes.length && !confirm(`Đổi tài khoản ${u.name}: ${changes.join('; ')}?`)) return
+      await updateUserAsync({ id: u._id, patch: { name: editState.name.trim(), role: editState.role, isActive: editState.isActive } }).catch(() => undefined)
+    })
   }
 
   const users = data?.items ?? []
@@ -515,9 +531,7 @@ export function UsersPage() {
               <Btn
                 kind="solid"
                 disabled={isPending || !editState.name.trim()}
-                onClick={() =>
-                  updateUser({ id: editing._id, patch: { name: editState.name.trim(), role: editState.role, isActive: editState.isActive } })
-                }
+                onClick={saveEdit}
               >
                 {isPending ? 'Đang lưu...' : 'Lưu thay đổi'}
               </Btn>

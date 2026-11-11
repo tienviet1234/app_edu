@@ -294,3 +294,13 @@ export const uploadBodySchema = z.object({
   scope: z.enum(['profile', 'course', 'session', 'report', 'evidence', 'general']).optional(),
   relatedId: objectIdSchema.optional(),
 })
+
+/** PATCH /students/:id — Zod KHÔNG khai trường nào thì trường đó bị âm thầm bỏ (gotcha CLAUDE.md):
+ *  trước 11/11 thiếu sessionOffset + handwritingNote → ô "Buổi trước" ở Lớp học (dời mốc kỳ học phí)
+ *  báo lưu mà server không ghi gì, lần đồng bộ sau máy bị đè về trống. Có test. */
+export const studentPatchSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  avatar: z.string().max(500).optional(),
+  handwritingNote: z.string().max(300).optional(),
+  sessionOffset: z.number().int().min(0).max(1000).optional(),
+})

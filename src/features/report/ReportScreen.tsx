@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
+import { useActionLock } from '@/hooks/useActionLock'
 import { produce } from 'immer'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import type { ClassData } from '@/types'
@@ -48,6 +49,7 @@ export function ReportScreen({ cls, update }: ReportScreenProps) {
   const [editing, setEditing] = useState(false)
   const [copied, setCopied] = useState(false)
   const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const lock = useActionLock() // bấm "Lưu báo cáo" 2 lần liền không gửi 2 lần
   const taRef = useRef<HTMLTextAreaElement>(null)
   const [showResequence, setShowResequence] = useState(false)
   const [showDeleted, setShowDeleted] = useState(false)
@@ -243,7 +245,8 @@ ${r.comps.map((c) => `<td class="num">${fracPct(row.s.catPts[c.key])}</td>`).joi
     comment,
   ].join('\n')
 
-  async function syncReport() {
+  const syncReport = () => lock.run('report', syncReportLocked)
+  async function syncReportLocked() {
     if (!p || !isMongoid(cls.id) || !isMongoid(st.id)) return
     setSyncStatus('saving')
     const fromSession = st.sessions[p.from]

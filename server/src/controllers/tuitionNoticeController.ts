@@ -3,7 +3,7 @@ import mongoose, { Types } from 'mongoose'
 import { TuitionNotice } from '../models/TuitionNotice.js'
 import { Class } from '../models/Class.js'
 import { ClassSession } from '../models/ClassSession.js'
-import { checkNoticeSessions } from '../utils/dataRules.js'
+import { checkNoticeSessions, noticeDeleteBlockReason, paymentChangeNeeded } from '../utils/dataRules.js'
 import { writeRejectedAudit } from '../services/auditService.js'
 import { ok, created, badRequest, forbidden, notFound } from '../utils/response.js'
 import { asyncHandler } from '../utils/asyncHandler.js'
@@ -164,6 +164,8 @@ export const markTuitionPaid = asyncHandler(async (req: Request, res: Response) 
     forbidden(res, 'Bạn không dạy lớp này.')
     return
   }
+  // Đã đóng rồi (bấm 2 lần / máy khác vừa ghi) → giữ nguyên ngày đóng + người ghi nhận.
+  if (!paymentChangeNeeded(notice.paymentStatus, 'paid')) { ok(res, notice); return }
   notice.paymentStatus = 'paid'
   notice.paidAt = new Date()
   notice.paidBy = new Types.ObjectId(authReq.userId)
@@ -182,6 +184,7 @@ export const markTuitionUnpaid = asyncHandler(async (req: Request, res: Response
     forbidden(res, 'Bạn không dạy lớp này.')
     return
   }
+  if (!paymentChangeNeeded(notice.paymentStatus, 'unpaid')) { ok(res, notice); return }
   notice.paymentStatus = 'unpaid'
   notice.paidAt = undefined
   notice.paidBy = undefined
@@ -197,6 +200,12 @@ export const deleteTuitionNotice = asyncHandler(async (req: Request, res: Respon
   if (!notice) { notFound(res, 'Không tìm thấy hồ sơ này.'); return }
   if (!(await assertTeacherOwnsClass(authReq, String(notice.classId)))) {
     forbidden(res, 'Bạn không dạy lớp này.')
+    return
+  }
+  const blocked = noticeDeleteBlockReason(notice)
+  if (blocked) {
+    writeRejectedAudit(req, 'tuitionNotice.delete.rejected', 'TuitionNotice', { code: 'PAID', noticeId: String(notice._id), periodLabel: notice.periodLabel, finalAmount: notice.finalAmount })
+    res.status(409).json({ success: false, code: 'PAID', message: blocked })
     return
   }
   // Phiếu có danh sách buổi → gỡ dấu "đã thu" đúng các buổi đó cùng lúc xóa

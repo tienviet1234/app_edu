@@ -5,6 +5,8 @@ import { getClassRubric } from '@/constants/rubrics'
 import { statsOf } from '@/business/stats'
 import { buildComment, sessionDetailsOf, type SessionDetailRow } from '@/business/report'
 import { sessionsBilledOf, currentProgressOf, periodPositionOf, sessionLabelOf, unbilledSessionsOf, duePeriodsOf, unbilledOffsetOf, effectiveRateOf, studentTuitionNote, periodDuplicateDates, type StudentTuitionRule } from '@/business/tuition'
+import { useActionLock } from '@/hooks/useActionLock'
+import { noticeDeleteBlock, sendNoticeConfirm, deleteNoticeConfirm, markPaidConfirm, markUnpaidConfirm } from '@/business/tuitionActions'
 import { useAuthStore } from '@/store/authStore'
 import { StudentTuitionCard } from './StudentTuitionCard'
 import { isMongoid } from '@/utils/mongoid'
@@ -314,6 +316,11 @@ export function TuitionReportScreen({ cls, update }: Props) {
     addManualBill({ ...nd, sessions: st ? unbilledSessionsOf(st) : undefined })
   }
 
+  // Khóa nút ghi tiền theo từng phiếu/kỳ (2 cú bấm liền không gửi đôi) — useActionLock.
+  const lock = useActionLock()
+  const nameOf = (studentId: string) => cls.students.find((s) => s.id === studentId)?.name ?? '(học sinh đã xoá)'
+  const serverMsg = (err: unknown) => (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+
   /** Van an toàn thủ công cho ca đã gặp thật: 1 buổi lỗi/trùng trong 1 kỳ ĐÃ
    *  thu tiền bị xóa, làm các buổi còn sót trong kỳ đó bị đếm lại thành
    *  "buổi mới" ở mục "Chưa tới hạn" — dù thực ra đã thu tiền rồi. KHÔNG tự
@@ -321,6 +328,10 @@ export function TuitionReportScreen({ cls, update }: Props) {
    *  hại hơn lợi) — admin phải tự đọc đúng ngày tháng rồi mới xác nhận. Chỉ
    *  đánh dấu billed, KHÔNG tạo khoản thu mới (tiền đã thu ở khoản cũ rồi). */
   async function markAlreadyBilled(nd: { studentId: string; studentName: string; from: number; to: number }) {
+    await lock.run(`billed:${nd.studentId}`, () => markAlreadyBilledLocked(nd))
+  }
+
+  async function markAlreadyBilledLocked(nd: { studentId: string; studentName: string; from: number; to: number }) {
     const st = cls.students.find((s) => s.id === nd.studentId)
     if (!st) return
     const slice = unbilledSessionsOf(st).slice(nd.from, nd.to)
@@ -404,6 +415,10 @@ export function TuitionReportScreen({ cls, update }: Props) {
   }
 
   async function markSent(row: DueRow) {
+    await lock.run(`send:${row.studentId}:${row.periodFrom}-${row.periodTo}`, () => markSentLocked(row))
+  }
+
+  async function markSentLocked(row: DueRow) {
     const finalAmount = Number(row.finalAmount)
     if (Number.isNaN(finalAmount) || finalAmount < 0) {
       toast.error('Số tiền không hợp lệ.')
@@ -431,6 +446,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
       toast.error(`Học phí của ${row.studentName} vừa thay đổi (${fmtVnd(row.ratePerSession)} → ${fmtVnd(rateOf(row.studentId))}/buổi) — tải lại trang để tính lại rồi gửi.`, { persist: true })
       return
     }
+    if (!confirm(sendNoticeConfirm({ studentName: row.studentName, periodLabel: row.periodLabel, sessionsBilled: row.sessionsBilled, sessionCount: row.sessionIds.length, computedAmount: row.computedAmount, finalAmount, adjustmentReason: row.adjustmentReason }))) return
     patchRow(row, (r) => { r.saving = true })
     try {
       const created = await tuitionNoticeService.create({
@@ -492,45 +508,56 @@ export function TuitionReportScreen({ cls, update }: Props) {
   }
 
   async function undoSent(notice: TuitionNotice) {
-    if (!confirm(`Hoàn tác "đã gửi" cho kỳ ${notice.periodLabel}? Dùng khi ghi nhầm — sau đó có thể ghi lại cho đúng.`)) return
-    try {
-      await tuitionNoticeService.remove(notice._id)
-      setNotices((prev) => prev.filter((n) => n._id !== notice._id))
-      // Server đã gỡ dấu "đã thu" đúng các buổi của phiếu này — máy gỡ theo
-      // để kỳ đó hiện lại ngay (trước đây buổi vẫn mang dấu, không thu lại được).
-      if (notice.sessionIds?.length) {
-        const ids = new Set(notice.sessionIds)
-        update((c) => {
-          const stu = c.students.find((s) => s.id === notice.studentId)
-          stu?.sessions.forEach((s) => { if (ids.has(s.id)) s.billed = false })
-        })
+    // Phiếu đã đóng tiền không xóa thẳng (server cũng chặn — noticeDeleteBlockReason).
+    const blocked = noticeDeleteBlock(notice)
+    if (blocked) { toast.error(blocked, { persist: true }); return }
+    await lock.run(`notice:${notice._id}`, async () => {
+      if (!confirm(deleteNoticeConfirm(nameOf(notice.studentId), notice))) return
+      try {
+        await tuitionNoticeService.remove(notice._id)
+        setNotices((prev) => prev.filter((n) => n._id !== notice._id))
+        // Server đã gỡ dấu "đã thu" đúng các buổi của phiếu này — máy gỡ theo
+        // để kỳ đó hiện lại ngay (trước đây buổi vẫn mang dấu, không thu lại được).
+        if (notice.sessionIds?.length) {
+          const ids = new Set(notice.sessionIds)
+          update((c) => {
+            const stu = c.students.find((s) => s.id === notice.studentId)
+            stu?.sessions.forEach((s) => { if (ids.has(s.id)) s.billed = false })
+          })
+        }
+        toast.success(`Đã xóa phiếu "${notice.periodLabel}" của ${nameOf(notice.studentId)}.`)
+      } catch (err) {
+        toast.error(`${serverMsg(err) ?? 'Lỗi khi xóa phiếu.'} Chưa xóa gì — thử lại.`, { persist: true })
       }
-      toast.success('Đã hoàn tác.')
-    } catch {
-      toast.error('Lỗi khi hoàn tác — thử lại.')
-    }
+    })
   }
 
   /** Đánh dấu ĐÃ THU ĐƯỢC TIỀN — khác hẳn "đã gửi" ở trên, ghi nhận lúc phụ
    *  huynh THỰC SỰ đóng, có thể trễ hơn lúc gửi rất nhiều. */
   async function markPaid(notice: TuitionNotice) {
-    try {
-      const updated = await tuitionNoticeService.markPaid(notice._id)
-      setNotices((prev) => prev.map((n) => (n._id === updated._id ? updated : n)))
-      toast.success('Đã đánh dấu đóng tiền.')
-    } catch {
-      toast.error('Lỗi — thử lại.')
-    }
+    await lock.run(`notice:${notice._id}`, async () => {
+      if (!confirm(markPaidConfirm(nameOf(notice.studentId), notice))) return
+      try {
+        const updated = await tuitionNoticeService.markPaid(notice._id)
+        setNotices((prev) => prev.map((n) => (n._id === updated._id ? updated : n)))
+        toast.success(`Đã ghi nhận ${nameOf(notice.studentId)} đóng ${fmtVnd(notice.finalAmount)}.`)
+      } catch (err) {
+        toast.error(`${serverMsg(err) ?? 'Lỗi khi ghi nhận đã đóng.'} Chưa ghi gì — thử lại.`, { persist: true })
+      }
+    })
   }
 
   async function undoPaid(notice: TuitionNotice) {
-    try {
-      const updated = await tuitionNoticeService.markUnpaid(notice._id)
-      setNotices((prev) => prev.map((n) => (n._id === updated._id ? updated : n)))
-      toast.success('Đã chuyển lại về "chưa đóng".')
-    } catch {
-      toast.error('Lỗi — thử lại.')
-    }
+    await lock.run(`notice:${notice._id}`, async () => {
+      if (!confirm(markUnpaidConfirm(nameOf(notice.studentId), notice))) return
+      try {
+        const updated = await tuitionNoticeService.markUnpaid(notice._id)
+        setNotices((prev) => prev.map((n) => (n._id === updated._id ? updated : n)))
+        toast.success(`Đã chuyển "${notice.periodLabel}" của ${nameOf(notice.studentId)} về chưa đóng.`)
+      } catch (err) {
+        toast.error(`${serverMsg(err) ?? 'Lỗi khi chuyển về chưa đóng.'} Chưa đổi gì — thử lại.`, { persist: true })
+      }
+    })
   }
 
   async function copyMessage(row: DueRow) {
@@ -1277,6 +1304,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
                     style={{ color: C.muted, border: `1px solid ${C.line}` }}
                     title="Dùng khi các buổi này THẬT RA đã nằm trong 1 khoản đã thu tiền trước đó rồi (VD do xóa 1 buổi lỗi/trùng trong kỳ đó) — KHÔNG tạo khoản thu mới, chỉ ẩn khỏi danh sách này"
                     onClick={() => markAlreadyBilled(r)}
+                    disabled={lock.isBusy(`billed:${r.studentId}`)}
                   >
                     ☑️ Đã tính tiền trước đó
                   </button>
@@ -1311,8 +1339,8 @@ export function TuitionReportScreen({ cls, update }: Props) {
                           {n.reportComment && <div className="mt-0.5" style={{ color: C.ink }}>📝 {n.reportComment}</div>}
                         </div>
                         <div className="flex shrink-0 gap-2">
-                          <Btn kind="solid" size="sm" onClick={() => markPaid(n)}>✅ Đã đóng tiền</Btn>
-                          <button className="text-xs font-semibold" style={{ color: C.red }} onClick={() => undoSent(n)} title="Xóa hẳn khoản này — dùng khi lỡ chốt/gửi nhầm, xóa xong có thể chốt lại từ đầu">🗑️ Xóa (ghi nhầm)</button>
+                          <Btn kind="solid" size="sm" onClick={() => markPaid(n)} loading={lock.isBusy(`notice:${n._id}`)}>✅ Đã đóng tiền</Btn>
+                          <button className="text-xs font-semibold" style={{ color: C.red }} onClick={() => undoSent(n)} disabled={lock.isBusy(`notice:${n._id}`)} title="Xóa hẳn khoản này — dùng khi lỡ chốt/gửi nhầm, xóa xong có thể chốt lại từ đầu">🗑️ Xóa (ghi nhầm)</button>
                         </div>
                       </div>
                     )
@@ -1344,7 +1372,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
                             </div>
                             {n.reportComment && <div className="mt-0.5" style={{ color: C.ink }}>📝 {n.reportComment}</div>}
                           </div>
-                          <button className="shrink-0 text-xs" style={{ color: C.muted }} onClick={() => undoPaid(n)}>↩ Hoàn tác đóng</button>
+                          <button className="shrink-0 text-xs" style={{ color: C.muted }} onClick={() => undoPaid(n)} disabled={lock.isBusy(`notice:${n._id}`)}>↩ Hoàn tác đóng</button>
                         </div>
                       )
                     })}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useActionLock } from '@/hooks/useActionLock'
 import { produce } from 'immer'
 import { C } from '@/constants/colors'
 import { Card } from '@/components/atoms/Card'
@@ -229,7 +230,10 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
     }
   }
 
-  async function handleReview(subId: string) {
+  // Khóa bằng ref (useActionLock): 2 cú bấm liền không gửi 2 lần.
+  const lock_review = useActionLock()
+  const handleReview = (subId: string) => lock_review.run('review', () => handleReviewLocked(subId))
+  async function handleReviewLocked(subId: string) {
     setSaving(true)
     try {
       const sub = submissions.find((s) => s._id === subId)

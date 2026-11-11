@@ -4,6 +4,7 @@ import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { debtService, DEBT_KIND_LABEL, type Debt } from '@/services/debts'
 import { viDate } from '@/utils/format'
+import { useActionLock } from '@/hooks/useActionLock'
 import { toast } from '@/store/toastStore'
 
 interface Props {
@@ -24,15 +25,19 @@ function DebtCard({ debt, onSubmitted }: { debt: Debt; onSubmitted: (d: Debt) =>
   const [saving, setSaving] = useState(false)
   const done = debt.status === 'cleared'
 
-  async function submit() {
+  // Khóa bằng ref: bấm "Nộp" 2 lần liền không gửi 2 lần.
+  const lock = useActionLock()
+  const submit = () => lock.run('submit', submitLocked)
+  async function submitLocked() {
     if (!draft.trim()) return
     setSaving(true)
     try {
       const updated = await debtService.submit(debt._id, draft.trim())
       onSubmitted(updated)
       toast.success('Đã nộp — chờ cô xem qua và xác nhận.')
-    } catch {
-      toast.error('Lỗi khi nộp — thử lại.')
+    } catch (err) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      toast.error(`${msg ?? 'Lỗi khi nộp.'} Chưa nộp — thử lại.`, { persist: true })
     } finally {
       setSaving(false)
     }

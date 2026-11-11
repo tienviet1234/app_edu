@@ -689,3 +689,18 @@ export function planCompactNumbering(existing: Array<{ id: string; no: number; d
     .map((s, i) => ({ id: s.id, from: s.no, to: i + 1 }))
     .filter((x) => x.from !== x.to)
 }
+
+/** Xóa phiếu học phí (11/11): phiếu ĐÃ ĐÓNG TIỀN không xóa thẳng được — xóa là mất bản ghi đã thu,
+ *  các buổi của phiếu thành "chưa thu", kỳ sau thu lần 2. Ghi nhầm thật thì 2 bước rõ ràng:
+ *  "chuyển lại chưa đóng" rồi mới xóa. */
+export function noticeDeleteBlockReason(notice: { paymentStatus?: string; periodLabel?: string }): string | null {
+  return notice.paymentStatus === 'paid'
+    ? `Phiếu "${notice.periodLabel ?? ''}" đã ghi nhận ĐÃ ĐÓNG TIỀN — không xóa được. Nếu ghi nhầm: bấm "chuyển lại chưa đóng" trước, rồi mới xóa.`
+    : null
+}
+
+/** Đổi trạng thái đóng tiền: bấm lại đúng trạng thái đang có (bấm 2 lần, 2 máy cùng bấm) thì KHÔNG
+ *  ghi gì — trước đây ghi đè ngày đóng + người ghi nhận. */
+export function paymentChangeNeeded(current: string | undefined, target: 'paid' | 'unpaid'): boolean {
+  return (current ?? 'unpaid') !== target
+}
