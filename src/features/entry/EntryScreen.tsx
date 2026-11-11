@@ -12,13 +12,10 @@ import { emptyEntry } from '@/business/seed'
 import { dateChangeCheck } from '@/business/sessionDates'
 import { DateCommitInput } from '@/components/molecules/DateCommitInput'
 import {
-  resolvePlausibleNo, nextNoOf, pendingSessionsOf, adoptServerSession, makeRoomForServerNo, markSessionSaved, markConflict, resolveConflict, detachDeletedSession,
-  toSessionEntry, sameDateClash, navChoiceOf, unsentCountOf, latestSessionOf, siblingDefaultsFor, notesToSend, baseForSave, takeServerCopy, appendOrphans, homeworkToBackfill, type ServerScoreForSync,
+  resolvePlausibleNo, nextNoOf, pendingSessionsOf, resolveConflict, sameDateClash, navChoiceOf, unsentCountOf, siblingDefaultsFor, takeServerCopy, appendOrphans, homeworkToBackfill,
 } from '@/business/sync'
 import { useAppStore } from '@/store/appStore'
 import { useAuthStore } from '@/store/authStore'
-import { sameEntry } from '@/business/strandedScores'
-import { tryLockSession, unlockSession } from '@/utils/syncLocks'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
 import { Pick } from '@/components/atoms/Pick'
@@ -26,10 +23,11 @@ import { Chip } from '@/components/atoms/Chip'
 import { ProgressBar } from '@/components/atoms/ProgressBar'
 import { CompEditor } from '@/components/molecules/CompEditor'
 import { sessionService } from '@/services/sessions'
-import { scoreService, conflictFromError, isSessionDeletedError } from '@/services/scores'
+import { scoreService } from '@/services/scores'
 import { classService } from '@/services/classes'
 import { isMongoid } from '@/utils/mongoid'
 import { logActivity } from '@/services/activity'
+import { pushSession } from '@/services/sessionPush'
 import { toast } from '@/store/toastStore'
 import { ImportHomeworkModal } from './ImportHomeworkModal'
 import { ResequenceSessionsModal } from './ResequenceSessionsModal'
@@ -41,7 +39,7 @@ interface EntryScreenProps {
   /** Nhảy tới đúng học sinh + buổi này khi mở từ màn khác (VD "Thống kê
    *  buổi" bấm "Sửa điểm") — chỉ áp dụng 1 lần lúc mở màn. */
   initialTarget?: { studentId: string; no: number } | null
-  /** Có thì hiện "⊞ Xem cả lớp" + "Lưu và về lưới cả lớp" (đợt 2 C3) — lưu xong mới gọi. */
+  /** Có thì hiện "⊞ Về lưới cả lớp" + "Lưu và về lưới cả lớp" (đợt 2 C3) — lưu xong mới gọi. */
   onBackToGrid?: () => void
   onConsumeInitialTarget?: () => void
 }
@@ -314,174 +312,65 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
    *  không gửi lại (trước đây bấm Trước/Tiếp theo là gửi lại nguyên bản
    *  trên máy → máy giữ bản cũ đè mất điểm mới hơn do máy khác sửa). */
   async function syncSession(studentId: string, sessionLocalId: string, opts: { silent?: boolean } = {}): Promise<SaveResult> {
-    if (!isMongoid(cls.id) || !isMongoid(studentId)) return 'nothing'
-    // Đọc kho máy NGAY LÚC GỬI, không dùng bản lúc lên lịch — xem latestSessionOf.
-    const latest = latestSessionOf(useAppStore.getState().data?.classes, cls.id, studentId, sessionLocalId)
-    if (!latest) return 'nothing' // chưa nhập gì cho học sinh này buổi này — không có gì để lưu
-    const { student, session: target } = latest
-    // Nhãn + tên học sinh chụp lại NGAY LÚC GỌI (trước khi màn hình có thể
-    // đã chuyển sang học sinh khác) — để thông báo lưu xong vẫn nói đúng
-    // tên, dù lúc đó người dùng đã đang xem học sinh khác rồi.
-    const label = sessionLabelOf(target.no, cls.perMonth, student.sessionOffset)
-    if (isMongoid(target.id) && !target.dirty) {
-      // Đã khớp server (server xác nhận lần lưu trước) — báo cho giáo viên
-      // yên tâm, không gửi lại.
-      if (!opts.silent && target.synced) toast.success(`✓ ${label} của ${student.name} đã lưu trên server`)
-      return 'saved'
-    }
-    // Đang gửi đúng buổi này (tự lưu nền / đồng bộ lúc mở app) — phần sửa
-    // thêm vẫn còn dirty, lượt sau sẽ gửi tiếp.
-    if (!tryLockSession(target.id)) return 'busy'
-    const maxes = target.maxes ?? {}
-    const comps = r.comps.map((c) => (maxes[c.key] != null ? rescaleComp(c, maxes[c.key]) : c))
-    const total = sessionScore(target.entry, { ...r, comps }) ?? 0
-    const wasNew = !isMongoid(target.id)
-    const sent = { entry: target.entry, homework: target.homework, maxes: target.maxes }
-    setSyncStatus('saving')
-    try {
-      let sessionId = target.id
-      let scoreAlreadySaved = false
-      if (wasNew) {
-        let finalNo = target.no
-        try {
-          const apiSession = await sessionService.create({
-            classId: cls.id,
-            studentId,
-            title: `Buổi ${target.no}`,
-            lessonNo: target.no,
-            scheduledAt: `${target.date}T00:00:00.000Z`,
-            notes: target.homework || undefined,
-            ...(target.maxes ? { maxes: target.maxes } : {}),
-            // Không để server từ chối vì trùng số buổi (máy này có thể đang
-            // giữ số buổi cũ) — server tự xếp đúng vị trí theo NGÀY. Trước đây
-            // trùng số là bị từ chối, điểm kẹt lại máy (sự cố thật 18/10).
-            placeByDate: true,
-          })
-          sessionId = apiSession._id
-          finalNo = apiSession.lessonNo ?? target.no
-        } catch (err) {
-          // Server đã có buổi CÙNG NGÀY của em này (VD đồng bộ lúc mở app vừa
-          // đẩy đúng buổi này lên) → điền vào đó, nhưng CHỈ khi buổi đó chưa có
-          // điểm hoặc trùng nội dung; khác nội dung thì báo lỗi bên dưới.
-          const resp = (err as { response?: { status?: number; data?: { code?: string; data?: { existingId?: string; lessonNo?: number } } } }).response
-          const existingId = resp?.status === 409 && resp.data?.code === 'SAME_DATE' ? resp.data.data?.existingId : undefined
-          if (!existingId) throw err
-          const res = await scoreService.upsert({ classId: cls.id, sessionId: existingId, studentId, ...target.entry, total, ifAbsent: true })
-          if (res.deleted || (res.skipped && !sameEntry(target.entry, res))) throw err
-          sessionId = existingId
-          finalNo = resp?.data?.data?.lessonNo ?? target.no
-          scoreAlreadySaved = true
-        }
-        const localId = target.id
-        const newId = sessionId
-        update((c) => {
-          const stu = c.students.find((s) => s.id === studentId)
-          if (!stu) return
-          adoptServerSession(stu, localId, newId, finalNo)
-          makeRoomForServerNo(stu, newId, finalNo)
-        })
-        if (finalNo !== target.no) {
-          setNoByStudent((prev) => ({ ...prev, [studentId]: finalNo }))
-        }
-        logActivity('session.create', { className: cls.name, sessionNo: target.no, studentName: student.name }, 'ClassSession')
+    // Phần GỬI dùng chung với Điểm danh nhanh / lưới cả lớp (services/sessionPush.ts, đợt 3) —
+    // màn này chỉ báo kết quả cho giáo viên, KHÔNG báo "Đã lưu" trước khi server xác nhận.
+    const offsetOf = (id: string) => cls.students.find((x) => x.id === id)?.sessionOffset
+    const labelOf = (no: number) => sessionLabelOf(no, cls.perMonth, offsetOf(studentId))
+    const out = await pushSession({ cls, rubric: r, studentId, sessionLocalId, update, onSending: () => setSyncStatus('saving') })
+    switch (out.kind) {
+      case 'nothing': return 'nothing'
+      case 'busy': return 'busy'
+      case 'alreadySynced':
+        // Đã khớp server (server xác nhận lần lưu trước) — báo cho giáo viên yên tâm, không gửi lại.
+        if (!opts.silent && out.synced) toast.success(`✓ ${labelOf(out.no)} của ${out.studentName} đã lưu trên server`)
+        return 'saved'
+      case 'saved': {
+        if (out.wasNew && out.finalNo !== out.no) setNoByStudent((prev) => ({ ...prev, [studentId]: out.finalNo }))
+        failedAtRef.current.delete(sessionLocalId)
+        setSyncStatus('saved')
+        setTimeout(() => setSyncStatus('idle'), 2000)
+        // CHỈ báo "Đã lưu" SAU KHI server xác nhận (sự cố mất điểm Lớp 3/4/5/7 khi báo sớm).
+        if (opts.silent) { /* tự lưu nền — chỉ báo khi lỗi */ } else if (out.wasNew) toast.success(`✓ Đã lưu ${labelOf(out.no)} của ${out.studentName} (${viDate(out.date)})`)
+        else toast.success(`✓ Đã lưu điểm ${labelOf(out.no)} của ${out.studentName}`)
+        return 'saved'
       }
-      // Điểm gửi TRƯỚC, kèm mốc bản server máy này dựa vào (baseUpdatedAt) —
-      // máy khác lưu chen vào giữa thì server từ chối (409 CONFLICT) thay vì
-      // để bản lưu sau âm thầm đè mất bản kia. Bị từ chối thì bài tập/số câu
-      // cũng chưa gửi (đợi giáo viên chọn bản nào).
-      let savedUpdatedAt: string | undefined
-      if (!scoreAlreadySaved) {
-        const saved = await scoreService.upsert({ classId: cls.id, sessionId, studentId, ...target.entry, total, ...(wasNew ? {} : { baseUpdatedAt: baseForSave(target) }) })
-        savedUpdatedAt = saved.updatedAt
-      }
-      if (!wasNew) {
-        // Buổi đã có sẵn trên server — gửi kèm "Số câu", và "Bài tập về nhà" chỉ
-        // khi máy này thật sự đổi (xem notesToSend).
-        const notes = notesToSend(target)
-        if (notes !== undefined || target.maxes) {
-          await sessionService.update(sessionId, { ...(notes !== undefined ? { notes } : {}), ...(target.maxes ? { maxes: target.maxes } : {}) })
+      case 'deleted':
+        setSyncStatus('error')
+        // Buổi đã bị xóa trên server — đã tách thành buổi chưa lên server, GIỮ điểm vừa nhập.
+        toast.info(`${labelOf(out.no)} (${viDate(out.date)}) của ${out.studentName} đã bị xóa trên server — đang tạo lại buổi này để giữ điểm vừa nhập. Nếu buổi này không có thật, xóa ở "Sửa số buổi".`, { persist: true })
+        return 'failed'
+      case 'conflict':
+        setSyncStatus('error')
+        // 2 máy cùng sửa buổi này — giữ cả 2 bản, giáo viên chọn ở thanh vàng (không tự đè).
+        if (out.real) toast.error(`${labelOf(out.no)} của ${out.studentName} vừa được ${out.byName ?? 'người khác'} lưu bản khác ở máy khác — chọn giữ bản nào ở thanh vàng phía trên màn Nhập điểm.`, { persist: true })
+        return 'failed'
+      case 'error': {
+        setSyncStatus('error')
+        const msg = out.sameDateNo !== undefined
+          ? `ngày ${viDate(out.date)} em này đã có Buổi ${out.sameDateNo >= 0 ? out.sameDateNo : '?'} rồi — chọn đúng buổi đó để nhập, hoặc đổi ngày cho buổi này`
+          : out.message
+        // Tự lưu nền thử lại sau 1 phút — chỉ báo LẦN ĐẦU mỗi buổi; bấm lưu tay thì luôn báo.
+        const firstFailure = !failedAtRef.current.has(sessionLocalId)
+        failedAtRef.current.set(sessionLocalId, Date.now())
+        setTimeout(() => setRetryTick((t) => t + 1), RETRY_MS)
+        // Mất mạng: dữ liệu vẫn an toàn trên máy, có mạng lại tự gửi — không báo lỗi đỏ.
+        if (out.offline) {
+          setSyncStatus('offline')
+          if (!opts.silent) toast.info(`${labelOf(out.no)} của ${out.studentName} đã lưu trên máy — sẽ tự gửi lên khi có mạng.`)
+        } else if (!opts.silent || firstFailure) {
+          toast.error(
+            msg
+              ? `Không lưu được Buổi ${out.no} của ${out.studentName} — ${msg}`
+              : `Lỗi lưu điểm Buổi ${out.no} của ${out.studentName} — kiểm tra mạng, app sẽ tự thử lại.`,
+            { persist: true },
+          )
         }
-      }
-      const savedId = sessionId
-      update((c) => {
-        const stu = c.students.find((s) => s.id === studentId)
-        if (stu) markSessionSaved(stu, savedId, sent, savedUpdatedAt)
-      })
-      failedAtRef.current.delete(sessionLocalId)
-      setSyncStatus('saved')
-      setTimeout(() => setSyncStatus('idle'), 2000)
-      // CHỈ báo "Đã lưu" SAU KHI server xác nhận thành công thật sự — trước
-      // đây báo NGAY LÚC BẤM (trước khi gửi lên server), nên nếu lưu thất
-      // bại sau đó (lỗi mạng...), giáo viên đã thấy "✓ Đã lưu" và tin tưởng,
-      // không để ý thông báo lỗi xuất hiện sau đó lúc đã đang chấm em khác —
-      // đây chính là nguyên nhân "chấm xong, bấm Tiếp theo, nhưng điểm vẫn
-      // mất" dù đã làm đúng quy trình, phát hiện khi rà soát sau báo cáo
-      // thực tế mất điểm nhiều em ở Lớp 3/4/5/7.
-      if (opts.silent) { /* tự lưu nền — chỉ báo khi lỗi */ } else if (wasNew) toast.success(`✓ Đã lưu ${label} của ${student.name} (${viDate(target.date)})`)
-      else toast.success(`✓ Đã lưu điểm ${label} của ${student.name}`)
-      return 'saved'
-    } catch (err) {
-      setSyncStatus('error')
-      if (isSessionDeletedError(err)) {
-        // Buổi đã bị xóa trên server (admin/máy khác) — tách thành buổi chưa
-        // lên server, GIỮ điểm vừa nhập; bộ tự lưu tạo lại buổi theo ngày ngay.
-        const localId = target.id
-        update((c) => {
-          const stu = c.students.find((s) => s.id === studentId)
-          if (stu) detachDeletedSession(stu, localId, uid())
-        })
-        toast.info(`${label} (${viDate(target.date)}) của ${student.name} đã bị xóa trên server — đang tạo lại buổi này để giữ điểm vừa nhập. Nếu buổi này không có thật, xóa ở "Sửa số buổi".`, { persist: true })
         return 'failed'
       }
-      const conflict = conflictFromError(err)
-      if (conflict) {
-        // 2 máy cùng sửa buổi này — giữ cả 2 bản, giáo viên chọn ở thanh
-        // "Buổi bị sửa ở 2 nơi" phía trên (không tự đè, không tự thử lại).
-        const sc = conflict.score
-        const byName = typeof sc.recordedBy === 'object' ? sc.recordedBy?.name : undefined
-        const localId = target.id
-        const result = { real: false }
-        update((c) => {
-          const stu = c.students.find((s) => s.id === studentId)
-          if (stu) result.real = markConflict(stu, localId, { entry: toSessionEntry(sc as unknown as ServerScoreForSync), total: sc.total, updatedAt: sc.updatedAt, byName })
-        })
-        // Bản server giống hệt bản máy (máy gửi 2 lần) → không hỏi gì, bộ tự lưu gửi tiếp.
-        if (result.real) toast.error(`${label} của ${student.name} vừa được ${byName ?? 'người khác'} lưu bản khác ở máy khác — chọn giữ bản nào ở thanh vàng phía trên màn Nhập điểm.`, { persist: true })
-        return 'failed'
-      }
-      // Nêu đúng lý do server từ chối (VD "đã có Buổi N rồi") thay vì câu
-      // chung chung — trước đây giáo viên chỉ thấy "Lỗi lưu điểm", tưởng
-      // không nhập được buổi mới trong khi thật ra server đang từ chối vì
-      // 1 lý do cụ thể (thường là trùng số buổi với 1 bản ghi còn sót lại).
-      const resp = (err as { response?: { status?: number; data?: { message?: string; code?: string; data?: { lessonNo?: number } } } })?.response
-      const msg = resp?.data?.code === 'SAME_DATE'
-        ? `ngày ${viDate(target.date)} em này đã có Buổi ${resp.data.data?.lessonNo ?? '?'} rồi — chọn đúng buổi đó để nhập, hoặc đổi ngày cho buổi này`
-        : resp?.data?.message
-      // Tự lưu nền thử lại sau 1 phút — chỉ báo LẦN ĐẦU mỗi buổi để không
-      // dồn thông báo lỗi; bấm lưu tay (Trước/Tiếp theo) thì luôn báo.
-      const firstFailure = !failedAtRef.current.has(sessionLocalId)
-      failedAtRef.current.set(sessionLocalId, Date.now())
-      setTimeout(() => setRetryTick((t) => t + 1), RETRY_MS)
-      // Mất mạng: dữ liệu vẫn an toàn trên máy, có mạng lại tự gửi — nói đúng như
-      // vậy, không báo lỗi đỏ khiến giáo viên tưởng mất điểm (thanh trên cùng đã báo).
-      if (!resp) {
-        setSyncStatus('offline')
-        if (!opts.silent) toast.info(`${label} của ${student.name} đã lưu trên máy — sẽ tự gửi lên khi có mạng.`)
-      } else if (!opts.silent || firstFailure) {
-        toast.error(
-          msg
-            ? `Không lưu được Buổi ${target.no} của ${student.name} — ${msg}`
-            : `Lỗi lưu điểm Buổi ${target.no} của ${student.name} — kiểm tra mạng, app sẽ tự thử lại.`,
-          { persist: true },
-        )
-      }
-      return 'failed'
-    } finally {
-      unlockSession(target.id)
     }
   }
 
-  /** "Lưu và về lưới cả lớp" / "⊞ Xem cả lớp": lưu em đang xem lên server TRƯỚC, server xác nhận rồi
+  /** "Lưu và về lưới cả lớp" / "⊞ Về lưới cả lớp": lưu em đang xem lên server TRƯỚC, server xác nhận rồi
    *  mới chuyển màn (về lưới thấy ngay điểm vừa chấm). Đang có lần tự lưu nền gửi đúng buổi này → chờ
    *  nó xong (tối đa ~10 giây) rồi lưu lại. Lỗi → ở lại, đã báo lỗi. */
   const backLock = useRef(false)
@@ -1079,7 +968,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
             </Btn>
           )}
           {st && onBackToGrid && (
-            <Btn onClick={() => requestNav(() => { void saveAndBack() })} title="Lưu em đang xem lên server rồi xem lưới cả lớp">⊞ Xem cả lớp</Btn>
+            <Btn onClick={() => requestNav(() => { void saveAndBack() })} title="Lưu em đang xem lên server rồi xem lưới cả lớp">⊞ Về lưới cả lớp</Btn>
           )}
           {st && (
             <Btn onClick={() => setShowResequence(true)} title="Sắp xếp lại số buổi đúng theo thứ tự ngày học — dùng khi số buổi bị lệch so với ngày thật">

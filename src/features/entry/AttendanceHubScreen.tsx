@@ -4,17 +4,18 @@ import { C } from '@/constants/colors'
 import { toast } from '@/store/toastStore'
 import { AttendanceCenterView } from './AttendanceCenterView'
 import { ClassGridView } from './ClassGridView'
+import { QuickAttendanceView } from './QuickAttendanceView'
 
 type View = 'center' | 'class'
 const VIEW_KEY = 'lms:attendanceView'
 const readView = (): View => { try { return localStorage.getItem(VIEW_KEY) === 'class' ? 'class' : 'center' } catch { return 'center' } }
-type Sub = 'grid' | 'entry'
+type Sub = 'grid' | 'quick' | 'entry'
 const SUB_KEY = 'lms:attendanceClassSub'
-const readSub = (): Sub => { try { return localStorage.getItem(SUB_KEY) === 'entry' ? 'entry' : 'grid' } catch { return 'grid' } }
+const readSub = (): Sub => { try { const v = localStorage.getItem(SUB_KEY); return v === 'entry' || v === 'quick' ? v : 'grid' } catch { return 'grid' } }
 
 /** Thẻ "Điểm danh & Điểm" (đợt 2, 11/11): mặc định TOÀN TRUNG TÂM (mỗi lớp 1 dòng × ngày);
  *  "Theo lớp" là màn Nhập điểm cũ GIỮ NGUYÊN (truyền vào qua `classView`). */
-export function AttendanceHubScreen({ cls, classes, setCurrentClass, isAdmin, classView, forceClass, onJumpEntry }: {
+export function AttendanceHubScreen({ cls, classes, setCurrentClass, isAdmin, classView, forceClass, onJumpEntry, update, teacherName }: {
   cls: ClassData | null
   classes: ClassData[]
   setCurrentClass: (index: number) => void
@@ -25,6 +26,9 @@ export function AttendanceHubScreen({ cls, classes, setCurrentClass, isAdmin, cl
   forceClass?: boolean
   /** "Chấm điểm chi tiết →" ở lưới: App đặt `entryJumpTarget` → mở "Chấm từng em" đúng em + buổi. */
   onJumpEntry: (studentId: string, no: number) => void
+  /** Sửa ĐÚNG lớp đang mở (gắn cứng id lớp) — Điểm danh nhanh + đổi điểm danh trên lưới. */
+  update: (fn: (c: ClassData) => void) => void
+  teacherName?: string
 }) {
   const [view, setViewState] = useState<View>(readView)
   const setView = (v: View) => { setViewState(v); try { localStorage.setItem(VIEW_KEY, v) } catch { /* tiện ích nhớ thẻ */ } }
@@ -62,13 +66,14 @@ export function AttendanceHubScreen({ cls, classes, setCurrentClass, isAdmin, cl
             <b className="text-lg" style={{ color: C.ink }} data-testid="class-title">{cls.name}</b>
             <span className="text-sm" style={{ color: C.muted }}>{cls.students.length} em{cls.teacher ? ` · ${cls.teacher}` : ''}</span>
             <div className="ml-auto inline-flex rounded-xl p-[3px]" style={{ background: C.line }} role="tablist" aria-label="Cách xem lớp">
-              {([['grid', 'Lưới cả lớp'], ['entry', 'Chấm từng em']] as Array<[Sub, string]>).map(([k, label]) => (
+              {([['grid', 'Lưới cả lớp'], ['quick', 'Điểm danh nhanh'], ['entry', 'Chấm từng em']] as Array<[Sub, string]>).map(([k, label]) => (
                 <button key={k} type="button" role="tab" aria-selected={sub === k} onClick={() => setSub(k)} className="rounded-[9px] px-3 py-1.5 text-[13px] font-semibold"
                   style={sub === k ? { background: C.card, color: C.board, boxShadow: '0 1px 3px rgba(15,23,42,.12)' } : { color: C.muted }}>{label}</button>
               ))}
             </div>
           </div>
-          {sub === 'grid' && <ClassGridView key={cls.id} cls={cls} onOpenEntry={onJumpEntry} />}
+          {sub === 'grid' && <ClassGridView key={cls.id} cls={cls} update={update} teacherName={teacherName} onOpenEntry={onJumpEntry} />}
+          {sub === 'quick' && <QuickAttendanceView key={cls.id} cls={cls} update={update} teacherName={teacherName} />}
           {sub === 'entry' && <div className="mx-auto max-w-5xl">{classView(() => { setSub('grid'); window.scrollTo({ top: 0 }) })}</div>}
         </div>
       ) : <div className="rounded-2xl p-8 text-center text-sm" style={{ background: C.card, color: C.muted }}>Chọn 1 lớp ở menu trên cùng.</div>)}

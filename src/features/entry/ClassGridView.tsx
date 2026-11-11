@@ -8,6 +8,7 @@ import { classGrid, type GridCell } from '@/business/classGrid'
 import { sessionLabelOf } from '@/business/tuition'
 import { weekdayLabel, dm } from '@/business/attendanceOverview'
 import { todayISO } from '@/utils/format'
+import { useAttendanceWriter } from './useAttendanceWriter'
 
 const ATT_BADGE: Record<AttendanceKey, { mark: string; label: string; color: string }> = {
   present: { mark: '✓', label: 'Có mặt', color: C.emerald },
@@ -24,7 +25,7 @@ function Badge({ a }: { a: AttendanceKey }) {
 
 /** Lưới cả lớp (đợt 2 C2, CHỈ XEM): học sinh × 7 buổi gần nhất; bấm 1 ô xem chi tiết, "Chấm điểm chi
  *  tiết →" mở đúng em + đúng buổi ở "Chấm từng em". Số liệu: `classGrid` (có test) trên dữ liệu máy. */
-export function ClassGridView({ cls, onOpenEntry }: { cls: ClassData; onOpenEntry: (studentId: string, no: number) => void }) {
+export function ClassGridView({ cls, update, teacherName, onOpenEntry }: { cls: ClassData; update: (fn: (c: ClassData) => void) => void; teacherName?: string; onOpenEntry: (studentId: string, no: number) => void }) {
   const today = todayISO()
   const r = getClassRubric(cls)
   const grid = useMemo(() => classGrid(cls.students, today, (s) => sessionScore(s.entry, { ...r, comps: sessionComps(r, s) })), [cls, today, r])
@@ -32,6 +33,13 @@ export function ClassGridView({ cls, onOpenEntry }: { cls: ClassData; onOpenEntr
   const selRow = sel ? grid.rows.find((x) => x.studentId === sel.studentId) : null
   const selCell: GridCell | undefined = sel && selRow ? selRow.cells[sel.date] : undefined
   const offsetOf = (id: string) => cls.students.find((s) => s.id === id)?.sessionOffset
+  // Đợt 3: đổi điểm danh ngay trong khung chi tiết — cùng đường ghi với Điểm danh nhanh.
+  const w = useAttendanceWriter(cls, update, teacherName)
+  async function setAtt(studentId: string, date: string, k: AttendanceKey, exists: boolean) {
+    const name = cls.students.find((s) => s.id === studentId)?.name ?? ''
+    if (!exists && !confirm(`${name} chưa có buổi ngày ${dm(date)}. Ghi "${ATT_BADGE[k].label}" sẽ TẠO buổi mới ngày này (tính học phí). Ghi?`)) return
+    await w.mark(studentId, date, k)
+  }
 
   if (!cls.students.length) return <div className="rounded-2xl p-8 text-center text-sm" style={{ background: C.card, color: C.muted }}>Lớp chưa có học sinh nào.</div>
   if (!grid.days.length) return <div className="rounded-2xl p-8 text-center text-sm" style={{ background: C.card, color: C.muted }}>Lớp chưa có buổi học nào — điểm danh ở thẻ "Chấm từng em".</div>
@@ -44,22 +52,18 @@ export function ClassGridView({ cls, onOpenEntry }: { cls: ClassData; onOpenEntr
       </div>
       {selCell ? (
         <>
-          <div>
-            <div className="mb-1 text-xs font-bold uppercase" style={{ color: C.muted }}>Điểm danh</div>
-            <span className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold" style={{ border: `1.5px solid ${ATT_BADGE[selCell.attendance].color}`, color: C.ink }}>
-              <Badge a={selCell.attendance} />{ATT_BADGE[selCell.attendance].label}
-            </span>
-          </div>
+          <AttButtons on={selCell.attendance} busy={w.isBusy(sel.studentId, sel.date)} status={w.status(sel.studentId, sel.date)} onPick={(k) => void setAtt(sel.studentId, sel.date, k, true)} />
           <div className="space-y-1 text-sm">
             <div className="flex justify-between"><span style={{ color: C.muted }}>Tổng điểm</span><b data-testid="panel-total" style={{ color: selCell.total == null ? C.muted : scoreColor(selCell.total) }}>{selCell.total ?? 'Chưa chấm'}</b></div>
             <div className="flex justify-between gap-3"><span style={{ color: C.muted }}>Bài tập về nhà</span><span className="text-right" style={{ color: C.ink }}>{selCell.homework || '—'}</span></div>
           </div>
           <Btn kind="solid" className="w-full" onClick={() => onOpenEntry(sel.studentId, selCell.no)}>Chấm điểm chi tiết →</Btn>
-          <div className="text-xs" style={{ color: C.muted }}>Mở đúng phiếu chấm của {selRow.name}, buổi {dm(sel.date)}. Đổi điểm danh cũng làm ở đó.</div>
+          <div className="text-xs" style={{ color: C.muted }}>Mở đúng phiếu chấm của {selRow.name}, buổi {dm(sel.date)}. Đổi điểm danh ngay ở trên — lưu lên server liền.</div>
         </>
       ) : (
         <>
           <div className="rounded-xl p-3 text-sm" style={{ background: C.rose + '10', color: C.rose }}>{selRow.name} chưa có buổi ngày {dm(sel.date)}.</div>
+          {sel.date <= today && <AttButtons on={null} busy={w.isBusy(sel.studentId, sel.date)} status={w.status(sel.studentId, sel.date)} onPick={(k) => void setAtt(sel.studentId, sel.date, k, false)} />}
           <Btn className="w-full" onClick={() => { const nos = cls.students.find((s) => s.id === sel.studentId)?.sessions.map((s) => s.no) ?? []; onOpenEntry(sel.studentId, nos.length ? Math.max(...nos) : 1) }}>Mở "Chấm từng em" của {selRow.name}</Btn>
         </>
       )}
@@ -123,6 +127,23 @@ export function ClassGridView({ cls, onOpenEntry }: { cls: ClassData; onOpenEntr
           {panel}
         </div>
       )}
+    </div>
+  )
+}
+
+function AttButtons({ on, busy, status, onPick }: { on: AttendanceKey | null; busy: boolean; status?: string; onPick: (k: AttendanceKey) => void }) {
+  return (
+    <div>
+      <div className="mb-1 text-xs font-bold uppercase" style={{ color: C.muted }}>Điểm danh{busy || status === 'saving' ? ' · đang lưu...' : status === 'saved' ? ' · đã lưu' : status === 'error' ? ' · CHƯA lưu' : status === 'offline' ? ' · chờ mạng' : ''}</div>
+      <div className="grid grid-cols-2 gap-1.5">
+        {(Object.keys(ATT_BADGE) as AttendanceKey[]).map((k) => (
+          <button key={k} type="button" disabled={busy} aria-pressed={on === k} data-att={k} onClick={() => onPick(k)}
+            className="inline-flex items-center gap-2 rounded-xl px-2.5 py-2 text-sm font-semibold disabled:opacity-60"
+            style={{ border: `1.5px solid ${on === k ? ATT_BADGE[k].color : C.line}`, background: on === k ? ATT_BADGE[k].color + '14' : C.card, color: C.ink }}>
+            <Badge a={k} />{ATT_BADGE[k].label}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }
