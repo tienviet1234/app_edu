@@ -19,7 +19,8 @@ export function AttendanceHubScreen({ cls, classes, setCurrentClass, isAdmin, cl
   classes: ClassData[]
   setCurrentClass: (index: number) => void
   isAdmin: boolean
-  classView: ReactNode
+  /** Màn "Chấm từng em" (EntryScreen cũ); nhận hàm về lưới cả lớp để gắn nút "Lưu và về lưới". */
+  classView: (onBackToGrid: () => void) => ReactNode
   /** Có cú nhảy thẳng tới 1 em/1 buổi (VD từ Tổng quan) → mở luôn thẻ "Theo lớp". */
   forceClass?: boolean
   /** "Chấm điểm chi tiết →" ở lưới: App đặt `entryJumpTarget` → mở "Chấm từng em" đúng em + buổi. */
@@ -68,7 +69,7 @@ export function AttendanceHubScreen({ cls, classes, setCurrentClass, isAdmin, cl
             </div>
           </div>
           {sub === 'grid' && <ClassGridView key={cls.id} cls={cls} onOpenEntry={onJumpEntry} />}
-          {sub === 'entry' && <div className="mx-auto max-w-5xl">{classView}</div>}
+          {sub === 'entry' && <div className="mx-auto max-w-5xl">{classView(() => { setSub('grid'); window.scrollTo({ top: 0 }) })}</div>}
         </div>
       ) : <div className="rounded-2xl p-8 text-center text-sm" style={{ background: C.card, color: C.muted }}>Chọn 1 lớp ở menu trên cùng.</div>)}
     </div>

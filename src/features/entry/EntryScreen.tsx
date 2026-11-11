@@ -41,6 +41,8 @@ interface EntryScreenProps {
   /** Nhảy tới đúng học sinh + buổi này khi mở từ màn khác (VD "Thống kê
    *  buổi" bấm "Sửa điểm") — chỉ áp dụng 1 lần lúc mở màn. */
   initialTarget?: { studentId: string; no: number } | null
+  /** Có thì hiện "⊞ Xem cả lớp" + "Lưu và về lưới cả lớp" (đợt 2 C3) — lưu xong mới gọi. */
+  onBackToGrid?: () => void
   onConsumeInitialTarget?: () => void
 }
 
@@ -139,7 +141,9 @@ function findOrCreateSession(c: ClassData, studentId: string, no: number, dateFo
   return session
 }
 
-export function EntryScreen({ cls, update, teacherName, initialTarget, onConsumeInitialTarget }: EntryScreenProps) {
+type SaveResult = 'saved' | 'nothing' | 'busy' | 'failed'
+
+export function EntryScreen({ cls, update, teacherName, initialTarget, onConsumeInitialTarget, onBackToGrid }: EntryScreenProps) {
   const r = getClassRubric(cls)
   const isAdmin = useAuthStore((s) => s.user?.role === 'admin')
   // Số buổi đang xem của TỪNG học sinh (chỉ lưu những em đã được chọn buổi
@@ -293,24 +297,27 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   const r2 = { ...r, comps: effectiveComps }
 
   /** Lưu buổi ĐANG XEM của 1 học sinh (nút Trước/Tiếp theo/đổi buổi). */
-  async function syncScore(studentId: string, opts: { silent?: boolean } = {}) {
+  /** Kết quả 1 lần lưu: `saved` server đã xác nhận (hoặc đã khớp từ trước) · `nothing` không có gì để
+   *  lưu · `busy` đang có lần gửi khác cho đúng buổi này · `failed` lỗi (đã báo). Nút "Lưu và về lưới cả
+   *  lớp" chỉ chuyển màn khi `saved`/`nothing` (C3, 11/11). */
+  async function syncScore(studentId: string, opts: { silent?: boolean } = {}): Promise<SaveResult> {
     // Đọc từ store, không từ `cls` của lần vẽ trước: "Ghi đi học đúng giờ" vừa tạo
     // buổi ngay trước khi gọi hàm này. Đọc `cls` thì không thấy buổi, không gửi,
     // không báo gì — giáo viên không có xác nhận nào là em đó đã lưu.
     const fresh = useAppStore.getState().data?.classes.find((c) => c.id === cls.id) ?? cls
     const target = fresh.students.find((s) => s.id === studentId)?.sessions.find((s) => s.no === noOf(studentId))
-    if (target) await syncSession(studentId, target.id, opts)
+    return target ? syncSession(studentId, target.id, opts) : 'nothing'
   }
 
   /** Đẩy 1 buổi (theo id trên máy) lên server. Chỉ gửi khi máy THẬT SỰ có
    *  sửa (dirty) hoặc buổi chưa từng lên server — bản sao không sửa gì thì
    *  không gửi lại (trước đây bấm Trước/Tiếp theo là gửi lại nguyên bản
    *  trên máy → máy giữ bản cũ đè mất điểm mới hơn do máy khác sửa). */
-  async function syncSession(studentId: string, sessionLocalId: string, opts: { silent?: boolean } = {}) {
-    if (!isMongoid(cls.id) || !isMongoid(studentId)) return
+  async function syncSession(studentId: string, sessionLocalId: string, opts: { silent?: boolean } = {}): Promise<SaveResult> {
+    if (!isMongoid(cls.id) || !isMongoid(studentId)) return 'nothing'
     // Đọc kho máy NGAY LÚC GỬI, không dùng bản lúc lên lịch — xem latestSessionOf.
     const latest = latestSessionOf(useAppStore.getState().data?.classes, cls.id, studentId, sessionLocalId)
-    if (!latest) return // chưa nhập gì cho học sinh này buổi này — không có gì để lưu
+    if (!latest) return 'nothing' // chưa nhập gì cho học sinh này buổi này — không có gì để lưu
     const { student, session: target } = latest
     // Nhãn + tên học sinh chụp lại NGAY LÚC GỌI (trước khi màn hình có thể
     // đã chuyển sang học sinh khác) — để thông báo lưu xong vẫn nói đúng
@@ -320,11 +327,11 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
       // Đã khớp server (server xác nhận lần lưu trước) — báo cho giáo viên
       // yên tâm, không gửi lại.
       if (!opts.silent && target.synced) toast.success(`✓ ${label} của ${student.name} đã lưu trên server`)
-      return
+      return 'saved'
     }
     // Đang gửi đúng buổi này (tự lưu nền / đồng bộ lúc mở app) — phần sửa
     // thêm vẫn còn dirty, lượt sau sẽ gửi tiếp.
-    if (!tryLockSession(target.id)) return
+    if (!tryLockSession(target.id)) return 'busy'
     const maxes = target.maxes ?? {}
     const comps = r.comps.map((c) => (maxes[c.key] != null ? rescaleComp(c, maxes[c.key]) : c))
     const total = sessionScore(target.entry, { ...r, comps }) ?? 0
@@ -412,6 +419,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
       // thực tế mất điểm nhiều em ở Lớp 3/4/5/7.
       if (opts.silent) { /* tự lưu nền — chỉ báo khi lỗi */ } else if (wasNew) toast.success(`✓ Đã lưu ${label} của ${student.name} (${viDate(target.date)})`)
       else toast.success(`✓ Đã lưu điểm ${label} của ${student.name}`)
+      return 'saved'
     } catch (err) {
       setSyncStatus('error')
       if (isSessionDeletedError(err)) {
@@ -423,7 +431,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
           if (stu) detachDeletedSession(stu, localId, uid())
         })
         toast.info(`${label} (${viDate(target.date)}) của ${student.name} đã bị xóa trên server — đang tạo lại buổi này để giữ điểm vừa nhập. Nếu buổi này không có thật, xóa ở "Sửa số buổi".`, { persist: true })
-        return
+        return 'failed'
       }
       const conflict = conflictFromError(err)
       if (conflict) {
@@ -439,7 +447,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
         })
         // Bản server giống hệt bản máy (máy gửi 2 lần) → không hỏi gì, bộ tự lưu gửi tiếp.
         if (result.real) toast.error(`${label} của ${student.name} vừa được ${byName ?? 'người khác'} lưu bản khác ở máy khác — chọn giữ bản nào ở thanh vàng phía trên màn Nhập điểm.`, { persist: true })
-        return
+        return 'failed'
       }
       // Nêu đúng lý do server từ chối (VD "đã có Buổi N rồi") thay vì câu
       // chung chung — trước đây giáo viên chỉ thấy "Lỗi lưu điểm", tưởng
@@ -467,8 +475,35 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
           { persist: true },
         )
       }
+      return 'failed'
     } finally {
       unlockSession(target.id)
+    }
+  }
+
+  /** "Lưu và về lưới cả lớp" / "⊞ Xem cả lớp": lưu em đang xem lên server TRƯỚC, server xác nhận rồi
+   *  mới chuyển màn (về lưới thấy ngay điểm vừa chấm). Đang có lần tự lưu nền gửi đúng buổi này → chờ
+   *  nó xong (tối đa ~10 giây) rồi lưu lại. Lỗi → ở lại, đã báo lỗi. */
+  const backLock = useRef(false)
+  async function saveAndBack() {
+    if (!st || !onBackToGrid || backLock.current) return
+    backLock.current = true
+    try {
+      let res: SaveResult = 'busy'
+      for (let i = 0; i < 10 && res === 'busy'; i++) {
+        res = await syncScore(st.id, { silent: true })
+        if (res === 'busy') await new Promise((r) => setTimeout(r, 1000))
+      }
+      if (res === 'saved' || res === 'nothing') {
+        logActivity('score.entry', { className: cls.name, sessionNo: session?.no ?? 0, studentName: st.name }, 'Score')
+        onBackToGrid()
+      } else if (res === 'busy') {
+        toast.error(`Đang gửi điểm của ${st.name} — chưa xong, bấm lại sau giây lát.`)
+      } else {
+        toast.error(`Chưa lưu được điểm của ${st.name} lên server — vẫn ở lại đây (điểm còn trên máy). Xem thông báo lỗi phía trên.`, { persist: true })
+      }
+    } finally {
+      backLock.current = false
     }
   }
 
@@ -1043,6 +1078,9 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
               📥 Nhập từ Excel
             </Btn>
           )}
+          {st && onBackToGrid && (
+            <Btn onClick={() => requestNav(() => { void saveAndBack() })} title="Lưu em đang xem lên server rồi xem lưới cả lớp">⊞ Xem cả lớp</Btn>
+          )}
           {st && (
             <Btn onClick={() => setShowResequence(true)} title="Sắp xếp lại số buổi đúng theo thứ tự ngày học — dùng khi số buổi bị lệch so với ngày thật">
               🔧 Sửa số buổi
@@ -1609,6 +1647,11 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
               >
                 ← Trước
               </Btn>
+              {onBackToGrid && (
+                <Btn onClick={() => requestNav(() => { void saveAndBack() })} title="Lưu em đang xem lên server rồi về lưới cả lớp">
+                  ⊞ Lưu và về lưới cả lớp
+                </Btn>
+              )}
               {groupMode && groupSelected.size > 0 ? (
                 <button
                   onClick={applyGroupScores}

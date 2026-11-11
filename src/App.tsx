@@ -901,8 +901,9 @@ export default function App() {
             isAdmin={user?.role === 'admin'}
             forceClass={!!entryJumpTarget}
             onJumpEntry={(studentId, no) => setEntryJumpTarget({ studentId, no })}
-            classView={cls && (
+            classView={(onBackToGrid) => cls && (
               <EntryScreen
+                onBackToGrid={onBackToGrid}
                 key={cls.id}
                 cls={cls}
                 update={updateClass}
