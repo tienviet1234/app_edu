@@ -583,7 +583,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
       })),
       dueRows.flatMap((r) => {
         const offset = cls.students.find((s) => s.id === r.studentId)?.sessionOffset
-        return r.sessionDetails.map((d) => ({ studentName: r.studentName, ...d, no: periodPositionOf(d.no, cls.perMonth, offset).displayNo }))
+        return r.sessionDetails.map((d) => ({ studentName: r.studentName, ...d, no: sessionLabelOf(d.no, cls.perMonth, offset), sortNo: d.no }))
       }),
     )
   }
@@ -738,7 +738,8 @@ export function TuitionReportScreen({ cls, update }: Props) {
       const billable = d.attendance !== 'absent'
       return {
         studentName: row.studentName, ...d,
-        no: periodPositionOf(d.no, cls.perMonth, offset).displayNo,
+        no: sessionLabelOf(d.no, cls.perMonth, offset),
+        sortNo: d.no,
         amount: billable ? fmtVnd(sessionAmount(d, row.ratePerSession)) : '',
       }
     })

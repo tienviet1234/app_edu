@@ -8,7 +8,9 @@ import { rankingOf } from '@/business/ranking'
 import { buildComment, sessionDetailsOf, type SessionScoreItem } from '@/business/report'
 import { sessionScore, compScore, sessionComps } from '@/business/scoring'
 import { round1, todayISO, viDate, viDateTime } from '@/utils/format'
-import { periodPositionOf } from '@/business/tuition'
+import { sessionLabelOf } from '@/business/tuition'
+import { orderSessionRowsForExport } from '@/business/exportOrder'
+import { weekdayLabel } from '@/business/attendanceOverview'
 
 export interface ExportPeriod {
   from: number
@@ -87,7 +89,7 @@ export function exportScores(cls: ClassData, p: ExportPeriod): void {
     sessionDetailsOf(st, p.from, p.to, r).map((d) => ({ studentName: st.name, sessionOffset: st.sessionOffset, ...d })),
   )
   if (sessionDetails.length) {
-    const rows = sessionDetails.map((d) => ({ ...d, no: periodPositionOf(d.no, cls.perMonth, d.sessionOffset).displayNo }))
+    const rows = sessionDetails.map((d) => ({ ...d, no: sessionLabelOf(d.no, cls.perMonth, d.sessionOffset), sortNo: d.no }))
     XLSX.utils.book_append_sheet(wb, sessionDetailSheet(rows, false), 'Chi tiết từng buổi')
   }
 
@@ -312,8 +314,10 @@ export interface TuitionNoticeRow {
 
 export interface TuitionSessionDetailRow {
   studentName: string
-  /** string chỉ dùng cho dòng tổng hợp "TỔNG CỘNG" chèn cuối mỗi học sinh. */
+  /** Nhãn buổi ("Tháng 2 · Buổi 1/8"); "—" ở dòng tổng hợp "TỔNG CỘNG" cuối mỗi học sinh. */
   no: number | string
+  /** Số buổi THẬT (`Session.no`) — chỉ để xếp 2 buổi cùng ngày; thứ tự chính theo NGÀY. */
+  sortNo?: number
   date: string
   homework: string
   status: string
@@ -359,20 +363,25 @@ const NAME = { ...CELL, font: { bold: true }, fill: { fgColor: { rgb: 'FFFF00' }
  *  chú giáo viên; câu tự sinh bỏ phần thái độ vì lặp lại cột Điểm số).
  *  `withAmount` thêm cột "Số tiền" (Tổng quan học phí). */
 export function sessionDetailRowsForSheet(details: TuitionSessionDetailRow[], withAmount: boolean): (string | number)[][] {
-  return details.map((d, i) => [
-    i > 0 && details[i - 1].studentName === d.studentName ? '' : d.studentName,
+  // Bộ đếm buổi theo ngày tháng năm (17/11): mỗi em xếp theo NGÀY, STT đếm 1..n theo đúng thứ tự đó.
+  const rows = orderSessionRowsForExport(details)
+  return rows.map((d, i) => [
+    i > 0 && rows[i - 1].studentName === d.studentName ? '' : d.studentName,
+    d.seq,
     d.no,
-    d.date ? viDate(d.date) : '',
+    d.date ? `${weekdayLabel(d.date)} ${viDate(d.date)}` : '',
     scoresLines(d.scores),
     d.parentStatus ?? (d.isAuto ? '' : d.status),
     ...(withAmount ? [d.amount ?? ''] : []),
   ])
 }
 
-function sessionDetailSheet(details: TuitionSessionDetailRow[], withAmount: boolean): XLSX.WorkSheet {
-  const headers = ['Học sinh', 'Buổi', 'Ngày học', 'Điểm số', 'Từ vựng và cấu trúc cần lưu ý', ...(withAmount ? ['Số tiền (VNĐ)'] : [])]
-  const widths = [18, 6, 12, 60, 45, ...(withAmount ? [14] : [])]
-  const body = sessionDetailRowsForSheet(details, withAmount)
+function sessionDetailSheet(input: TuitionSessionDetailRow[], withAmount: boolean): XLSX.WorkSheet {
+  const headers = ['Học sinh', 'STT', 'Buổi', 'Ngày học', 'Điểm số', 'Từ vựng và cấu trúc cần lưu ý', ...(withAmount ? ['Số tiền (VNĐ)'] : [])]
+  const widths = [18, 5, 20, 15, 60, 45, ...(withAmount ? [14] : [])]
+  // Cùng thứ tự với `sessionDetailRowsForSheet` (gộp ô "Học sinh" phải khớp đúng dòng).
+  const details = orderSessionRowsForExport(input)
+  const body = sessionDetailRowsForSheet(input, withAmount)
   const ws = XLSX.utils.aoa_to_sheet([headers, ...body])
   ws['!cols'] = widths.map((wch) => ({ wch }))
   // Gộp ô "Học sinh" cho các dòng liền nhau của cùng 1 em.
