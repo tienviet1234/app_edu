@@ -1,6 +1,6 @@
 import mongoose from 'mongoose'
 import { listR2Keys } from './storageService.js'
-import { billedMismatchKind, lonelyClassDays, navClicksWithoutSession, noticeAttendanceDrift, noticeCoverage, numberingProblem, perMonthOfClass } from '../utils/dataRules.js'
+import { billedMismatchKind, lonelyClassDays, navClicksWithoutSession, noticeAttendanceDrift, noticeCoverage, numberingProblem, perMonthOfClass, dateOrderProblem } from '../utils/dataRules.js'
 import { morningAlertFrom, summarizeDataHealth, suspectInherited } from '../utils/dataHealth.js'
 import { Notification } from '../models/Notification.js'
 import { User } from '../models/User.js'
@@ -132,14 +132,18 @@ export async function readDataHealth() {
   }))
   // Số buổi mỗi em trong mỗi lớp phải đúng 1..n (quy định 10/11) — trống/trùng/nhảy số.
   const nosBy = new Map<string, number[]>()
-  for (const s of live) { if (!classIdSet.has(String(s.classId))) continue; const k = `${s.classId}|${s.studentId}`; nosBy.set(k, [...(nosBy.get(k) ?? []), s.lessonNo ?? 0]) }
+  const seqBy = new Map<string, Array<{ no: number; date: string }>>()
+  for (const s of live) { if (!classIdSet.has(String(s.classId))) continue; const k = `${s.classId}|${s.studentId}`; nosBy.set(k, [...(nosBy.get(k) ?? []), s.lessonNo ?? 0]); seqBy.set(k, [...(seqBy.get(k) ?? []), { no: s.lessonNo ?? 0, date: utcDay(s.scheduledAt) }]) }
   const numberingBroken: string[] = []
+  const dateOrderBroken: string[] = []
   for (const [k, nos] of nosBy) {
     const [cid, sid] = k.split('|')
     const c = classes.find((x) => String(x._id) === cid)
     const off = (users.find((u) => String(u._id) === sid) as { sessionOffset?: number } | undefined)?.sessionOffset ?? 0
     const p = c ? numberingProblem(nos, perMonthOfClass({ name: c.name, level: c.level }), off) : null
     if (p) numberingBroken.push(`${classOf(cid)} · ${nameOf(sid)}: ${p}`)
+    const q = c ? dateOrderProblem(seqBy.get(k) ?? [], perMonthOfClass({ name: c.name, level: c.level }), off) : null
+    if (q) dateOrderBroken.push(`${classOf(cid)} · ${nameOf(sid)}: ${q}`)
   }
   const known = (id: string) => liveIds.has(id) || deleted.has(id)
 
@@ -155,6 +159,7 @@ export async function readDataHealth() {
     sameDatePairs: [...perDay].filter(([, n]) => n > 1).map(([k]) => k),
     leftWithUnbilled: [...leftUnbilled].map(([k, n]) => `${k}: ${n} buổi chưa thu`),
     numberingBroken,
+    dateOrderBroken,
     futureSessions: live.filter((s) => new Date(s.scheduledAt).getTime() > now + 2 * DAY).map((s) => `${classOf(s.classId)} · ${nameOf(s.studentId)} · ${utcDay(s.scheduledAt)} (ngày tương lai)`),
     scoresWithoutSession: scores.filter((s) => !known(String(s.sessionId))).length,
     scoresOnDeletedSession: scores.filter((s) => deleted.has(String(s.sessionId))).length,

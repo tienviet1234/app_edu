@@ -167,7 +167,7 @@ export function exportFullBackupXlsx(data: AppData): void {
     const rows: (string | number)[][] = []
     let stt = 1
     cls.students.forEach((st) => {
-      ;[...st.sessions].sort((a, b) => a.no - b.no).forEach((s) => {
+      ;[...st.sessions].sort((a, b) => a.date.localeCompare(b.date) || a.no - b.no).forEach((s) => {
         // Đúng mức tối đa của buổi này (giáo viên có thể đã đổi "Số câu" riêng).
         const comps = sessionComps(r, s)
         const total = sessionScore(s.entry, { ...r, comps })
@@ -512,15 +512,13 @@ export interface TeacherSalaryClassDay {
   students: { studentName: string; lessonNo: number; attendance: string }[]
 }
 
-/** Xuất Excel chi tiết lương 1 giáo viên — 1 dòng/buổi/học sinh (Buổi, Ngày,
- *  Lớp, Học sinh, Điểm danh, Giáo viên) — toàn bộ dựa trên dữ liệu giáo viên
- *  đã tự chấm thật (điểm danh), không phải số tổng hợp — để đối chiếu công
- *  dạy chi tiết trước khi trả lương. */
-export function exportTeacherSalaryDetail(teacherName: string, from: string, to: string, byClass: TeacherSalaryClassDay[]): void {
-  const headers = ['Buổi', 'Ngày', 'Lớp', 'Học sinh', 'Điểm danh', 'Giáo viên']
+/** Dòng file "Chi tiết lương" — xếp theo NGÀY ĐỦ NĂM (có test). */
+export function teacherSalaryRows(teacherName: string, byClass: TeacherSalaryClassDay[]): (string | number)[][] {
   const rows: (string | number)[][] = []
-  byClass.forEach((c) => {
-    c.students.forEach((s) => {
+  // 17/11: xếp theo NGÀY ĐỦ NĂM trước khi định dạng — trước đây so chữ "dd/mm/yyyy" (ngày trước tháng)
+  // nên 01/11 đứng trước 28/10.
+  ;[...byClass].sort((a, b) => a.date.localeCompare(b.date) || a.className.localeCompare(b.className, 'vi', { numeric: true })).forEach((c) => {
+    [...c.students].sort((a, b) => a.studentName.localeCompare(b.studentName, 'vi')).forEach((s) => {
       rows.push([
         s.lessonNo || c.mainLessonNo || '',
         viDate(c.date),
@@ -531,7 +529,16 @@ export function exportTeacherSalaryDetail(teacherName: string, from: string, to:
       ])
     })
   })
-  rows.sort((a, b) => String(a[1]).localeCompare(String(b[1])) || String(a[2]).localeCompare(String(b[2]), 'vi'))
+  return rows
+}
+
+/** Xuất Excel chi tiết lương 1 giáo viên — 1 dòng/buổi/học sinh (Buổi, Ngày,
+ *  Lớp, Học sinh, Điểm danh, Giáo viên) — toàn bộ dựa trên dữ liệu giáo viên
+ *  đã tự chấm thật (điểm danh), không phải số tổng hợp — để đối chiếu công
+ *  dạy chi tiết trước khi trả lương. */
+export function exportTeacherSalaryDetail(teacherName: string, from: string, to: string, byClass: TeacherSalaryClassDay[]): void {
+  const headers = ['Buổi', 'Ngày', 'Lớp', 'Học sinh', 'Điểm danh', 'Giáo viên']
+  const rows = teacherSalaryRows(teacherName, byClass)
 
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
   ws['!cols'] = [{ wch: 7 }, { wch: 12 }, { wch: 20 }, { wch: 20 }, { wch: 10 }, { wch: 18 }]

@@ -19,7 +19,7 @@
  * nhất thay vì mỗi buổi 1 lần).
  */
 import mongoose, { Types } from 'mongoose'
-import { perMonthOfClass, sessionLabel, numberingProblem, planInsertSession } from '../utils/dataRules.js'
+import { perMonthOfClass, sessionLabel, numberingProblem, planInsertSession, dateOrderProblem, planDateOrder } from '../utils/dataRules.js'
 import { User } from '../models/User.js'
 import { ClassSession } from '../models/ClassSession.js'
 import { Class } from '../models/Class.js'
@@ -86,6 +86,9 @@ export async function renumberSessions(
     const all = await ClassSession.find({ studentId, classId, deletedAt: { $exists: false }, migratedAt: { $exists: false } }, 'lessonNo scheduledAt').lean()
     const newNoOf = new Map(updates.map((u) => [u.sessionId, u.newNo]))
     const finalNos = all.map((o) => newNoOf.get(String(o._id)) ?? o.lessonNo ?? 0)
+    // 17/11: thêm điều kiện số buổi đi ĐÚNG thứ tự ngày (dateOrderProblem).
+    const orderProblem = dateOrderProblem(all.map((o, i) => ({ no: finalNos[i], date: o.scheduledAt ? new Date(o.scheduledAt).toISOString().slice(0, 10) : '' })), perMonth, offset)
+    if (!numberingProblem(finalNos, perMonth, offset) && orderProblem) throw new RenumberValidationError(`Không lưu: ${orderProblem}.`)
     const problem = numberingProblem(finalNos, perMonth, offset)
     if (problem) {
       const holder = updates.map((u) => all.find((o) => String(o._id) !== u.sessionId && !newNoOf.has(String(o._id)) && o.lessonNo === u.newNo)).find(Boolean)
@@ -151,8 +154,17 @@ export async function createSessionPlacedByDate(
     await mongoSession.withTransaction(async () => {
       refused = undefined
       const existing = await ClassSession.find({ studentId, classId, ...active }, '_id scheduledAt lessonNo', { session: mongoSession }).lean()
-      const plan = planInsertSession(existing.map((x) => ({ id: String(x._id), no: x.lessonNo ?? 0, date: x.scheduledAt.toISOString().slice(0, 10) })),
-        { date: dayStart.toISOString().slice(0, 10), requestedNo }, perMonth, offset)
+      const ex = existing.map((x) => ({ id: String(x._id), no: x.lessonNo ?? 0, date: x.scheduledAt.toISOString().slice(0, 10) }))
+      const newDay = dayStart.toISOString().slice(0, 10)
+      // 17/11: số buổi gõ tay phải ĐÚNG vị trí theo ngày (số buổi = thứ hạng theo ngày).
+      if (requestedNo != null) {
+        const byDate = planInsertSession(ex, { date: newDay }, perMonth, offset)
+        if (byDate.ok && byDate.newNo !== requestedNo) {
+          refused = `buổi ngày ${newDay.slice(8, 10)}/${newDay.slice(5, 7)} phải là ${sessionLabel(byDate.newNo, perMonth, offset)} (số buổi đi theo thứ tự ngày), không phải ${sessionLabel(requestedNo, perMonth, offset)}`
+          return
+        }
+      }
+      const plan = planInsertSession(ex, { date: newDay, requestedNo }, perMonth, offset)
       const { placeByDate: _p, lessonNo: _n, ...rest } = body
       if (!plan.ok) {
         if (requestedNo != null) { refused = plan.reason; return }
@@ -167,6 +179,11 @@ export async function createSessionPlacedByDate(
       for (const sh of plan.shifts) await ClassSession.updateOne({ _id: sh.id }, { $set: { lessonNo: sh.to } }, { session: mongoSession })
       const [doc] = await ClassSession.create([{ ...rest, studentId, classId, scheduledAt, lessonNo: plan.newNo, createdBy: new Types.ObjectId(createdBy) }], { session: mongoSession })
       createdId = doc._id
+      // Dãy cũ còn lệch ngày (dữ liệu trước 17/11) → xếp lại theo ngày ngay trong giao dịch này.
+      const after = await ClassSession.find({ studentId, classId, ...active }, '_id scheduledAt lessonNo', { session: mongoSession }).lean()
+      for (const sh of planDateOrder(after.map((x) => ({ id: String(x._id), no: x.lessonNo ?? 0, date: x.scheduledAt.toISOString().slice(0, 10) })))) {
+        await ClassSession.updateOne({ _id: sh.id }, { $set: { lessonNo: sh.to } }, { session: mongoSession })
+      }
     })
   } finally {
     await mongoSession.endSession()

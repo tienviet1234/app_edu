@@ -3,7 +3,7 @@ import type { ClassData } from '@/types'
 import { C } from '@/constants/colors'
 import { viDate } from '@/utils/format'
 import { isMongoid } from '@/utils/mongoid'
-import { sortSessionsByDate, sequentialNumbering, numberingProblemOf, lessonNoFromLabel, renumberAfterRemoval } from '@/business/resequence'
+import { sortSessionsByDate, sequentialNumbering, numberingProblemOf, lessonNoFromLabel, renumberAfterRemoval, dateOrderProblemOf } from '@/business/resequence'
 import { periodPositionOf, sessionLabelOf } from '@/business/tuition'
 import { appendOrphans, orphanForLocalDelete } from '@/business/sync'
 import { useAppStore } from '@/store/appStore'
@@ -166,8 +166,10 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
     // Quy định 10/11: mỗi em trong 1 lớp có đúng các buổi 1..n — không trùng, không để trống số,
     // không nhảy số. Kiểm tra cả dãy TRƯỚC khi gửi (server kiểm tra lại y hệt).
     const problem = numberingProblemOf(read.targets.map((t) => t.newNo), perMonth, offset)
-    if (problem) {
-      setError(`Chưa lưu: ${problem}. Bấm "💡 Gợi ý" để điền đúng theo ngày học, hoặc sửa lại các ô.`)
+    // 17/11: số buổi phải đi đúng thứ tự ngày (server kiểm tra lại y hệt — dateOrderProblem).
+    const order = problem ? null : dateOrderProblemOf(read.targets.map((t) => ({ no: t.newNo, date: sorted.find((s) => s.id === t.sessionId)!.date })), perMonth, offset)
+    if (problem || order) {
+      setError(`Chưa lưu: ${problem ?? order}. Bấm "💡 Gợi ý" để điền đúng theo ngày học, hoặc sửa lại các ô.`)
       return
     }
     // Không tự đóng màn hình sau khi lưu — để nút "↩️ Hoàn tác" kịp hiện ra
@@ -243,7 +245,7 @@ export function ResequenceSessionsModal({ cls, studentId, update, onClose }: Pro
     return r.ok ? r.no : NaN
   }
   const changedCount = sorted.filter((s) => draftNo(s.id) !== s.no).length
-  const currentProblem = numberingProblemOf(sorted.map((s) => s.no), perMonth, offset)
+  const currentProblem = numberingProblemOf(sorted.map((s) => s.no), perMonth, offset) ?? dateOrderProblemOf(sorted, perMonth, offset)
 
   return (
     <div

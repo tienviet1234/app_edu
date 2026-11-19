@@ -704,3 +704,28 @@ export function noticeDeleteBlockReason(notice: { paymentStatus?: string; period
 export function paymentChangeNeeded(current: string | undefined, target: 'paid' | 'unpaid'): boolean {
   return (current ?? 'unpaid') !== target
 }
+
+// ── Số buổi phải đi ĐÚNG THỨ TỰ NGÀY (quy định admin 17/11) ──────────────────────────────────
+// Mọi danh sách / tính học phí / file Excel trong app sắp buổi theo SỐ buổi — số lệch ngày (buổi số
+// nhỏ mà ngày muộn hơn) là file xuất + màn hình ra lộn thứ tự. 1 em không học 2 buổi cùng ngày nên
+// số buổi = thứ hạng theo ngày (xác định duy nhất). Mọi đường ghi số đi qua các hàm dưới đây.
+const dmOf = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`
+
+/** Có buổi số nhỏ mà ngày MUỘN hơn buổi số lớn không. null = đúng thứ tự. */
+export function dateOrderProblem(sessions: Array<{ no: number; date: string }>, perMonth: number, offset = 0): string | null {
+  const s = [...sessions].sort((a, b) => a.no - b.no)
+  for (let i = 1; i < s.length; i++) {
+    if (s[i].date < s[i - 1].date) {
+      return `số buổi phải đi đúng thứ tự ngày — ${sessionLabel(s[i - 1].no, perMonth, offset)} (${dmOf(s[i - 1].date)}) lại muộn hơn ${sessionLabel(s[i].no, perMonth, offset)} (${dmOf(s[i].date)}). Muốn đổi thứ tự thì sửa NGÀY, số buổi tự xếp theo`
+    }
+  }
+  return null
+}
+
+/** Xếp lại số buổi theo ngày (1..n, cùng ngày theo số cũ) — chỉ trả các buổi đổi số. */
+export function planDateOrder(existing: Array<{ id: string; no: number; date: string }>): Array<{ id: string; from: number; to: number }> {
+  return [...existing]
+    .sort((a, b) => a.date.localeCompare(b.date) || a.no - b.no || a.id.localeCompare(b.id))
+    .map((s, i) => ({ id: s.id, from: s.no, to: i + 1 }))
+    .filter((x) => x.from !== x.to)
+}

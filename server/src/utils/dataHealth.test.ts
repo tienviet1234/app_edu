@@ -131,3 +131,13 @@ describe('Số buổi không liền mạch (10/11)', () => {
     expect(morningAlertFrom(h)?.body).toContain('Số buổi không liền mạch')
   })
 })
+
+describe('Số buổi không theo thứ tự ngày (17/11)', () => {
+  const base = { now: Date.now(), latestBackupAt: Date.now(), backupCount: 60, usedBytes: 1, limitBytes: 512e6, devices: [], rejected: [], clicksWithoutSession: [], sameDatePairs: [], futureSessions: [], scoresWithoutSession: 0, scoresOnDeletedSession: 0, stuckNumbers: 0, snapshotFailures: 0, suspectInherited: [], billedMismatches: [] }
+  it('không có → ok; có → cần xử lý ngay, vào chuông sáng', () => {
+    expect(summarizeDataHealth(base).items.find((x) => x.key === 'dateOrder')?.level).toBe('ok')
+    const h = summarizeDataHealth({ ...base, dateOrderBroken: ['Lớp 7 · Hoàng: ...'] })
+    expect(h.items.find((x) => x.key === 'dateOrder')?.level).toBe('bad')
+    expect(morningAlertFrom(h)?.body).toContain('Số buổi không theo thứ tự ngày')
+  })
+})

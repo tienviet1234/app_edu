@@ -7,7 +7,7 @@ import { parsePagination } from '../utils/pagination.js'
 import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit, writeRejectedAudit } from '../services/auditService.js'
 import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
-import { billedChangeBlockReason, billedDeleteBlockReason, dateMoveBlockReason, isStudentInClass, perMonthOfClass, planInsertSession, planRemoveFromNumbering, rejectedWriteMetadata, resolveSessionCreator } from '../utils/dataRules.js'
+import { billedChangeBlockReason, billedDeleteBlockReason, dateMoveBlockReason, isStudentInClass, perMonthOfClass, planDateOrder, planInsertSession, planRemoveFromNumbering, rejectedWriteMetadata, resolveSessionCreator } from '../utils/dataRules.js'
 import { User } from '../models/User.js'
 import { TuitionNotice } from '../models/TuitionNotice.js'
 import { renumberSessions, RenumberValidationError, createSessionPlacedByDate } from '../services/sessionRenumberService.js'
@@ -218,6 +218,33 @@ export async function updateSession(req: Request, res: Response): Promise<void> 
   if (req.body.lessonNo != null && req.body.lessonNo !== existing.lessonNo) {
     await writeAudit(req, { action: 'session.update.rejected', resource: 'ClassSession', resourceId: String(existing._id), metadata: { code: 'NUMBER_SINGLE', requested: req.body.lessonNo } })
     badRequest(res, 'Đổi số buổi dùng nút "Sửa số buổi" (đổi cả dãy cùng lúc để không trống, không trùng số).')
+    return
+  }
+  // Đổi NGÀY → số buổi phải đi theo thứ tự ngày (quy định 17/11): đổi ngày + xếp lại số buổi của em
+  // trong lớp theo ngày (planDateOrder) trong CÙNG 1 giao dịch; trả `renumbered` để máy cập nhật số.
+  const newDay = req.body.scheduledAt ? new Date(req.body.scheduledAt).toISOString().slice(0, 10) : null
+  if (newDay && existing.studentId && (!existing.scheduledAt || newDay !== existing.scheduledAt.toISOString().slice(0, 10))) {
+    let renumbered: Array<{ id: string; no: number }> = []
+    const ms = await mongoose.startSession()
+    try {
+      await ms.withTransaction(async () => {
+        renumbered = []
+        await ClassSession.updateOne({ _id: existing._id }, { $set: req.body }, { session: ms, runValidators: true })
+        const all = await ClassSession.find(
+          { classId: existing.classId, studentId: existing.studentId, deletedAt: { $exists: false }, migratedAt: { $exists: false } },
+          '_id scheduledAt lessonNo', { session: ms },
+        ).lean()
+        for (const sh of planDateOrder(all.map((x) => ({ id: String(x._id), no: x.lessonNo ?? 0, date: new Date(x.scheduledAt as Date).toISOString().slice(0, 10) })))) {
+          await ClassSession.updateOne({ _id: sh.id }, { $set: { lessonNo: sh.to } }, { session: ms })
+          renumbered.push({ id: sh.id, no: sh.to })
+        }
+      })
+    } finally {
+      await ms.endSession()
+    }
+    const moved = await ClassSession.findById(existing._id).lean()
+    await writeAudit(req, { action: 'session.update', resource: 'ClassSession', resourceId: String(existing._id), metadata: renumbered.length ? { renumbered: renumbered.length } : undefined })
+    ok(res, { ...moved, renumbered })
     return
   }
   const session = await ClassSession.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })

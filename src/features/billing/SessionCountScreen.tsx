@@ -11,7 +11,7 @@ import { toast } from '@/store/toastStore'
 import { useAppStore } from '@/store/appStore'
 import { appendOrphans, orphanForLocalDelete } from '@/business/sync'
 import { dateChangeCheck } from '@/business/sessionDates'
-import { removeSessionLocally, insertNoByDate } from '@/business/resequence'
+import { removeSessionLocally, insertNoByDate, applyRenumbered } from '@/business/resequence'
 import { sessionLabelOf, periodPositionOf } from '@/business/tuition'
 import { makeRoomForServerNo } from '@/business/sync'
 import { DateCommitInput } from '@/components/molecules/DateCommitInput'
@@ -252,6 +252,8 @@ export function SessionCountScreen({ cls, update, onEditInEntry }: SessionCountS
     if (isMongoid(row.sessionId)) {
       sessionService
         .update(row.sessionId, { scheduledAt: `${newDate}T00:00:00.000Z` })
+        // Server xếp lại số buổi theo ngày (17/11) → máy áp đúng số mới.
+        .then((res) => update((c) => { const s = c.students.find((y) => y.id === row.studentId); if (s) applyRenumbered(s, res?.renumbered) }))
         .catch((err: unknown) => {
           const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message
           toast.error(`${msg ?? `Lỗi khi lưu ngày mới của Buổi ${row.no} (${row.studentName}) lên server.`} Đã khôi phục ngày cũ.`, { persist: true })

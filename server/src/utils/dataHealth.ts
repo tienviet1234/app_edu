@@ -30,6 +30,8 @@ export interface HealthInput {
   leftWithUnbilled?: string[]
   /** Em có số buổi không đúng 1..n trong 1 lớp (trống / trùng / nhảy số) — 10/11. */
   numberingBroken?: string[]
+  /** Em có buổi số nhỏ mà ngày muộn hơn buổi số lớn (17/11) — danh sách / file Excel lộn thứ tự. */
+  dateOrderBroken?: string[]
 }
 
 export interface SessionForCheck { className: string; studentName: string; date: string; notes?: string; maxes?: Record<string, number> | null }
@@ -172,6 +174,11 @@ export function summarizeDataHealth(i: HealthInput): { level: HealthLevel; items
     key: 'numbering', level: i.numberingBroken?.length ? 'bad' : 'ok', title: 'Số buổi không liền mạch',
     detail: i.numberingBroken?.length ? `${i.numberingBroken.length} em có số buổi trống / trùng / nhảy số — mở "Sửa số buổi" của em đó, bấm "💡 Gợi ý" rồi Lưu.` : 'Mọi em đều có số buổi 1..n liền mạch.',
     lines: i.numberingBroken,
+  })
+  items.push({
+    key: 'dateOrder', level: i.dateOrderBroken?.length ? 'bad' : 'ok', title: 'Số buổi không theo thứ tự ngày',
+    detail: i.dateOrderBroken?.length ? `${i.dateOrderBroken.length} em có buổi số nhỏ mà ngày muộn hơn — danh sách, học phí, file Excel ra lộn thứ tự. Mở "Sửa số buổi" của em đó, bấm "💡 Gợi ý" rồi Lưu.` : 'Mọi em đều có số buổi đi đúng thứ tự ngày.',
+    lines: i.dateOrderBroken,
   })
   items.push({
     key: 'lonelyDays', level: i.lonelyDays?.length ? 'warn' : 'ok', title: 'Ngày chỉ vài em có buổi (30 ngày)',

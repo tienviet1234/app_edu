@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { sortSessionsByDate, sequentialNumbering, numberingProblemOf, lessonNoFromLabel, renumberAfterRemoval, removeSessionLocally, insertNoByDate } from './resequence'
-import { numberingProblem as serverNumberingProblem, planRemoveFromNumbering as serverPlanRemove, planInsertSession as serverPlanInsert } from '../../server/src/utils/dataRules'
+import { sortSessionsByDate, sequentialNumbering, numberingProblemOf, lessonNoFromLabel, renumberAfterRemoval, removeSessionLocally, insertNoByDate, dateOrderProblemOf, applyRenumbered } from './resequence'
+import { numberingProblem as serverNumberingProblem, planRemoveFromNumbering as serverPlanRemove, planInsertSession as serverPlanInsert, dateOrderProblem as serverDateOrder } from '../../server/src/utils/dataRules'
 
 interface S { id: string; date: string; no: number }
 
@@ -122,5 +122,23 @@ describe('removeSessionLocally / insertNoByDate (10/11)', () => {
       expect(sv.ok && sv.newNo).toBe(insertNoByDate(ex, d))
     }
     expect(insertNoByDate([], '2026-10-01')).toBe(1)
+  })
+})
+
+describe('Số buổi đi đúng thứ tự ngày (17/11) — máy Y HỆT server', () => {
+  it('đối chiếu server trên 2.000 dãy ngẫu nhiên', () => {
+    let r = 11
+    const rnd = (n: number) => { r = (r * 1103515245 + 12345) % 2147483648; return r % n }
+    for (let i = 0; i < 2000; i++) {
+      const n = 1 + rnd(12)
+      const ss = Array.from({ length: n }, (_, k) => ({ no: k + 1, date: `2026-${String(10 + rnd(3)).padStart(2, '0')}-${String(1 + rnd(28)).padStart(2, '0')}` }))
+      const per = rnd(2) ? 8 : 12
+      expect(dateOrderProblemOf(ss, per)).toBe(serverDateOrder(ss, per))
+    }
+  })
+  it('applyRenumbered: áp đúng số server trả về, giữ thứ tự theo số', () => {
+    const st = { sessions: [{ id: 'a', no: 1, date: '2026-11-03' }, { id: 'b', no: 2, date: '2026-11-28' }, { id: 'c', no: 3, date: '2026-11-07' }] as never[] as Array<{ id: string; no: number; date: string; homework: string; entry: never }> }
+    applyRenumbered(st as never, [{ id: 'c', no: 2 }, { id: 'b', no: 3 }])
+    expect(st.sessions.map((x) => [x.id, x.no])).toEqual([['a', 1], ['c', 2], ['b', 3]])
   })
 })

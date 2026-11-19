@@ -2,6 +2,8 @@ import { api } from '@/utils/api'
 
 export interface ApiSession {
   _id: string
+  /** PATCH đổi ngày (17/11): server xếp lại số buổi theo ngày — các buổi đã đổi số. */
+  renumbered?: Array<{ id: string; no: number }>
   classId: string
   studentId?: string
   createdBy?: string | { _id: string; name: string }

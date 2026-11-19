@@ -78,3 +78,23 @@ export function insertNoByDate(existing: Array<{ no: number; date: string }>, da
   const before = existing.filter((s) => s.date <= date)
   return before.length ? Math.max(...before.map((s) => s.no)) + 1 : 1
 }
+
+/** Y HỆT `dateOrderProblem` ở server (dataRules.ts, 17/11) — có test đối chiếu: buổi số nhỏ mà ngày
+ *  muộn hơn buổi số lớn → lời báo; null = đúng thứ tự ngày. */
+export function dateOrderProblemOf(sessions: Array<{ no: number; date: string }>, perMonth: number, offset = 0): string | null {
+  const s = [...sessions].sort((a, b) => a.no - b.no)
+  const dm = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`
+  for (let i = 1; i < s.length; i++) {
+    if (s[i].date < s[i - 1].date) {
+      return `số buổi phải đi đúng thứ tự ngày — ${sessionLabelOf(s[i - 1].no, perMonth, offset)} (${dm(s[i - 1].date)}) lại muộn hơn ${sessionLabelOf(s[i].no, perMonth, offset)} (${dm(s[i].date)}). Muốn đổi thứ tự thì sửa NGÀY, số buổi tự xếp theo`
+    }
+  }
+  return null
+}
+
+/** Server đổi ngày 1 buổi rồi xếp lại số theo ngày (`renumbered`) → máy áp đúng các số đó. */
+export function applyRenumbered(student: { sessions: Session[] }, renumbered: Array<{ id: string; no: number }> | undefined): void {
+  if (!renumbered?.length) return
+  for (const r of renumbered) { const s = student.sessions.find((x) => x.id === r.id); if (s) s.no = r.no }
+  student.sessions.sort((a, b) => a.no - b.no)
+}

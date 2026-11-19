@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason, billedDeleteBlockReason, planBilledFlagRepair, noticeCoverage, planSessionRemoval, reviewFixResult, changedFields, noticeAttendanceDrift, billedMismatchKind, billedChangeBlockReason, dateMoveBlockReason, lonelyClassDays, planClassTransfer, perMonthOfClass, sessionLabel, numberingProblem, planInsertSession, planRemoveFromNumbering, planCompactNumbering, noticeDeleteBlockReason, paymentChangeNeeded } from './dataRules.js'
+import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason, billedDeleteBlockReason, planBilledFlagRepair, noticeCoverage, planSessionRemoval, reviewFixResult, changedFields, noticeAttendanceDrift, billedMismatchKind, billedChangeBlockReason, dateMoveBlockReason, lonelyClassDays, planClassTransfer, perMonthOfClass, sessionLabel, numberingProblem, planInsertSession, planRemoveFromNumbering, planCompactNumbering, noticeDeleteBlockReason, paymentChangeNeeded, dateOrderProblem, planDateOrder } from './dataRules.js'
 
 describe('billedDeleteBlockReason (xóa buổi đã thu làm buổi khác bị tính tiền lần 2)', () => {
   it('buổi đã thu: chặn, nói rõ cách làm', () => {
@@ -689,5 +689,24 @@ describe('Phiếu học phí đã đóng / bấm 2 lần (11/11)', () => {
     expect(paymentChangeNeeded(undefined, 'unpaid')).toBe(false)
     expect(paymentChangeNeeded('unpaid', 'paid')).toBe(true)
     expect(paymentChangeNeeded('paid', 'unpaid')).toBe(true)
+  })
+})
+
+describe('Số buổi đi đúng thứ tự ngày (17/11)', () => {
+  const ex = [{ id: 'a', no: 1, date: '2026-11-03' }, { id: 'b', no: 2, date: '2026-11-05' }, { id: 'c', no: 3, date: '2026-11-07' }]
+  it('đúng thứ tự → null; buổi số nhỏ ngày muộn hơn → báo bằng nhãn + ngày', () => {
+    expect(dateOrderProblem(ex, 12)).toBeNull()
+    const p = dateOrderProblem([{ no: 1, date: '2026-11-03' }, { no: 2, date: '2026-11-28' }, { no: 3, date: '2026-11-10' }], 12)
+    expect(p).toContain('Tháng 1 · Buổi 2/12 (28/11)')
+    expect(p).toContain('Tháng 1 · Buổi 3/12 (10/11)')
+  })
+  it('qua năm mới vẫn so đúng (so đủ năm)', () => {
+    expect(dateOrderProblem([{ no: 1, date: '2026-12-30' }, { no: 2, date: '2027-01-02' }], 8)).toBeNull()
+    expect(dateOrderProblem([{ no: 1, date: '2027-01-02' }, { no: 2, date: '2026-12-30' }], 8)).not.toBeNull()
+  })
+  it('planDateOrder: dời 1 buổi sang ngày muộn hơn → nó lùi xuống, các buổi giữa tiến lên', () => {
+    const moved = [{ id: 'a', no: 1, date: '2026-11-03' }, { id: 'b', no: 2, date: '2026-11-28' }, { id: 'c', no: 3, date: '2026-11-07' }, { id: 'd', no: 4, date: '2026-11-10' }]
+    expect(planDateOrder(moved)).toEqual([{ id: 'c', from: 3, to: 2 }, { id: 'd', from: 4, to: 3 }, { id: 'b', from: 2, to: 4 }])
+    expect(planDateOrder(ex)).toEqual([])
   })
 })

@@ -8,6 +8,7 @@ import { todayISO, viDate } from '@/utils/format'
 import { sessionScore, rescaleComp, detectMissingComps } from '@/business/scoring'
 import { sessionStatusFragments } from '@/business/report'
 import { periodPositionOf, sessionLabelOf } from '@/business/tuition'
+import { applyRenumbered } from '@/business/resequence'
 import { emptyEntry } from '@/business/seed'
 import { dateChangeCheck } from '@/business/sessionDates'
 import { DateCommitInput } from '@/components/molecules/DateCommitInput'
@@ -262,7 +263,12 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
         const sessionId = session.id
         const oldDate = session.date
         const studentId = st?.id
-        sessionService.update(sessionId, { scheduledAt: `${newDate}T00:00:00.000Z` }).catch((err: unknown) => {
+        sessionService.update(sessionId, { scheduledAt: `${newDate}T00:00:00.000Z` }).then((res) => {
+          // Server xếp lại số buổi theo ngày (17/11) → máy áp số mới, vẫn mở ĐÚNG buổi vừa đổi ngày.
+          const mine = res?.renumbered?.find((x) => x.id === sessionId)
+          update((c) => { const stu = c.students.find((s) => s.id === studentId); if (stu) applyRenumbered(stu, res?.renumbered) })
+          if (mine && studentId) setNoByStudent((prev) => ({ ...prev, [studentId]: mine.no }))
+        }).catch((err: unknown) => {
           const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message
           toast.error(`${msg ?? 'Không lưu được ngày mới lên server — kiểm tra mạng rồi đổi lại.'} Đã trả lại ngày ${viDate(oldDate)}.`, { persist: true })
           update((c) => {

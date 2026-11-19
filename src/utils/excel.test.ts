@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { scoresLines, sessionDetailRowsForSheet, type TuitionSessionDetailRow } from './excel'
+import { scoresLines, sessionDetailRowsForSheet, teacherSalaryRows, type TuitionSessionDetailRow } from './excel'
 
 const sessionDetailsOf2 = (rows: TuitionSessionDetailRow[]) => sessionDetailRowsForSheet(rows, false)
 const row = (over: Partial<TuitionSessionDetailRow>): TuitionSessionDetailRow => ({ studentName: 'Hữu Phước', no: 1, date: '2026-10-10', homework: 'Unit 3', status: '', ...over })
@@ -57,5 +57,16 @@ describe('file gửi phụ huynh — bảng chi tiết từng buổi (mẫu giá
       ['', 2, 'Tháng 1 · Buổi 2/8', 'T4 30/12/2026'],
       ['', 3, 'Tháng 1 · Buổi 3/8', 'T7 02/01/2027'],
     ])
+  })
+})
+
+describe('File "Chi tiết lương" (17/11)', () => {
+  it('xếp theo ngày ĐỦ NĂM: 28/10 trước 01/11 (trước đây so chữ "dd/mm" → 01/11 lên trước)', () => {
+    const rows = teacherSalaryRows('Cô A', [
+      { className: 'Lớp 7', mainLessonNo: 5, date: '2026-11-01', students: [{ studentName: 'Vũ', lessonNo: 5, attendance: 'present' }] },
+      { className: 'Lớp 7', mainLessonNo: 4, date: '2026-10-28', students: [{ studentName: 'Vũ', lessonNo: 4, attendance: 'present' }] },
+      { className: 'Lớp 7', mainLessonNo: 6, date: '2027-01-02', students: [{ studentName: 'Vũ', lessonNo: 6, attendance: 'present' }] },
+    ])
+    expect(rows.map((r) => r[1])).toEqual(['28/10/2026', '01/11/2026', '02/01/2027'])
   })
 })

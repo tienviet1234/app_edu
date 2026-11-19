@@ -22,7 +22,7 @@ import { levelChangeConfirm, offsetChangeConfirm, removeStudentConfirm } from '@
 import { useActionLock } from '@/hooks/useActionLock'
 import { NumberCommitInput } from '@/components/molecules/NumberCommitInput'
 import { dateChangeCheck } from '@/business/sessionDates'
-import { removeSessionLocally } from '@/business/resequence'
+import { removeSessionLocally, applyRenumbered } from '@/business/resequence'
 import { sessionLabelOf } from '@/business/tuition'
 import { ResequenceSessionsModal } from '@/features/entry/ResequenceSessionsModal'
 import { DateCommitInput } from '@/components/molecules/DateCommitInput'
@@ -785,6 +785,8 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                                             // Lỗi phải trả lại ngày cũ trên máy (không nuốt lỗi khi ghi).
                                             sessionService
                                               .update(ss.id, { scheduledAt: `${newDate}T00:00:00.000Z` })
+                                              // Server xếp lại số buổi theo ngày (17/11) → máy áp đúng số mới.
+                                              .then((res) => edit((c) => { const s = c.students.find((y) => y.id === stu.id); if (s) applyRenumbered(s, res?.renumbered) }))
                                               .catch((err: unknown) => {
                                                 const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message
                                                 toast.error(`${msg ?? `Lỗi khi lưu ngày mới của Buổi ${ss.no} lên server.`} Đã trả lại ngày ${viDate(oldDate)}.`, { persist: true })
