@@ -71,6 +71,14 @@ describe('summarizeDataHealth', () => {
     expect(r.level).toBe('ok')
     expect(r.lines?.[0]).toContain('Cô A: 2 buổi')
   })
+  it('máy ĐANG dùng mà buổi kẹt hơn 3 ngày → cần xử lý ngay, nêu từng buổi (máy HP cô Anh 19/11)', () => {
+    const r = item({ devices: [{ label: 'Kim oanh · máy mvgf618p', unsent: 3, lastSeenAt: NOW - HOUR, stuckSince: NOW - 30 * 24 * HOUR, details: ['Lớp 7 · Tuấn · 10/10: bản thừa trùng ngày'] }] }, 'devices')
+    expect(r.level).toBe('bad')
+    expect(r.lines).toEqual([expect.stringContaining('kẹt 30 ngày'), '   – Lớp 7 · Tuấn · 10/10: bản thừa trùng ngày'])
+    // Mới kẹt 1 ngày → chưa phải kẹt; máy bỏ không dùng > 7 ngày → chỉ cảnh báo như cũ.
+    expect(item({ devices: [{ label: 'A', unsent: 1, lastSeenAt: NOW - HOUR, stuckSince: NOW - 24 * HOUR }] }, 'devices').level).toBe('ok')
+    expect(item({ devices: [{ label: 'A', unsent: 1, lastSeenAt: NOW - 10 * 24 * HOUR, stuckSince: NOW - 30 * 24 * HOUR }] }, 'devices').level).toBe('warn')
+  })
   it('ca thật Lớp 7: gom theo lượt, nêu đúng tên em', () => {
     const r = item({ clicksWithoutSession: [
       { date: '2026-10-29', className: 'Lớp 7', studentName: 'Tuấn' },

@@ -9,6 +9,10 @@ export function tryLockSession(sessionLocalId: string): boolean {
   return true
 }
 
+export function isSessionLocked(sessionLocalId: string): boolean {
+  return inFlight.has(sessionLocalId)
+}
+
 export function unlockSession(sessionLocalId: string): void {
   inFlight.delete(sessionLocalId)
 }

@@ -1,5 +1,6 @@
 import mongoose from 'mongoose'
-import { listR2Keys } from './storageService.js'
+import { listR2Keys, getR2ObjectText } from './storageService.js'
+import { unsyncedDetailsOf, describeUnsynced, stuckSinceOf, type UnsyncedDetail } from '../utils/snapshotDetails.js'
 import { billedMismatchKind, lonelyClassDays, navClicksWithoutSession, noticeAttendanceDrift, noticeCoverage, numberingProblem, perMonthOfClass, dateOrderProblem } from '../utils/dataRules.js'
 import { morningAlertFrom, summarizeDataHealth, suspectInherited } from '../utils/dataHealth.js'
 import { Notification } from '../models/Notification.js'
@@ -58,7 +59,7 @@ export async function readDataHealth() {
   const snaps = await db.collection('clientsnapshots').aggregate([
     { $match: { deviceId: { $not: /-bk\d+$/ }, createdAt: { $gte: new Date(now - 30 * DAY) } } },
     { $sort: { createdAt: -1 } },
-    { $group: { _id: '$deviceId', userId: { $first: '$userId' }, unsent: { $first: '$unsyncedSessionCount' }, at: { $first: '$createdAt' } } },
+    { $group: { _id: '$deviceId', userId: { $first: '$userId' }, unsent: { $first: '$unsyncedSessionCount' }, at: { $first: '$createdAt' }, snapId: { $first: '$_id' }, r2Key: { $first: '$r2Key' }, details: { $first: '$unsyncedSessions' } } },
   ]).toArray()
 
   const rejected = await db.collection('auditlogs').aggregate([
@@ -147,13 +148,34 @@ export async function readDataHealth() {
   }
   const known = (id: string) => liveIds.has(id) || deleted.has(id)
 
+  // Máy còn buổi chưa gửi: em + ngày từng buổi, đối chiếu server, và kẹt từ lúc nào (19/11 — máy HP
+  // cô Anh kẹt 3 buổi từ 20/10, trước đây chỉ thấy con số). Bản chụp cũ chưa có chi tiết thì đọc từ
+  // R2 1 lần rồi ghi chi tiết vào bản ghi bản chụp (chỉ là thông tin mô tả, không đổi dữ liệu học).
+  const liveDays = new Set(live.map((s) => `${s.classId}|${s.studentId}|${utcDay(s.scheduledAt)}`))
+  const deviceInfo = new Map<string, { stuckSince: number | null; details: string[] }>()
+  for (const s of snaps) {
+    if (!(s.unsent > 0)) continue
+    let details = s.details as UnsyncedDetail[] | undefined
+    if (!details && s.r2Key) {
+      try {
+        details = unsyncedDetailsOf(JSON.parse(await getR2ObjectText(s.r2Key)))
+        await db.collection('clientsnapshots').updateOne({ _id: s.snapId }, { $set: { unsyncedSessions: details } })
+      } catch { details = undefined }
+    }
+    const history = await db.collection('clientsnapshots').find({ deviceId: s._id }, { projection: { createdAt: 1, unsyncedSessionCount: 1 } }).sort({ createdAt: -1 }).limit(1000).toArray()
+    deviceInfo.set(String(s._id), {
+      stuckSince: stuckSinceOf(history as unknown as Array<{ createdAt: Date; unsyncedSessionCount?: number }>),
+      details: (details ?? []).map((d) => describeUnsynced(d, liveDays.has(`${d.classId}|${d.studentId}|${d.date}`))),
+    })
+  }
+
   return summarizeDataHealth({
     now,
     latestBackupAt,
     backupCount,
     usedBytes: (stats.dataSize ?? 0) + (stats.indexSize ?? 0),
     limitBytes: ATLAS_LIMIT_BYTES,
-    devices: snaps.map((s) => ({ label: `${nameOf(s.userId)} · máy ${String(s._id).slice(0, 8)}`, unsent: s.unsent ?? 0, lastSeenAt: new Date(s.at).getTime() })),
+    devices: snaps.map((s) => ({ label: `${nameOf(s.userId)} · máy ${String(s._id).slice(0, 8)}`, unsent: s.unsent ?? 0, lastSeenAt: new Date(s.at).getTime(), ...deviceInfo.get(String(s._id)) })),
     rejected: rejected.map((r) => ({ code: String(r._id ?? 'KHÁC'), count: r.count })),
     clicksWithoutSession: missing,
     sameDatePairs: [...perDay].filter(([, n]) => n > 1).map(([k]) => k),

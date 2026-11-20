@@ -10,6 +10,7 @@ import { noticeDeleteBlock, sendNoticeConfirm, deleteNoticeConfirm, markPaidConf
 import { useAuthStore } from '@/store/authStore'
 import { StudentTuitionCard } from './StudentTuitionCard'
 import { isMongoid } from '@/utils/mongoid'
+import { unsyncedPeriodMessage } from '@/business/sync'
 import { viDate } from '@/utils/format'
 import { exportTuitionNotices, exportTuitionOverview } from '@/utils/excel'
 import { classService } from '@/services/classes'
@@ -338,7 +339,7 @@ export function TuitionReportScreen({ cls, update }: Props) {
     if (!slice.length) return
     const unsynced = slice.filter((s) => !isMongoid(s.id)).length
     if (unsynced) {
-      toast.error(`Có ${unsynced} buổi CHƯA lên server — đợi máy đồng bộ xong (hoặc tải lại trang) rồi đánh dấu lại.`, { persist: true })
+      toast.error(unsyncedPeriodMessage(st.name, slice), { persist: true })
       return
     }
     const dateList = slice.map((s) => viDate(s.date)).join(', ')
@@ -432,7 +433,10 @@ export function TuitionReportScreen({ cls, update }: Props) {
     // trước đây bị bỏ qua im lặng, kỳ sau thu lại (Lớp 7 phiếu 16/10).
     const unsynced = row.sessionIds.filter((id) => !isMongoid(id)).length
     if (unsynced) {
-      toast.error(`Kỳ này còn ${unsynced} buổi CHƯA lên server — mở Nhập điểm để máy đồng bộ xong (hoặc tải lại trang) rồi gửi lại.`, { persist: true })
+      // Nêu ĐÚNG em + ngày + việc cần làm (19/11: lời báo cũ không nói buổi nào, máy HP cô Anh kẹt nhiều tuần).
+      const stu = cls.students.find((s) => s.id === row.studentId)
+      const inPeriod = (stu?.sessions ?? []).filter((s) => row.sessionIds.includes(s.id))
+      toast.error(unsyncedPeriodMessage(row.studentName, inPeriod), { persist: true })
       return
     }
     // 2 buổi cùng 1 ngày trong kỳ → kỳ bị đếm dư buổi, thu tiền thừa.

@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import type { UnsyncedDetail } from '../utils/snapshotDetails.js'
 
 /** Bản chụp TOÀN BỘ dữ liệu đang nằm trên máy 1 giáo viên/admin (localStorage
  *  của app), tự gửi lên định kỳ khi có thay đổi — lưới an toàn cuối cùng: kể
@@ -19,6 +20,7 @@ export interface IClientSnapshot extends Document {
   classCount: number
   sessionCount: number
   unsyncedSessionCount: number
+  unsyncedSessions?: UnsyncedDetail[]
   createdAt: Date
 }
 
@@ -34,6 +36,8 @@ const clientSnapshotSchema = new Schema<IClientSnapshot>(
     classCount: { type: Number, default: 0 },
     sessionCount: { type: Number, default: 0 },
     unsyncedSessionCount: { type: Number, default: 0 },
+    /** Em + ngày của từng buổi chưa lên server (unsyncedDetailsOf) — có từ 19/11. */
+    unsyncedSessions: { type: [Schema.Types.Mixed], default: undefined },
   },
   { timestamps: { createdAt: true, updatedAt: false } },
 )

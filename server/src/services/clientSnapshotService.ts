@@ -4,6 +4,7 @@ import { ClientSnapshot } from '../models/ClientSnapshot.js'
 import { uploadBufferToR2, deleteVideoFromR2, getDownloadPresignedUrl, listR2Keys, getR2ObjectText } from './storageService.js'
 import { snapshotsToDelete } from '../utils/snapshotRetention.js'
 import { searchSnapshotsForDay, type DaySearchResult } from '../utils/snapshotSearch.js'
+import { unsyncedDetailsOf } from '../utils/snapshotDetails.js'
 
 const PREFIX = 'client-snapshots/'
 const isMongoid = (id: string) => /^[a-f0-9]{24}$/i.test(id)
@@ -32,6 +33,7 @@ export async function saveClientSnapshot(input: {
     sessionCount: sessions.length,
     // Chưa lên server = id tạm, HOẶC đã sửa trên máy mà server chưa xác nhận.
     unsyncedSessionCount: sessions.filter((s) => !s.id || !isMongoid(s.id) || s.dirty === true).length,
+    unsyncedSessions: unsyncedDetailsOf(data),
   })
 
   // Giữ dày gần đây, thưa dần về quá khứ — xem snapshotsToDelete.

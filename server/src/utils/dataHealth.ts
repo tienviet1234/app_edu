@@ -8,7 +8,8 @@ export interface HealthInput {
   backupCount: number | null
   usedBytes: number
   limitBytes: number
-  devices: Array<{ label: string; unsent: number; lastSeenAt: number }>
+  /** stuckSince = máy liên tục còn buổi chưa gửi từ lúc này; details = từng buổi (describeUnsynced). */
+  devices: Array<{ label: string; unsent: number; lastSeenAt: number; stuckSince?: number | null; details?: string[] }>
   rejected: Array<{ code: string; count: number }>
   clicksWithoutSession: Array<{ date: string; className: string; studentName: string }>
   sameDatePairs: string[]
@@ -84,6 +85,7 @@ export function morningAlertFrom(health: { items: HealthItem[] }): { title: stri
 }
 
 const HOUR = 3600e3
+const DAY = 24 * HOUR
 const worst = (levels: HealthLevel[]): HealthLevel => (levels.includes('bad') ? 'bad' : levels.includes('warn') ? 'warn' : 'ok')
 const viTime = (t: number) => new Date(t + 7 * HOUR).toISOString().slice(0, 16).replace('T', ' ')
 
@@ -113,10 +115,19 @@ export function summarizeDataHealth(i: HealthInput): { level: HealthLevel; items
 
   const stale = i.devices.filter((d) => d.unsent > 0 && i.now - d.lastSeenAt > 24 * HOUR)
   const recent = i.devices.filter((d) => d.unsent > 0 && i.now - d.lastSeenAt <= 24 * HOUR)
+  // Máy VẪN đang dùng (mở trong 7 ngày) mà buổi chưa gửi nằm đó hơn 3 ngày → không phải "chờ gửi" nữa
+  // mà là kẹt: chặn gửi phiếu học phí trên máy đó (19/11, máy HP cô Anh kẹt từ 20/10).
+  const stuck = i.devices.filter((d) => d.unsent > 0 && d.stuckSince != null && i.now - d.stuckSince > 3 * DAY && i.now - d.lastSeenAt <= 7 * DAY)
+  const days = (d: { stuckSince?: number | null }) => Math.floor((i.now - (d.stuckSince ?? i.now)) / DAY)
   items.push({
-    key: 'devices', level: stale.length ? 'warn' : 'ok', title: 'Dữ liệu còn nằm trên máy',
-    detail: stale.length ? `${stale.length} máy có buổi chưa gửi và hơn 1 ngày chưa mở app.` : recent.length ? `${recent.length} máy vừa dùng còn buổi chưa gửi, thường tự gửi tiếp.` : 'Không máy nào còn buổi chưa gửi.',
-    lines: [...stale, ...recent].map((d) => `${d.label}: ${d.unsent} buổi, gần nhất ${viTime(d.lastSeenAt)}`),
+    key: 'devices', level: stuck.length ? 'bad' : stale.length ? 'warn' : 'ok', title: 'Dữ liệu còn nằm trên máy',
+    detail: stuck.length
+      ? `${stuck.length} máy đang dùng có buổi kẹt hơn 3 ngày không lên server — máy đó không gửi được phiếu học phí của em có buổi kẹt. Xem từng buổi bên dưới.`
+      : stale.length ? `${stale.length} máy có buổi chưa gửi và hơn 1 ngày chưa mở app.` : recent.length ? `${recent.length} máy vừa dùng còn buổi chưa gửi, thường tự gửi tiếp.` : 'Không máy nào còn buổi chưa gửi.',
+    lines: [...new Set([...stuck, ...stale, ...recent])].flatMap((d) => [
+      `${d.label}: ${d.unsent} buổi, gần nhất ${viTime(d.lastSeenAt)}${d.stuckSince != null && days(d) >= 1 ? `, kẹt ${days(d)} ngày` : ''}`,
+      ...(d.details ?? []).map((x) => `   – ${x}`),
+    ]),
   })
 
   const missing = new Map<string, string[]>()

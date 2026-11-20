@@ -160,8 +160,9 @@ export interface OrphanRecord {
   className: string
   studentId: string
   studentName: string
-  /** replacedByServer = bản cũ trên máy, cất lại khi admin chọn "Lấy bản server". */
-  reason: 'studentRemoved' | 'classRemoved' | 'deletedLocal' | 'otherTab' | 'replacedByServer'
+  /** replacedByServer = bản cũ trên máy, cất lại khi admin chọn "Lấy bản server".
+   *  sameDateDuplicate = buổi tạm kẹt trên máy, server đã có buổi CÙNG NGÀY khác nội dung (settleStuckTemps). */
+  reason: 'studentRemoved' | 'classRemoved' | 'deletedLocal' | 'otherTab' | 'replacedByServer' | 'sameDateDuplicate'
   removedAt: string
   sessions: Session[]
 }

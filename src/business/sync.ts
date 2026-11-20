@@ -758,3 +758,105 @@ export function makeRoomForServerNo(student: { sessions: Session[] }, sessionId:
   for (const s of student.sessions) if (s.id !== sessionId && s.no >= no) s.no += 1
   student.sessions.sort((a, b) => a.no - b.no)
 }
+
+/** 1 buổi tạm (chưa lên server) đã được máy tự xử lý / còn chờ người quyết — xem `settleStuckTemps`. */
+export interface StuckTempResult {
+  studentId: string
+  studentName: string
+  date: string
+  /** covered = server đã có buổi cùng ngày chứa trọn nội dung → bỏ bản tạm, không mất gì;
+   *  homeworkFilled = như trên nhưng máy có bài tập server còn trống → chép bài tập sang buổi server rồi gửi;
+   *  keptDiffers = server có buổi cùng ngày mà nội dung KHÁC → bản tạm vào kho giữ lại (admin đối chiếu);
+   *  blankNoServer = buổi tạm TRỐNG (chỉ "có mặt"), server không có buổi ngày đó → CHƯA tự làm gì:
+   *  gửi lên là tính thêm 1 buổi học phí, bỏ đi là có thể mất 1 buổi có thật — người quyết. */
+  kind: 'covered' | 'homeworkFilled' | 'keptDiffers' | 'blankNoServer'
+}
+
+/**
+ * Buổi id tạm nằm lại trên máy mãi không lên server (19/11: máy HP cô Anh giữ 3–5 buổi như vậy từ
+ * 20/10, màn Học phí chặn gửi phiếu "Kỳ này còn 1 buổi CHƯA lên server" trong khi máy khác gửi được).
+ * Bộ tự lưu chỉ gửi buổi `dirty`, đồng bộ lúc mở app chỉ gửi buổi có dữ liệu, và gặp buổi cùng ngày
+ * khác nội dung thì giữ nguyên — nên các bản này kẹt vĩnh viễn và được đếm như 1 buổi học.
+ * Gọi NGAY SAU `syncStudentsFromServer` (cùng danh sách server, sửa trực tiếp trong `produce`):
+ *  - server có buổi CÙNG NGÀY của em đó: chứa trọn bản tạm → bỏ bản tạm (+ chép bài tập nếu server
+ *    trống); khác → chuyển bản tạm vào kho giữ lại (`sameDateDuplicate`), không xóa gì.
+ *  - server không có buổi ngày đó: bản có dữ liệu để đường gửi bình thường lo; bản TRỐNG không
+ *    `dirty` chỉ báo (`blankNoServer`), không tự gửi cũng không tự bỏ.
+ * Bỏ qua buổi đang gửi (`isLocked`), buổi đang xung đột, và buổi từ HÔM NAY trở đi (có thể đang nhập).
+ */
+export function settleStuckTemps(
+  cls: { id: string; name: string },
+  students: Array<{ id: string; name: string; sessions: Session[] }>,
+  serverSessions: ServerSessionForSync[],
+  scoresBySession: Map<string, ServerScoreForSync>,
+  opts: { today: string; isLocked?: (sessionId: string) => boolean; now?: string },
+): { results: StuckTempResult[]; orphans: OrphanRecord[] } {
+  const results: StuckTempResult[] = []
+  const orphans: OrphanRecord[] = []
+  for (const st of students) {
+    if (!isMongoid(st.id)) continue
+    const remove = new Set<string>()
+    for (const s of st.sessions) {
+      if (isMongoid(s.id) || s.conflict || s.date >= opts.today || opts.isLocked?.(s.id)) continue
+      const server = serverSessions.find((x) => x.studentId === st.id && x.scheduledAt.slice(0, 10) === s.date)
+      const base = { studentId: st.id, studentName: st.name, date: s.date }
+      if (!server) {
+        if (!s.dirty && !hasUnsavedData(s)) results.push({ ...base, kind: 'blankNoServer' })
+        continue
+      }
+      const score = scoresBySession.get(server._id)
+      const outcome = resolveSameDateTemp(
+        { entry: s.entry ?? emptyEntry(), homework: s.homework ?? '' },
+        { entry: score ? toSessionEntry(score) : emptyEntry(), homework: server.notes ?? '' },
+      )
+      if (outcome === 'keep') {
+        orphans.push(sameDateOrphan(cls, st, s, opts.now))
+        results.push({ ...base, kind: 'keptDiffers' })
+      } else if (outcome === 'fillHomework') {
+        const onDevice = st.sessions.find((x) => x.id === server._id)
+        // Bản server chưa về máy (không nên xảy ra ngay sau đồng bộ) → để lần sau.
+        if (!onDevice) continue
+        onDevice.homework = s.homework
+        onDevice.dirty = true
+        results.push({ ...base, kind: 'homeworkFilled' })
+      } else {
+        results.push({ ...base, kind: 'covered' })
+      }
+      remove.add(s.id)
+    }
+    if (remove.size) st.sessions = st.sessions.filter((x) => !remove.has(x.id))
+  }
+  return { results, orphans }
+}
+
+function sameDateOrphan(cls: { id: string; name: string }, st: { id: string; name: string }, s: Session, now?: string): OrphanRecord {
+  return {
+    classId: cls.id, className: cls.name, studentId: st.id, studentName: st.name,
+    reason: 'sameDateDuplicate', removedAt: now ?? new Date().toISOString(),
+    sessions: [JSON.parse(JSON.stringify(s)) as Session],
+  }
+}
+
+/** Đồng bộ nền lúc mở app gửi buổi tạm, server báo đã có buổi CÙNG NGÀY khác nội dung (`keep`):
+ *  cất bản tạm vào kho giữ lại + gỡ khỏi lớp — trước 19/11 để nguyên, buổi kẹt mãi và chặn gửi phiếu
+ *  học phí. Cùng quy tắc với `settleStuckTemps`. Trả null nếu không còn buổi đó / đã có id server. */
+export function stashSameDateTemp(
+  cls: { id: string; name: string }, st: { id: string; name: string; sessions: Session[] }, sessionId: string, now?: string,
+): OrphanRecord | null {
+  const s = st.sessions.find((x) => x.id === sessionId)
+  if (!s || isMongoid(s.id)) return null
+  st.sessions = st.sessions.filter((x) => x.id !== sessionId)
+  return sameDateOrphan(cls, st, s, now)
+}
+
+/** Lời báo cho 1 kỳ học phí còn buổi chưa lên server: nêu ĐÚNG em + ngày, và việc cần làm theo loại. */
+export function unsyncedPeriodMessage(studentName: string, sessions: Array<Pick<Session, 'id' | 'date' | 'dirty' | 'entry' | 'homework'>>): string {
+  const temps = sessions.filter((s) => !isMongoid(s.id))
+  const dd = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`
+  const blank = temps.filter((s) => !s.dirty && !hasUnsavedData(s as Session))
+  const pending = temps.filter((s) => !blank.includes(s))
+  const parts: string[] = []
+  if (pending.length) parts.push(`${pending.map((s) => dd(s.date)).join(', ')} có điểm/điểm danh đang chờ gửi — mở "Điểm danh & Điểm" lớp này (hoặc tải lại trang) để máy gửi lên`)
+  if (blank.length) parts.push(`${blank.map((s) => dd(s.date)).join(', ')} là buổi TRỐNG chỉ có trên máy này, server không có — nếu em có học hôm đó thì vào "Chấm từng em" ghi điểm danh để gửi lên, nếu không thì xóa buổi đó ở "🔧 Sửa số buổi"`)
+  return `${studentName}: kỳ này còn ${temps.length} buổi CHƯA lên server, chưa gửi phiếu (gửi bây giờ thì buổi đó không được đánh dấu đã thu, kỳ sau bị thu lại). ${parts.join('; ')}.`
+}

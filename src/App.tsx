@@ -21,19 +21,20 @@ import { useClasses, useClassStudents, useSessions, useClassScores, usePwaInstal
 import { isMongoid } from '@/utils/mongoid'
 import {
   pruneGoneFromServer, syncStudentsFromServer, adoptServerSession, makeRoomForServerNo, markSessionSaved, markConflict, detachDeletedSession, toSessionEntry, maxesToBackfill,
-  collectOrphans, appendOrphans, unsentSessionCount, latestSessionOf, notesToSend, baseForSave, resolveSameDateTemp, type ServerScoreForSync,
+  collectOrphans, appendOrphans, settleStuckTemps, stashSameDateTemp, unsentSessionCount, latestSessionOf, notesToSend, baseForSave, resolveSameDateTemp, type ServerScoreForSync,
 } from '@/business/sync'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
 import { getClassRubric } from '@/constants/rubrics'
 import { rescaleComp, sessionScore } from '@/business/scoring'
 import { autoLevel } from '@/constants/rubrics'
 import { collectScoreJobs, jobIsCurrent } from '@/business/strandedScores'
-import { tryLockSession, unlockSession } from '@/utils/syncLocks'
+import { tryLockSession, unlockSession, isSessionLocked } from '@/utils/syncLocks'
 import { sessionService } from '@/services/sessions'
 import { scoreService, conflictFromError, isSessionDeletedError } from '@/services/scores'
 import { uid } from '@/utils/uid'
 import { classService, type ApiClass } from '@/services/classes'
 import { toast } from '@/store/toastStore'
+import { todayISO } from '@/utils/format'
 import type { AppData, ClassData } from '@/types'
 
 // Các màn theo tab tách thành chunk riêng, chỉ tải khi thực sự mở tab đó —
@@ -258,6 +259,14 @@ async function autoSyncStrandedScores(
             { entry: toSessionEntry(res as unknown as ServerScoreForSync), homework: onServer.notes ?? '' },
           )
           if (outcome === 'keep') {
+            // Khác nội dung → cất bản tạm vào kho giữ lại, lớp dùng bản server (19/11: để nguyên thì
+            // buổi kẹt mãi trên máy, chặn gửi phiếu học phí của em đó).
+            if (stillOwner()) setData(produce((d: AppData) => {
+              const c = d.classes.find((x) => x.id === job.classId)
+              const st = c?.students.find((s) => s.id === job.studentId)
+              const rec = c && st ? stashSameDateTemp(c, st, job.sessionLocalId) : null
+              if (rec) d.orphans = appendOrphans(d.orphans, [rec])
+            }))
             stuckSameDate.push(`${job.studentName} (${job.date})`)
             continue
           }
@@ -286,7 +295,7 @@ async function autoSyncStrandedScores(
     toast.info(`${deletedOnServer.length} buổi máy này vừa sửa đã bị xóa trên server: ${deletedOnServer.join(', ')} — đã giữ lại điểm, sẽ tạo lại buổi theo ngày khi mở Nhập điểm lớp đó.`, { persist: true })
   }
   if (stuckSameDate.length) {
-    toast.error(`${stuckSameDate.length} buổi trên máy này trùng ngày với buổi đã có điểm trên server, chưa gộp (tránh ghi đè): ${stuckSameDate.join(', ')} — báo admin kiểm tra.`, { persist: true })
+    toast.info(`${stuckSameDate.length} buổi trên máy này trùng ngày với buổi đã có điểm KHÁC trên server: ${stuckSameDate.join(', ')} — không ghi đè; bản trên máy đã cất vào kho giữ lại (admin xem ở Sao lưu → Dữ liệu kẹt), lớp dùng bản server.`, { persist: true })
   }
   if (fail > 0) {
     toast.error(`${fail} buổi chưa đồng bộ được (lỗi mạng) — thử mở lại app sau`, { persist: true })
@@ -632,10 +641,24 @@ export default function App() {
       createdByName: as.createdBy && typeof as.createdBy === 'object' ? as.createdBy.name : undefined,
     }))
     const scoresBySession = new Map((apiScores?.items ?? []).map((s) => [s.sessionId, s as unknown as ServerScoreForSync]))
+    const settled: ReturnType<typeof settleStuckTemps>['results'] = []
     setData((d: AppData) => {
       const localCls = d.classes.find((c) => c.id === syncClassId)
-      if (localCls) syncStudentsFromServer(localCls.students, serverSessions, scoresBySession, { sessions: apiSessions.requestedAt, scores: apiScores?.requestedAt })
+      if (!localCls) return
+      syncStudentsFromServer(localCls.students, serverSessions, scoresBySession, { sessions: apiSessions.requestedAt, scores: apiScores?.requestedAt })
+      // Buổi tạm kẹt trên máy mà server đã có buổi CÙNG NGÀY → tự gộp / cất vào kho giữ lại (19/11,
+      // máy HP cô Anh: buổi kẹt từ 20/10 chặn gửi phiếu học phí). Chỉ khi điểm tải được — không có điểm
+      // server thì không so được nội dung.
+      if (scoresError) return
+      const out = settleStuckTemps(localCls, localCls.students, serverSessions, scoresBySession, { today: todayISO(), isLocked: isSessionLocked })
+      settled.push(...out.results)
+      if (out.orphans.length) d.orphans = appendOrphans(d.orphans, out.orphans)
     })
+    const merged = settled.filter((r) => r.kind === 'covered' || r.kind === 'homeworkFilled')
+    const kept = settled.filter((r) => r.kind === 'keptDiffers')
+    const who = (rs: typeof settled) => rs.map((r) => `${r.studentName} ${r.date.slice(8, 10)}/${r.date.slice(5, 7)}`).join(', ')
+    if (merged.length) toast.success(`Đã gộp ${merged.length} buổi kẹt trên máy vào buổi cùng ngày đã có trên server (không mất gì): ${who(merged)}`, { persist: true })
+    if (kept.length) toast.info(`${kept.length} buổi kẹt trên máy khác bản cùng ngày trên server — đã cất vào kho giữ lại (admin xem ở Sao lưu → Dữ liệu kẹt), lớp dùng bản server: ${who(kept)}`, { persist: true })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiSessionsKey, apiScoresKey, syncClassId, scoresError, sessionsFetching, scoresFetching])
 

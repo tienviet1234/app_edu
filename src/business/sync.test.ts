@@ -4,6 +4,7 @@ import {
   markConflict, resolveConflict, collectOrphans, appendOrphans, sameDateClash, detachDeletedSession,
   orphanForLocalDelete, rescueOtherTabSessions, maxesToBackfill, takeServerCopy, countUnsaved, homeworkToBackfill,
   navChoiceOf, unsentCountOf, unsentSessionCount, latestSessionOf, siblingDefaultsFor, notesToSend, baseForSave, resolveSameDateTemp, makeRoomForServerNo,
+  settleStuckTemps, unsyncedPeriodMessage, stashSameDateTemp,
   type ServerSessionForSync, type ServerScoreForSync,
 } from './sync'
 import { emptyEntry, normalize } from './seed'
@@ -1002,5 +1003,107 @@ describe('makeRoomForServerNo (server chèn buổi vào giữa — 10/11)', () =
     expect(nos(st)).toEqual([['a', 1], [SV2, 2], ['t', 4]])
     makeRoomForServerNo(st, SV2, undefined)
     expect(nos(st)).toEqual([['a', 1], [SV2, 2], ['t', 4]])
+  })
+})
+
+describe('settleStuckTemps (buổi tạm kẹt trên máy — máy HP cô Anh 19/11)', () => {
+  const CLS = { id: 'c'.repeat(24), name: 'Lớp 7' }
+  const TODAY = '2026-11-19'
+  const settle = (sessions: Session[], server: ServerSessionForSync[], scores: ServerScoreForSync[] = [], opts: { isLocked?: (id: string) => boolean } = {}) => {
+    const students = [{ id: STU, name: 'Tuấn', sessions }]
+    // Như App.tsx: đồng bộ trước (buổi server về máy), rồi mới gộp.
+    syncStudentsFromServer(students, server, new Map(scores.map((x) => [x.sessionId, x])))
+    const out = settleStuckTemps(CLS, students, server, new Map(scores.map((x) => [x.sessionId, x])), { today: TODAY, now: 'T', ...opts })
+    return { ...out, sessions: students[0].sessions }
+  }
+  const temp = (over: Partial<Session> = {}) => sess({ id: 'tmp-1', no: 2, ...over })
+
+  it('server có buổi cùng ngày chứa trọn bản tạm → bỏ bản tạm, còn đúng 1 buổi ngày đó', () => {
+    const r = settle([temp({ entry: { ...emptyEntry(), scores: { mini: 8 } } })], [serverSess()], [serverScore()])
+    expect(r.results).toEqual([{ studentId: STU, studentName: 'Tuấn', date: '2026-10-10', kind: 'covered' }])
+    expect(r.sessions.map((x) => x.id)).toEqual([SV1])
+    expect(r.orphans).toEqual([])
+  })
+  it('bản tạm trống (chỉ "có mặt") mà server có buổi ngày đó → bỏ (không mất gì)', () => {
+    const r = settle([temp()], [serverSess()])
+    expect(r.results[0].kind).toBe('covered')
+    expect(r.sessions.map((x) => x.id)).toEqual([SV1])
+  })
+  it('khác nội dung → cất bản tạm vào kho giữ lại NGUYÊN VĂN, lớp dùng bản server', () => {
+    const t = temp({ entry: { ...emptyEntry(), scores: { mini: 5 } }, dirty: true })
+    const r = settle([t], [serverSess()], [serverScore()])
+    expect(r.results[0].kind).toBe('keptDiffers')
+    expect(r.sessions.map((x) => x.id)).toEqual([SV1])
+    expect(r.orphans).toHaveLength(1)
+    expect(r.orphans[0]).toMatchObject({ classId: CLS.id, studentId: STU, reason: 'sameDateDuplicate', removedAt: 'T' })
+    expect(r.orphans[0].sessions[0]).toEqual(t)
+  })
+  it('máy có bài tập, server trống → chép bài tập sang buổi server + đánh dấu gửi, bỏ bản tạm', () => {
+    const r = settle([temp({ homework: 'Unit 3' })], [serverSess()], [serverScore({ scores: {} })])
+    expect(r.results[0].kind).toBe('homeworkFilled')
+    expect(r.sessions).toHaveLength(1)
+    expect(r.sessions[0]).toMatchObject({ id: SV1, homework: 'Unit 3', dirty: true })
+  })
+  it('bài tập 2 bên khác nhau → cất vào kho, không ghi đè bài tập server', () => {
+    const r = settle([temp({ homework: 'Unit 3' })], [serverSess({ notes: 'Unit 4' })])
+    expect(r.results[0].kind).toBe('keptDiffers')
+    expect(r.sessions[0]).toMatchObject({ id: SV1, homework: 'Unit 4' })
+  })
+  it('server KHÔNG có buổi ngày đó: bản trống chỉ báo, không tự gửi cũng không tự bỏ', () => {
+    const r = settle([temp({ date: '2026-10-12' })], [serverSess()])
+    expect(r.results).toEqual([{ studentId: STU, studentName: 'Tuấn', date: '2026-10-12', kind: 'blankNoServer' }])
+    expect(r.sessions.map((x) => x.id).sort()).toEqual([SV1, 'tmp-1'].sort())
+    expect(r.sessions.find((x) => x.id === 'tmp-1')?.dirty).toBeUndefined()
+  })
+  it('server không có buổi ngày đó mà bản tạm có dữ liệu → để đường gửi bình thường, không báo', () => {
+    const r = settle([temp({ date: '2026-10-12', entry: { ...emptyEntry(), attendance: 'excused' } })], [serverSess()])
+    expect(r.results).toEqual([])
+    expect(r.sessions).toHaveLength(2)
+  })
+  it('không đụng: buổi đang gửi, buổi đang xung đột, buổi từ hôm nay trở đi', () => {
+    expect(settle([temp()], [serverSess()], [], { isLocked: (id) => id === 'tmp-1' }).sessions).toHaveLength(2)
+    expect(settle([temp({ conflict: { entry: emptyEntry(), total: 0, updatedAt: 'x' } })], [serverSess()]).sessions).toHaveLength(2)
+    const today = settle([temp({ date: TODAY })], [serverSess({ scheduledAt: `${TODAY}T00:00:00.000Z` })])
+    expect(today.results).toEqual([])
+    expect(today.sessions).toHaveLength(2)
+  })
+  it('buổi server của EM KHÁC cùng ngày không tính', () => {
+    const r = settle([temp()], [serverSess({ studentId: 'e'.repeat(24) })])
+    expect(r.results[0].kind).toBe('blankNoServer')
+    expect(r.sessions.map((x) => x.id)).toEqual(['tmp-1'])
+  })
+  it('chạy lại lần 2 không làm gì thêm', () => {
+    const students = [{ id: STU, name: 'Tuấn', sessions: [temp({ entry: { ...emptyEntry(), scores: { mini: 5 } } })] }]
+    const server = [serverSess()], scores = new Map([[SV1, serverScore()]])
+    syncStudentsFromServer(students, server, scores)
+    settleStuckTemps(CLS, students, server, scores, { today: TODAY })
+    const again = settleStuckTemps(CLS, students, server, scores, { today: TODAY })
+    expect(again).toEqual({ results: [], orphans: [] })
+  })
+})
+
+describe('unsyncedPeriodMessage (màn Học phí nêu đúng em + ngày)', () => {
+  it('phân biệt buổi chờ gửi và buổi trống chỉ có trên máy', () => {
+    const msg = unsyncedPeriodMessage('Tuấn', [
+      sess({ id: SV1 }),
+      sess({ id: 'tmp-a', date: '2026-10-12', dirty: true }),
+      sess({ id: 'tmp-b', date: '2026-10-15' }),
+    ])
+    expect(msg).toContain('Tuấn: kỳ này còn 2 buổi CHƯA lên server')
+    expect(msg).toContain('12/10 có điểm/điểm danh đang chờ gửi')
+    expect(msg).toContain('15/10 là buổi TRỐNG')
+  })
+})
+
+describe('stashSameDateTemp (đồng bộ lúc mở app gặp buổi cùng ngày khác nội dung)', () => {
+  it('cất bản tạm vào kho nguyên văn + gỡ khỏi lớp; buổi đã có id server thì không đụng', () => {
+    const t = sess({ id: 'tmp-9', entry: { ...emptyEntry(), scores: { mini: 2 } } })
+    const st = { id: STU, name: 'Tuấn', sessions: [sess({}), t] }
+    const rec = stashSameDateTemp({ id: 'c', name: 'Lớp 7' }, st, 'tmp-9', 'T')
+    expect(rec).toEqual({ classId: 'c', className: 'Lớp 7', studentId: STU, studentName: 'Tuấn', reason: 'sameDateDuplicate', removedAt: 'T', sessions: [t] })
+    expect(st.sessions.map((x) => x.id)).toEqual([SV1])
+    expect(stashSameDateTemp({ id: 'c', name: 'Lớp 7' }, st, SV1)).toBeNull()
+    expect(stashSameDateTemp({ id: 'c', name: 'Lớp 7' }, st, 'khong-co')).toBeNull()
+    expect(st.sessions).toHaveLength(1)
   })
 })
