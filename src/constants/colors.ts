@@ -32,3 +32,24 @@ export function scoreColor(val: number | null): string {
   if (val >= 65) return C.scoreMid
   return C.scoreLow
 }
+
+/** Màu ô ở Bảng chấm điểm (21/11): ô đã nhập/đã chọn tô ĐẬM theo mức đạt để giáo viên thấy ngay ô
+ *  nào đã chấm; ô trống trắng, viền nét đứt. Các mức khác nhau cả độ sáng (không chỉ khác màu).
+ *  `one` = chế độ "một màu cho mọi ô đã nhập". */
+export const SHEET_PAINT = {
+  empty:   { bg: '#FFFFFF', fg: '#0F172A', bd: '2px dashed #94A3B8' },
+  full:    { bg: '#15803D', fg: '#FFFFFF', bd: '2px solid #15803D' },
+  good:    { bg: '#4ADE80', fg: '#052E16', bd: '2px solid #22C55E' },
+  mid:     { bg: '#FACC15', fg: '#422006', bd: '2px solid #EAB308' },
+  low:     { bg: '#FB923C', fg: '#431407', bd: '2px solid #F97316' },
+  zero:    { bg: '#E11D48', fg: '#FFFFFF', bd: '2px solid #E11D48' },
+  ticked:  { bg: '#2563EB', fg: '#FFFFFF', bd: '2px solid #2563EB' },
+  text:    { bg: '#F5F3FF', fg: '#0F172A', bd: '2px solid #7C3AED' },
+  present: { bg: '#15803D', fg: '#FFFFFF', bd: '2px solid #15803D' },
+  late:    { bg: '#F59E0B', fg: '#422006', bd: '2px solid #F59E0B' },
+  excused: { bg: '#2563EB', fg: '#FFFFFF', bd: '2px solid #2563EB' },
+  absent:  { bg: '#E11D48', fg: '#FFFFFF', bd: '2px solid #E11D48' },
+  one:     { bg: '#1D4ED8', fg: '#FFFFFF', bd: '2px solid #1D4ED8' },
+  error:   { bg: '#FEE2E2', fg: '#7F1D1D', bd: '3px solid #DC2626' },
+  locked:  { bg: '#F1F5F9', fg: '#94A3B8', bd: '1px solid #E2E8F0' },
+} as const

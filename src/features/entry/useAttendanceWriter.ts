@@ -11,6 +11,23 @@ import { todayISO, viDate } from '@/utils/format'
 
 export type RowStatus = 'saving' | 'saved' | 'offline' | 'error'
 
+/** Gửi buổi của 1 em ĐÚNG 1 NGÀY qua `pushSession` (đường gửi duy nhất). Đang có lần gửi khác cho
+ *  đúng buổi đó (tự lưu nền) → chờ rồi gửi lại (tối đa ~10 giây). Dùng chung: Điểm danh nhanh,
+ *  lưới cả lớp, Bảng chấm điểm. */
+export async function pushByDate(cls: ClassData, studentId: string, date: string, update: (fn: (c: ClassData) => void) => void): Promise<PushOutcome> {
+  let out: PushOutcome = { kind: 'busy' }
+  for (let i = 0; i < 10 && out.kind === 'busy'; i++) {
+    // Tìm buổi THEO NGÀY trong kho máy ngay lúc gửi (mỗi em 1 buổi/ngày — markAttendance đã chặn
+    // trùng): lần gửi khác có thể vừa đổi id tạm → id server.
+    const fresh = useAppStore.getState().data?.classes.find((c) => c.id === cls.id)?.students.find((s) => s.id === studentId)
+    const sid = fresh?.sessions.find((s) => s.date === date)?.id
+    if (!sid) return { kind: 'nothing' }
+    out = await pushSession({ cls, rubric: getClassRubric(cls), studentId, sessionLocalId: sid, update })
+    if (out.kind === 'busy') await new Promise((r) => setTimeout(r, 1000))
+  }
+  return out
+}
+
 /** Ghi điểm danh 1 em / 1 ngày từ Điểm danh nhanh + lưới cả lớp (đợt 3, 11/11):
  *  khóa theo em (bấm dồn không gửi chồng) → sửa kho máy (`markAttendance`) → gửi NGAY qua
  *  `pushSession` (đường gửi duy nhất) → chỉ báo đã lưu khi server xác nhận. Đang có lần gửi khác
@@ -20,19 +37,7 @@ export function useAttendanceWriter(cls: ClassData, update: (fn: (c: ClassData) 
   const [status, setStatus] = useState<Record<string, RowStatus>>({})
   const set = (k: string, v: RowStatus) => setStatus((x) => ({ ...x, [k]: v }))
 
-  async function push(studentId: string, date: string): Promise<PushOutcome> {
-    let out: PushOutcome = { kind: 'busy' }
-    for (let i = 0; i < 10 && out.kind === 'busy'; i++) {
-      // Tìm buổi THEO NGÀY trong kho máy ngay lúc gửi (mỗi em 1 buổi/ngày — markAttendance đã chặn
-      // trùng): lần gửi khác có thể vừa đổi id tạm → id server.
-      const fresh = useAppStore.getState().data?.classes.find((c) => c.id === cls.id)?.students.find((s) => s.id === studentId)
-      const sid = fresh?.sessions.find((s) => s.date === date)?.id
-      if (!sid) return { kind: 'nothing' }
-      out = await pushSession({ cls, rubric: getClassRubric(cls), studentId, sessionLocalId: sid, update })
-      if (out.kind === 'busy') await new Promise((r) => setTimeout(r, 1000))
-    }
-    return out
-  }
+  const push = (studentId: string, date: string) => pushByDate(cls, studentId, date, update)
 
   /** Trả true khi server ĐÃ xác nhận (hoặc không có gì để gửi). */
   async function mark(studentId: string, date: string, attendance: AttendanceKey): Promise<boolean> {
