@@ -713,10 +713,17 @@ export function homeworkToBackfill(
  *  buổi đã có trong kho thì bỏ qua) — hiệu ứng đồng bộ có thể chạy lại. */
 export function appendOrphans(existing: OrphanRecord[] | undefined, incoming: OrphanRecord[]): OrphanRecord[] {
   const out = (existing ?? []).map((o) => ({ ...o, sessions: [...o.sessions] }))
+  // Gộp theo lớp + em + LÝ DO: trước 22/11 gộp theo em, bản ghi đến sau mang lý do của bản đến trước
+  // (VD buổi kẹt có dữ liệu nằm chung bản ghi "replacedByServer" → không còn được đếm là chưa lên server).
+  // 1 buổi đã có trong kho (bất kỳ bản ghi nào) thì không thêm lần nữa.
+  const have = new Set(out.flatMap((o) => o.sessions.map((s) => s.id)))
   for (const inc of incoming) {
-    const same = out.find((o) => o.classId === inc.classId && o.studentId === inc.studentId)
-    if (!same) { out.push({ ...inc, sessions: [...inc.sessions] }); continue }
-    for (const s of inc.sessions) if (!same.sessions.some((x) => x.id === s.id)) same.sessions.push(s)
+    const fresh = inc.sessions.filter((s) => !have.has(s.id))
+    if (!fresh.length) continue
+    fresh.forEach((s) => have.add(s.id))
+    const same = out.find((o) => o.classId === inc.classId && o.studentId === inc.studentId && o.reason === inc.reason)
+    if (same) same.sessions.push(...fresh)
+    else out.push({ ...inc, sessions: fresh })
   }
   return out
 }
@@ -767,10 +774,19 @@ export interface StuckTempResult {
   /** covered = server đã có buổi cùng ngày chứa trọn nội dung → bỏ bản tạm, không mất gì;
    *  homeworkFilled = như trên nhưng máy có bài tập server còn trống → chép bài tập sang buổi server rồi gửi;
    *  keptDiffers = server có buổi cùng ngày mà nội dung KHÁC → bản tạm vào kho giữ lại (admin đối chiếu);
+   *  keptBilled = server không có buổi ngày đó nhưng em đã có buổi ĐÃ THU tiền ở ngày SAU → bản tạm
+   *  nằm trong kỳ đã thu: gửi lên là chen 1 buổi chưa thu vào kỳ đã đóng (kỳ sau thu thêm, số buổi
+   *  phía sau lùi 1) → cất vào kho giữ lại, server giữ nguyên (quyết định admin 22/11);
    *  blankNoServer = buổi tạm TRỐNG (chỉ "có mặt"), server không có buổi ngày đó → CHƯA tự làm gì:
    *  gửi lên là tính thêm 1 buổi học phí, bỏ đi là có thể mất 1 buổi có thật — người quyết. */
-  kind: 'covered' | 'homeworkFilled' | 'keptDiffers' | 'blankNoServer'
+  kind: 'covered' | 'homeworkFilled' | 'keptDiffers' | 'keptBilled' | 'blankNoServer'
 }
+
+/** Buổi tạm "vừa sửa" (`dirty`) còn mới thì để đường gửi bình thường lo (giáo viên có thể đang nhập
+ *  bù 1 buổi cũ) — chỉ coi là kẹt khi ngày của nó đã cách hôm nay quá ngần này ngày. */
+export const STUCK_DIRTY_TEMP_DAYS = 30
+
+const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000)
 
 /**
  * Buổi id tạm nằm lại trên máy mãi không lên server (19/11: máy HP cô Anh giữ 3–5 buổi như vậy từ
@@ -780,8 +796,12 @@ export interface StuckTempResult {
  * Gọi NGAY SAU `syncStudentsFromServer` (cùng danh sách server, sửa trực tiếp trong `produce`):
  *  - server có buổi CÙNG NGÀY của em đó: chứa trọn bản tạm → bỏ bản tạm (+ chép bài tập nếu server
  *    trống); khác → chuyển bản tạm vào kho giữ lại (`sameDateDuplicate`), không xóa gì.
- *  - server không có buổi ngày đó: bản có dữ liệu để đường gửi bình thường lo; bản TRỐNG không
- *    `dirty` chỉ báo (`blankNoServer`), không tự gửi cũng không tự bỏ.
+ *  - server không có buổi ngày đó mà em đã có buổi ĐÃ THU ở ngày sau (bản tạm nằm trong kỳ đã thu):
+ *    cất vào kho giữ lại (`insideBilledPeriod`), KHÔNG gửi (22/11 — máy HP: Vương Thắng 17/09, Tuấn
+ *    12/09, Tường Yên 13/10 có dữ liệu nhưng không đường gửi nào nhận, kẹt hơn 1 tháng). Bản `dirty`
+ *    chỉ khi ngày đã cách hôm nay > STUCK_DIRTY_TEMP_DAYS (còn mới = có thể đang nhập bù).
+ *  - còn lại: bản có dữ liệu để đường gửi bình thường lo; bản TRỐNG không `dirty` chỉ báo
+ *    (`blankNoServer`), không tự gửi cũng không tự bỏ.
  * Bỏ qua buổi đang gửi (`isLocked`), buổi đang xung đột, và buổi từ HÔM NAY trở đi (có thể đang nhập).
  */
 export function settleStuckTemps(
@@ -801,6 +821,13 @@ export function settleStuckTemps(
       const server = serverSessions.find((x) => x.studentId === st.id && x.scheduledAt.slice(0, 10) === s.date)
       const base = { studentId: st.id, studentName: st.name, date: s.date }
       if (!server) {
+        const insideBilled = serverSessions.some((x) => x.studentId === st.id && x.billed === true && x.scheduledAt.slice(0, 10) > s.date)
+        if (insideBilled && (!s.dirty || daysBetween(s.date, opts.today) > STUCK_DIRTY_TEMP_DAYS)) {
+          orphans.push(stuckOrphan(cls, st, s, 'insideBilledPeriod', opts.now))
+          results.push({ ...base, kind: 'keptBilled' })
+          remove.add(s.id)
+          continue
+        }
         if (!s.dirty && !hasUnsavedData(s)) results.push({ ...base, kind: 'blankNoServer' })
         continue
       }
@@ -810,7 +837,7 @@ export function settleStuckTemps(
         { entry: score ? toSessionEntry(score) : emptyEntry(), homework: server.notes ?? '' },
       )
       if (outcome === 'keep') {
-        orphans.push(sameDateOrphan(cls, st, s, opts.now))
+        orphans.push(stuckOrphan(cls, st, s, 'sameDateDuplicate', opts.now))
         results.push({ ...base, kind: 'keptDiffers' })
       } else if (outcome === 'fillHomework') {
         const onDevice = st.sessions.find((x) => x.id === server._id)
@@ -829,10 +856,13 @@ export function settleStuckTemps(
   return { results, orphans }
 }
 
-function sameDateOrphan(cls: { id: string; name: string }, st: { id: string; name: string }, s: Session, now?: string): OrphanRecord {
+function stuckOrphan(
+  cls: { id: string; name: string }, st: { id: string; name: string }, s: Session,
+  reason: 'sameDateDuplicate' | 'insideBilledPeriod', now?: string,
+): OrphanRecord {
   return {
     classId: cls.id, className: cls.name, studentId: st.id, studentName: st.name,
-    reason: 'sameDateDuplicate', removedAt: now ?? new Date().toISOString(),
+    reason, removedAt: now ?? new Date().toISOString(),
     sessions: [JSON.parse(JSON.stringify(s)) as Session],
   }
 }
@@ -846,7 +876,7 @@ export function stashSameDateTemp(
   const s = st.sessions.find((x) => x.id === sessionId)
   if (!s || isMongoid(s.id)) return null
   st.sessions = st.sessions.filter((x) => x.id !== sessionId)
-  return sameDateOrphan(cls, st, s, now)
+  return stuckOrphan(cls, st, s, 'sameDateDuplicate', now)
 }
 
 /** Lời báo cho 1 kỳ học phí còn buổi chưa lên server: nêu ĐÚNG em + ngày, và việc cần làm theo loại. */

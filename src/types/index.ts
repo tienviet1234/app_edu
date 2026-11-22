@@ -161,8 +161,10 @@ export interface OrphanRecord {
   studentId: string
   studentName: string
   /** replacedByServer = bản cũ trên máy, cất lại khi admin chọn "Lấy bản server".
-   *  sameDateDuplicate = buổi tạm kẹt trên máy, server đã có buổi CÙNG NGÀY khác nội dung (settleStuckTemps). */
-  reason: 'studentRemoved' | 'classRemoved' | 'deletedLocal' | 'otherTab' | 'replacedByServer' | 'sameDateDuplicate'
+   *  sameDateDuplicate = buổi tạm kẹt trên máy, server đã có buổi CÙNG NGÀY khác nội dung (settleStuckTemps).
+   *  insideBilledPeriod = buổi tạm kẹt trên máy nằm trong kỳ ĐÃ THU tiền, server không có ngày đó —
+   *  không gửi lên (chen buổi chưa thu vào kỳ đã đóng), giữ để đối chiếu (settleStuckTemps). */
+  reason: 'studentRemoved' | 'classRemoved' | 'deletedLocal' | 'otherTab' | 'replacedByServer' | 'sameDateDuplicate' | 'insideBilledPeriod'
   removedAt: string
   sessions: Session[]
 }

@@ -322,7 +322,7 @@ async function autoSyncOrphans(data: AppData, setData: (fn: (d: AppData) => void
         const total = sessionScore(s.entry, { ...r, comps: r.comps.map((c) => (mx[c.key] != null ? rescaleComp(c, mx[c.key]) : c)) }) ?? 0
         await scoreService.upsert({ classId: o.classId, sessionId: s.id, studentId: o.studentId, ...s.entry, total, baseUpdatedAt: s.baseUpdatedAt })
         if (stillOwner()) setData(produce((d: AppData) => {
-          const rec = d.orphans?.find((x) => x.classId === o.classId && x.studentId === o.studentId)
+          const rec = d.orphans?.find((x) => x.classId === o.classId && x.studentId === o.studentId && x.reason === o.reason)
           if (rec) rec.sessions = rec.sessions.filter((x) => x.id !== s.id)
           d.orphans = d.orphans?.filter((x) => x.sessions.length)
         }))
@@ -656,9 +656,11 @@ export default function App() {
     })
     const merged = settled.filter((r) => r.kind === 'covered' || r.kind === 'homeworkFilled')
     const kept = settled.filter((r) => r.kind === 'keptDiffers')
+    const keptBilled = settled.filter((r) => r.kind === 'keptBilled')
     const who = (rs: typeof settled) => rs.map((r) => `${r.studentName} ${r.date.slice(8, 10)}/${r.date.slice(5, 7)}`).join(', ')
     if (merged.length) toast.success(`Đã gộp ${merged.length} buổi kẹt trên máy vào buổi cùng ngày đã có trên server (không mất gì): ${who(merged)}`, { persist: true })
     if (kept.length) toast.info(`${kept.length} buổi kẹt trên máy khác bản cùng ngày trên server — đã cất vào kho giữ lại (admin xem ở Sao lưu → Dữ liệu kẹt), lớp dùng bản server: ${who(kept)}`, { persist: true })
+    if (keptBilled.length) toast.info(`${keptBilled.length} buổi kẹt trên máy nằm trong kỳ học phí đã thu, server không có ngày đó — không gửi lên (giữ nguyên học phí), đã cất vào kho giữ lại (admin xem ở Sao lưu → Dữ liệu kẹt): ${who(keptBilled)}`, { persist: true })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiSessionsKey, apiScoresKey, syncClassId, scoresError, sessionsFetching, scoresFetching])
 

@@ -4,10 +4,11 @@ import {
   markConflict, resolveConflict, collectOrphans, appendOrphans, sameDateClash, detachDeletedSession,
   orphanForLocalDelete, rescueOtherTabSessions, maxesToBackfill, takeServerCopy, countUnsaved, homeworkToBackfill,
   navChoiceOf, unsentCountOf, unsentSessionCount, latestSessionOf, siblingDefaultsFor, notesToSend, baseForSave, resolveSameDateTemp, makeRoomForServerNo,
-  settleStuckTemps, unsyncedPeriodMessage, stashSameDateTemp,
+  settleStuckTemps, unsyncedPeriodMessage, stashSameDateTemp, STUCK_DIRTY_TEMP_DAYS,
   type ServerSessionForSync, type ServerScoreForSync,
 } from './sync'
 import { emptyEntry, normalize } from './seed'
+import { isMongoid } from '@/utils/mongoid'
 import type { OrphanRecord, Session } from '@/types'
 
 describe('navChoiceOf (bấm chuyển em khi em chưa có buổi — sự cố Lớp 7 ngày 29/10)', () => {
@@ -679,6 +680,16 @@ describe('collectOrphans (học sinh/lớp bị gỡ khỏi máy khi còn dữ l
     expect(more[0].sessions.map((s) => s.id)).toContain('local-9')
     expect(more[0].sessions).toHaveLength(4)
   })
+  it('khác LÝ DO thì bản ghi riêng — buổi kẹt có dữ liệu không bị gộp vào "bản cũ đã thay bằng bản server" (22/11)', () => {
+    const base = { classId: 'c'.repeat(24), className: 'Lớp 7', studentId: STU, studentName: 'Tuấn', removedAt: 'T' }
+    const replaced = appendOrphans([], [{ ...base, reason: 'replacedByServer', sessions: [sess({ id: 'kept-1' })] }])
+    const out = appendOrphans(replaced, [{ ...base, reason: 'insideBilledPeriod', sessions: [sess({ id: 'tmp-1', entry: { ...emptyEntry(), note: 'x' } })] }])
+    expect(out.map((o) => [o.reason, o.sessions.map((s) => s.id)])).toEqual([['replacedByServer', ['kept-1']], ['insideBilledPeriod', ['tmp-1']]])
+    // Đếm "chưa lên server" tính buổi kẹt (trước đây nằm chung bản ghi replacedByServer → bị bỏ qua).
+    expect(countUnsaved({ classes: [], orphans: out }).unsaved).toBe(1)
+    // Cùng buổi đã có trong kho (ở bản ghi khác) → không thêm lần 2.
+    expect(appendOrphans(out, [{ ...base, reason: 'sameDateDuplicate', sessions: [sess({ id: 'tmp-1' })] }])).toHaveLength(2)
+  })
 })
 
 describe('sameDateClash (chặn tạo buổi mới trùng ngày — sự cố Mina 17/18/10)', () => {
@@ -1071,6 +1082,62 @@ describe('settleStuckTemps (buổi tạm kẹt trên máy — máy HP cô Anh 19
     const r = settle([temp()], [serverSess({ studentId: 'e'.repeat(24) })])
     expect(r.results[0].kind).toBe('blankNoServer')
     expect(r.sessions.map((x) => x.id)).toEqual(['tmp-1'])
+  })
+  describe('nằm trong kỳ ĐÃ THU, server không có ngày đó (máy HP 22/11: giữ nguyên dữ liệu cũ)', () => {
+    const SV2 = 'f'.repeat(24)
+    const billedAfter = [serverSess({ billed: true }), serverSess({ _id: SV2, scheduledAt: '2026-10-14T00:00:00.000Z', lessonNo: 2, billed: true })]
+    const withNote = (over: Partial<Session> = {}) => temp({ date: '2026-10-12', entry: { ...emptyEntry(), note: 'vắng nửa buổi' }, ...over })
+    it('có dữ liệu → cất vào kho NGUYÊN VĂN, gỡ khỏi lớp, server giữ nguyên (không có gì để gửi)', () => {
+      const t = withNote()
+      const r = settle([t], billedAfter)
+      expect(r.results).toEqual([{ studentId: STU, studentName: 'Tuấn', date: '2026-10-12', kind: 'keptBilled' }])
+      expect(r.sessions.map((x) => x.id)).toEqual([SV1, SV2])
+      expect(r.orphans).toHaveLength(1)
+      expect(r.orphans[0]).toMatchObject({ classId: CLS.id, studentId: STU, reason: 'insideBilledPeriod', removedAt: 'T' })
+      expect(r.orphans[0].sessions[0]).toEqual(t)
+      // Không còn buổi nào chưa lên server → màn Học phí hết chặn; không buổi nào được đánh dấu gửi.
+      expect(r.sessions.some((x) => !isMongoid(x.id) || x.dirty)).toBe(false)
+    })
+    it('trước buổi đầu tiên đã thu (Tuấn 12/09 trước Buổi 1 15/09) → cũng cất', () => {
+      const r = settle([withNote({ date: '2026-10-01' })], billedAfter)
+      expect(r.results[0].kind).toBe('keptBilled')
+    })
+    it('bản TRỐNG trong kỳ đã thu → cất (không còn báo "cần quyết")', () => {
+      const r = settle([temp({ date: '2026-10-12' })], billedAfter)
+      expect(r.results[0].kind).toBe('keptBilled')
+      expect(r.orphans).toHaveLength(1)
+    })
+    it('chỉ có buổi ĐÃ THU ở ngày TRƯỚC (bản tạm sau kỳ đã thu) → không cất, như cũ', () => {
+      const r = settle([withNote({ date: '2026-10-20' })], billedAfter)
+      expect(r.results).toEqual([])
+      expect(r.orphans).toEqual([])
+      expect(r.sessions).toHaveLength(3)
+    })
+    it('buổi sau chưa thu → không cất', () => {
+      const r = settle([withNote()], [serverSess(), serverSess({ _id: SV2, scheduledAt: '2026-10-14T00:00:00.000Z', lessonNo: 2 })])
+      expect(r.results).toEqual([])
+      expect(r.sessions).toHaveLength(3)
+    })
+    it('buổi ĐÃ THU của EM KHÁC không tính', () => {
+      const r = settle([withNote()], [serverSess(), serverSess({ _id: SV2, studentId: 'e'.repeat(24), scheduledAt: '2026-10-14T00:00:00.000Z', billed: true })])
+      expect(r.results).toEqual([])
+    })
+    it(`bản vừa sửa (dirty) còn mới → để đường gửi bình thường; cũ hơn ${STUCK_DIRTY_TEMP_DAYS} ngày → cất`, () => {
+      // TODAY = 19/11: 12/10 cách 38 ngày, 25/10 cách 25 ngày.
+      const recentServer = [...billedAfter, serverSess({ _id: 'd'.repeat(24), scheduledAt: '2026-10-28T00:00:00.000Z', lessonNo: 3, billed: true })]
+      expect(settle([withNote({ date: '2026-10-25', dirty: true })], recentServer).results).toEqual([])
+      expect(settle([withNote({ dirty: true })], billedAfter).results[0].kind).toBe('keptBilled')
+    })
+    it('đang gửi / đang xung đột → không đụng', () => {
+      expect(settle([withNote()], billedAfter, [], { isLocked: (id) => id === 'tmp-1' }).orphans).toEqual([])
+      expect(settle([withNote({ conflict: { entry: emptyEntry(), total: 0, updatedAt: 'x' } })], billedAfter).orphans).toEqual([])
+    })
+    it('chạy lại lần 2 không cất thêm', () => {
+      const students = [{ id: STU, name: 'Tuấn', sessions: [withNote()] }]
+      syncStudentsFromServer(students, billedAfter, new Map())
+      expect(settleStuckTemps(CLS, students, billedAfter, new Map(), { today: TODAY }).orphans).toHaveLength(1)
+      expect(settleStuckTemps(CLS, students, billedAfter, new Map(), { today: TODAY })).toEqual({ results: [], orphans: [] })
+    })
   })
   it('chạy lại lần 2 không làm gì thêm', () => {
     const students = [{ id: STU, name: 'Tuấn', sessions: [temp({ entry: { ...emptyEntry(), scores: { mini: 5 } } })] }]
