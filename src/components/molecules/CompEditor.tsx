@@ -216,9 +216,13 @@ export function CompEditor({ comp, e, mut, ratioTotals, maxDraft, onMaxInput, on
   if (comp.type === 'parts') {
     const skipped = !!e.skip?.[comp.key]
     const m = e.parts?.[comp.key] ?? {}
+    // Xóa trắng ô → bỏ hẳn phần đó (và cả tiêu chí nếu không còn phần nào), như server lưu — không giữ ''.
     const setPart = (id: string, v: string | number) =>
       mut((en) => {
-        en.parts[comp.key] = { ...(en.parts[comp.key] ?? {}), [id]: v }
+        const next = { ...(en.parts[comp.key] ?? {}), [id]: v }
+        if (v === '') delete next[id]
+        if (Object.keys(next).length) en.parts[comp.key] = next
+        else delete en.parts[comp.key]
       })
     return (
       <div>

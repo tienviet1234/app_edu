@@ -120,16 +120,24 @@ export function compPercent(comp: RubricComponent, e: SessionEntry): number {
   return comp.max > 0 ? Math.round((compScore(comp, e) / comp.max) * 100) : 0
 }
 
+/** 1 ô số (điểm / phần nhỏ) có giá trị THẬT — đúng quy tắc server lưu (`toNumberRecord` ở
+ *  server/src/schemas/lmsSchemas.ts: bỏ '' / null / không phải số). Trước 22/11 ô "nhiều phần" bị
+ *  xóa trắng (máy giữ `{pron: ''}`) vẫn tính là "có chấm, 0 điểm", còn server chỉ lưu `{}` → máy
+ *  giáo viên lưu tổng 80, mọi màn khác hiện 100 (Lớp 2 18/11 Diệu Nhi/Bảo Ngọc, Lớp 1 07/11...). */
+export function hasCellValue(v: unknown): boolean {
+  return v !== '' && v != null && !Number.isNaN(Number(v))
+}
+
 export function compHasData(comp: RubricComponent, e: SessionEntry): boolean {
   switch (comp.type) {
     case 'score':
-      return e.scores?.[comp.key] !== '' && e.scores?.[comp.key] != null
+      return hasCellValue(e.scores?.[comp.key])
     case 'ticks':
       return (e.ticks?.[comp.key] ?? []).length > 0
     case 'choice':
       return !!e.choice?.[comp.key]
     case 'parts':
-      return !!e.skip?.[comp.key] || Object.keys(e.parts?.[comp.key] ?? {}).length > 0
+      return !!e.skip?.[comp.key] || Object.values(e.parts?.[comp.key] ?? {}).some(hasCellValue)
     default:
       return false
   }

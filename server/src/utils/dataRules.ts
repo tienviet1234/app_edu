@@ -729,3 +729,37 @@ export function planDateOrder(existing: Array<{ id: string; no: number; date: st
     .map((s, i) => ({ id: s.id, from: s.no, to: i + 1 }))
     .filter((x) => x.from !== x.to)
 }
+
+/** 1 bản điểm cần đối chiếu tổng: `stored` = tổng server đang lưu (tính lúc giáo viên lưu, theo phiếu /
+ *  "Số câu" / cách tính lúc đó); `screen` = tổng màn hình + file Excel đang hiện (tính lại từ ĐÚNG dữ liệu
+ *  server giữ, phiếu lớp hiện tại + "Số câu" của buổi); `screenWithoutMaxes` = như `screen` nhưng bỏ
+ *  "Số câu" của buổi. null = chưa chấm (app lưu 0). */
+export interface TotalResyncRow { id: string; stored: number | null; screen: number | null; screenWithoutMaxes: number | null }
+export interface TotalResyncPlan {
+  fixes: Array<{ id: string; from: number; to: number }>
+  /** Server CAO hơn màn hình từ RESYNC_HOLD_DROP điểm (hoặc màn hình thành 'chưa chấm') mà "Số câu" hiện có không giải thích được: có thể "Số câu" máy giáo viên
+   *  đặt chưa từng lên server (Lớp 9 Gia Linh 15/09: Mini Test 10/10 → server 80 đúng, màn hình 10/40 = 40
+   *  sai) — KHÔNG tự hạ điểm, để admin hỏi giáo viên đúng số câu. */
+  held: Array<{ id: string; from: number; to: number }>
+}
+/** Cách A (quyết định admin 22/11): tổng MÀN HÌNH là chuẩn cho buổi cũ, server ghi lại cho khớp — trừ
+ *  các ca server cao hơn mà không giải thích được (`held`). Không đổi gì khi 2 bên đã bằng nhau (chạy lại
+ *  lần 2 không có việc). Tổng cũ giữ trong file sao lưu + Lịch sử thay đổi. */
+/** Server cao hơn màn hình từ ngần này điểm trở lên (mà "Số câu" không giải thích được) thì giữ, không tự hạ.
+ *  Quét 22/11: 3 ca Lớp 9 hạ 32–40 điểm (Số câu mất), 21 ca khác chỉ 1–8 điểm (làm tròn / cách tính cũ). */
+export const RESYNC_HOLD_DROP = 10
+
+export function planTotalResync(rows: TotalResyncRow[]): TotalResyncPlan {
+  const plan: TotalResyncPlan = { fixes: [], held: [] }
+  for (const r of rows) {
+    const from = r.stored ?? 0
+    const to = r.screen ?? 0
+    if (from === to) continue
+    const explainedByMaxes = (r.screenWithoutMaxes ?? 0) === from
+    // Hạ nhẹ (< RESYNC_HOLD_DROP điểm) = làm tròn / cách tính cũ → theo màn hình. Hạ mạnh hoặc màn hình thành
+    // 'chưa chấm' = dấu hiệu 'Số câu' máy giáo viên chưa từng lên server → giữ.
+    if (to < from && !explainedByMaxes && (from - to >= RESYNC_HOLD_DROP || r.screen === null)) plan.held.push({ id: r.id, from, to })
+    else plan.fixes.push({ id: r.id, from, to })
+  }
+  return plan
+}

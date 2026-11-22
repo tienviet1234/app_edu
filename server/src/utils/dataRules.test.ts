@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason, billedDeleteBlockReason, planBilledFlagRepair, noticeCoverage, planSessionRemoval, reviewFixResult, changedFields, noticeAttendanceDrift, billedMismatchKind, billedChangeBlockReason, dateMoveBlockReason, lonelyClassDays, planClassTransfer, perMonthOfClass, sessionLabel, numberingProblem, planInsertSession, planRemoveFromNumbering, planCompactNumbering, noticeDeleteBlockReason, paymentChangeNeeded, dateOrderProblem, planDateOrder } from './dataRules.js'
+import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason, billedDeleteBlockReason, planBilledFlagRepair, noticeCoverage, planSessionRemoval, reviewFixResult, changedFields, noticeAttendanceDrift, billedMismatchKind, billedChangeBlockReason, dateMoveBlockReason, lonelyClassDays, planClassTransfer, perMonthOfClass, sessionLabel, numberingProblem, planInsertSession, planRemoveFromNumbering, planCompactNumbering, noticeDeleteBlockReason, paymentChangeNeeded, dateOrderProblem, planDateOrder, planTotalResync, RESYNC_HOLD_DROP } from './dataRules.js'
 
 describe('billedDeleteBlockReason (xóa buổi đã thu làm buổi khác bị tính tiền lần 2)', () => {
   it('buổi đã thu: chặn, nói rõ cách làm', () => {
@@ -708,5 +708,31 @@ describe('Số buổi đi đúng thứ tự ngày (17/11)', () => {
     const moved = [{ id: 'a', no: 1, date: '2026-11-03' }, { id: 'b', no: 2, date: '2026-11-28' }, { id: 'c', no: 3, date: '2026-11-07' }, { id: 'd', no: 4, date: '2026-11-10' }]
     expect(planDateOrder(moved)).toEqual([{ id: 'c', from: 3, to: 2 }, { id: 'd', from: 4, to: 3 }, { id: 'b', from: 2, to: 4 }])
     expect(planDateOrder(ex)).toEqual([])
+  })
+})
+
+describe('planTotalResync (cách A 22/11: tổng màn hình là chuẩn cho buổi cũ)', () => {
+  const row = (id: string, stored: number | null, screen: number | null, screenWithoutMaxes: number | null = screen) => ({ id, stored, screen, screenWithoutMaxes })
+  it('bằng nhau / cùng chưa chấm (0 ~ null) → không có việc; chạy lại lần 2 sau khi sửa → không có việc', () => {
+    expect(planTotalResync([row('a', 80, 80), row('b', 0, null), row('c', null, null)])).toEqual({ fixes: [], held: [] })
+    const first = planTotalResync([row('a', 80, 100)])
+    const after = first.fixes.map((f) => row(f.id, f.to, 100))
+    expect(planTotalResync(after)).toEqual({ fixes: [], held: [] })
+  })
+  it('màn hình CAO hơn (ô rỗng / cách tính cũ: Lớp 2 Diệu Nhi 80 → 100, Lớp 1 Hữu Phước 58 → 100) → sửa', () => {
+    expect(planTotalResync([row('a', 80, 100), row('b', 58, 100)]).fixes).toEqual([{ id: 'a', from: 80, to: 100 }, { id: 'b', from: 58, to: 100 }])
+  })
+  it('server cao hơn vì tổng tính lúc CHƯA có "Số câu" (Lớp 7) → sửa về số màn hình', () => {
+    expect(planTotalResync([row('a', 72, 60, 72)])).toEqual({ fixes: [{ id: 'a', from: 72, to: 60 }], held: [] })
+  })
+  it('server cao hơn mà "Số câu" không giải thích được (Lớp 9 Gia Linh 80 / màn hình 40) → GIỮ, không tự hạ điểm', () => {
+    expect(planTotalResync([row('a', 80, 40, 40)])).toEqual({ fixes: [], held: [{ id: 'a', from: 80, to: 40 }] })
+  })
+  it('server cao hơn ÍT (< RESYNC_HOLD_DROP, làm tròn / cách tính cũ: Lớp 3 Phước 100 → 92) → theo màn hình; đúng ngưỡng → giữ', () => {
+    expect(planTotalResync([row('a', 100, 92, 92), row('b', 99, 98, 98)]).fixes.map((f) => f.id)).toEqual(['a', 'b'])
+    expect(planTotalResync([row('a', 50, 50 - RESYNC_HOLD_DROP)]).held).toEqual([{ id: 'a', from: 50, to: 50 - RESYNC_HOLD_DROP }])
+  })
+  it('buổi giờ không còn tiêu chí nào có dữ liệu mà server còn tổng cũ → hạ về 0 là hạ điểm không giải thích được → GIỮ', () => {
+    expect(planTotalResync([row('a', 35, null, null)]).held).toEqual([{ id: 'a', from: 35, to: 0 }])
   })
 })

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { compScore, compHasData, sessionScore, rescaleComp, detectMissingComps, applyPercentToComp, resolveComp, sessionComps, LEGACY_ATTITUDE_PARTS } from './scoring'
 import { emptyEntry } from './seed'
 import { RUBRICS } from '@/constants/rubrics'
+import { scoreBodySchema } from '../../server/src/schemas/lmsSchemas'
 import type { ClassData, RubricComponent, RubricDef, Session, SessionEntry } from '@/types'
 
 describe('Thái độ học tập Cấp 1 kiểu CŨ (trước 06/10) — giữ nguyên thang 10, không tính 0', () => {
@@ -137,6 +138,39 @@ describe('compHasData', () => {
     expect(compHasData(scoreComp, entry())).toBe(false)
     expect(compHasData(scoreComp, entry({ scores: { mini: '' } }))).toBe(false)
     expect(compHasData(scoreComp, entry({ scores: { mini: 0 } }))).toBe(true)
+  })
+})
+
+describe('ô bị xóa trắng: tổng máy tính = tổng tính từ đúng bản server lưu (22/11)', () => {
+  const primary = RUBRICS.primary
+  const video = primary.comps.find((c) => c.key === 'video')!
+  // Đi qua ĐÚNG bộ kiểm tra dữ liệu của server (Zod scoreBodySchema) — server lưu đúng thứ này.
+  const ID = 'a'.repeat(24)
+  const viaServer = (e: SessionEntry): SessionEntry => {
+    const p = scoreBodySchema.parse({ classId: ID, sessionId: ID, studentId: ID, ...JSON.parse(JSON.stringify(e)) })
+    return { ...emptyEntry(), ...p, note: p.note ?? '' } as unknown as SessionEntry
+  }
+  it('"nhiều phần" chỉ còn ô rỗng → CHƯA chấm (trước: có chấm 0 điểm, máy lưu 80 trong khi mọi màn khác hiện 100)', () => {
+    expect(compHasData(video, entry({ parts: { video: { full: '' } } }))).toBe(false)
+    expect(compHasData(video, entry({ parts: { video: { full: '', pron: 0 } } }))).toBe(true)
+    // Lớp 2 · Diệu Nhi 18/11: BTVN đủ, Video đủ, Thái độ đủ, Từ vựng xóa trắng.
+    const ticks = primary.comps.find((c) => c.key === 'attitude')!.items!.map((t) => t.id)
+    const e = entry({ choice: { hw: 'full' }, parts: { video: { full: 10, pron: 10, ontime: 10 }, vocab: { pron: '', mean: '', spell: '' } }, ticks: { attitude: ticks } })
+    expect(sessionScore(e, primary)).toBe(100)
+  })
+  it('tổng điểm trên máy luôn bằng tổng tính lại từ bản server lưu (ô rỗng, null, chữ, số dạng chuỗi)', () => {
+    const cases: Array<Partial<SessionEntry>> = [
+      { parts: { vocab: { pron: '' } } },
+      { parts: { vocab: { pron: '', mean: 6 }, video: {} } },
+      { parts: { video: { full: 'abc' as unknown as number } }, choice: { hw: 'partial' } },
+      { scores: { x: '' }, parts: { vocab: { pron: '8', mean: '6', spell: '' } } },
+      { parts: { vocab: { pron: null as unknown as number } }, choice: { hw: 'none' } },
+      { skip: { video: true }, parts: { video: { full: '' } }, choice: { hw: 'full' } },
+    ]
+    for (const c of cases) {
+      const e = entry(c)
+      expect(sessionScore(e, primary), JSON.stringify(c)).toBe(sessionScore(viaServer(e), primary))
+    }
   })
 })
 
