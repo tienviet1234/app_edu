@@ -1,5 +1,5 @@
 import { api } from '@/utils/api'
-import type { ExtraComp } from '@/types'
+import type { ExtraComp, RubricVersion } from '@/types'
 import type { StudentTuitionRule } from '@/business/tuition'
 
 export interface ApiClass {
@@ -33,6 +33,8 @@ export interface ApiClass {
   // Câu nhận xét mẫu tự soạn riêng cho lớp này — admin/giáo viên tự thêm/sửa/
   // xóa, chọn nhanh ở màn Nhập điểm (xem EntryScreen).
   customNotePhrases?: string[]
+  /** Phiên bản phiếu chấm cũ — server tự ghi khi tiêu chí bị sửa (đợt 2), máy chỉ đọc. */
+  rubricVersions?: RubricVersion[]
   // Đơn giá tính học phí/lương — xem AdminBillingPage.tsx + ghi chú ở
   // server/src/models/Class.ts. Chỉ admin sửa được (qua endpoint update).
   tuitionPerSession?: number

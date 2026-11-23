@@ -65,6 +65,9 @@ export interface RubricDef {
   comps: RubricComponent[]
   attendance: AttendanceConfig
   defaults?: { ticks?: Record<string, string[]> }
+  /** Tiêu chí của các phiên bản phiếu CŨ (tăng dần theo `until`) — buổi có ngày < until dùng `comps` đó.
+   *  Không có = mọi buổi dùng `comps` hiện tại. Luôn chọn qua `compsOn` / `sessionComps`. */
+  history?: Array<{ until: string; comps: RubricComponent[] }>
 }
 
 // ─── Session Entry ─────────────────────────────────────────────────────────────
@@ -225,6 +228,24 @@ export interface ClassData {
   // điểm số) — admin/giáo viên tự thêm/sửa/xóa theo thói quen viết của họ,
   // hiện làm chip chọn nhanh ở màn Nhập điểm (xem EntryScreen).
   customNotePhrases?: string[]
+  // Phiên bản phiếu chấm CŨ của lớp (đợt 2, 23/11) — server tự cất phiếu đang dùng mỗi khi có người
+  // sửa tiêu chí; buổi có ngày < `until` chấm theo phiên bản đó, buổi cũ không bị tính lại. Máy KHÔNG
+  // tự sửa trường này (chỉ đọc từ server). Xem getClassRubric / compsOn.
+  rubricVersions?: RubricVersion[]
+}
+
+/** 1 phiên bản phiếu chấm cũ: áp dụng cho buổi có ngày < `until` (và ≥ `until` của phiên bản liền trước).
+ *  `level` null = tự nhận theo tên lớp lúc đó. */
+export interface RubricVersion {
+  until: string
+  level?: RubricLevel | null
+  hiddenComps?: string[]
+  extraComps?: ExtraComp[]
+  compOverrides?: Record<string, Record<string, number>>
+  compLabelOverrides?: Record<string, Record<string, string>>
+  compExtraItems?: Record<string, Array<{ id: string; label: string; value: number }>>
+  createdAt?: string
+  createdByName?: string
 }
 
 // ─── App Data ─────────────────────────────────────────────────────────────────

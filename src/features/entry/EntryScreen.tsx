@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import type { ClassData, OrphanRecord, Session, SessionEntry } from '@/types'
 import { C, scoreColor } from '@/constants/colors'
 import { ATTEND } from '@/constants/tags'
-import { getClassRubric } from '@/constants/rubrics'
+import { getClassRubric, compsOn } from '@/constants/rubrics'
 import { uid } from '@/utils/uid'
 import { todayISO, viDate } from '@/utils/format'
-import { sessionScore, rescaleComp, detectMissingComps } from '@/business/scoring'
+import { sessionScore, sessionTotal, rescaleComp, detectMissingComps } from '@/business/scoring'
 import { sessionStatusFragments } from '@/business/report'
 import { periodPositionOf, sessionLabelOf } from '@/business/tuition'
 import { applyRenumbered } from '@/business/resequence'
@@ -295,7 +295,8 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
 
   // Session-level overrides (comp max + ratio totals) — áp dụng cho ngày đang chọn
   const sessionMaxes = session?.maxes ?? {}
-  const effectiveComps = r.comps.map((c) =>
+  // Đúng phiên bản phiếu của NGÀY buổi đang xem (đợt 2 — sửa tiêu chí không tính lại buổi cũ).
+  const effectiveComps = compsOn(r, effectiveDate).map((c) =>
     sessionMaxes[c.key] != null ? rescaleComp(c, sessionMaxes[c.key]) : c,
   )
   const r2 = { ...r, comps: effectiveComps }
@@ -507,9 +508,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
       if (!isMongoid(stu.id)) return
       stu.sessions.forEach((s) => {
         if (!isMongoid(s.id)) return
-        const maxes = s.maxes ?? {}
-        const comps = r.comps.map((c) => (maxes[c.key] != null ? rescaleComp(c, maxes[c.key]) : c))
-        const total = sessionScore(s.entry, { ...r, comps })
+        const total = sessionTotal(r, s)
         if (total === null) return
         jobs.push({ sessionId: s.id, studentId: stu.id, entry: s.entry, total })
       })
@@ -672,7 +671,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
         })
         const en = ss.entry
         en.attendance = 'present'
-        r2.comps.forEach((comp) => {
+        compsOn(r, ss.date).forEach((comp) => {
           if (comp.type === 'parts') {
             const m: Record<string, number> = {}
             ;(comp.parts ?? []).forEach((p) => (m[p.id] = p.max))
@@ -745,10 +744,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   const orderConflict = st?.sessions.find((s) => (s.no < selectedNo && s.date > effectiveDate) || (s.no > selectedNo && s.date < effectiveDate))
   // Buổi đang xung đột (2 máy cùng sửa) — hiện ở thanh vàng đầu màn để chọn.
   const conflicts = cls.students.flatMap((stu) => stu.sessions.filter((s) => s.conflict).map((s) => ({ stu, s })))
-  const totalOf = (s: Session, entry: SessionEntry = s.entry) => {
-    const mx = s.maxes ?? {}
-    return sessionScore(entry, { ...r, comps: r.comps.map((c) => (mx[c.key] != null ? rescaleComp(c, mx[c.key]) : c)) })
-  }
+  const totalOf = (s: Session, entry: SessionEntry = s.entry) => sessionTotal(r, s, entry)
   // Dữ liệu cũ trên máy KHÁC bản server (không biết bản nào đúng, máy không tự
   // đè) — chỉ admin thấy và tự chọn lấy bản server. Không gửi gì lên server.
   const serverDiffs = isAdmin
@@ -774,7 +770,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
 
   const done = cls.students.filter((s) => {
     const ss = s.sessions.find((x) => x.no === noOf(s.id))
-    return ss ? sessionScore(ss.entry, r2) !== null : false
+    return ss ? sessionTotal(r, ss) !== null : false
   }).length
 
   const studentSessionCount = st?.sessions.length ?? 0
@@ -785,7 +781,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
   const daySummary = cls.students.map((s) => {
     const no = noOf(s.id)
     const ss = s.sessions.find((x) => x.no === no)
-    const t = ss ? sessionScore(ss.entry, r2) : null
+    const t = ss ? sessionTotal(r, ss) : null
     return { student: s, no, session: ss, total: t }
   })
 
@@ -1147,7 +1143,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
         <div className="mt-2 flex flex-wrap gap-2">
           {cls.students.map((s, i) => {
             const ss = s.sessions.find((x) => x.no === noOf(s.id))
-            const t = ss ? sessionScore(ss.entry, r2) : null
+            const t = ss ? sessionTotal(r, ss) : null
             const active = i === cur
             const inGroup = groupSelected.has(s.id)
             const missing = t === null && ss?.entry.attendance !== 'excused'

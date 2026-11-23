@@ -69,6 +69,12 @@ describe('unsentCountOf / unsentSessionCount (báo buổi chưa lên server)', (
 })
 
 describe('normalize (mở app)', () => {
+  it('GIỮ mục admin thêm vào tiêu chí + phiên bản phiếu cũ — trước 23/11 rơi mỗi lần mở app (mất mạng thì tính tổng thiếu mục)', () => {
+    const extra = { hw: [{ id: 'x1', label: 'Làm thêm', value: 35 }] }
+    const versions = [{ until: '2026-11-24', level: 'primary' as const, compOverrides: { hw: { full: 30 } } }]
+    const d = normalize({ classes: [{ id: 'c', level: 'primary', compExtraItems: extra, customNotePhrases: ['Tốt'], rubricVersions: versions, students: [] }] })
+    expect(d.classes[0]).toMatchObject({ compExtraItems: extra, customNotePhrases: ['Tốt'], rubricVersions: versions })
+  })
   it('GIỮ cờ billed/dirty/synced/maxes — trước đây bỏ mất billed mỗi lần mở app (buổi đã thu tiền bị đếm lại)', () => {
     const d = normalize({ classes: [{ id: 'c', students: [{ id: 's', sessions: [
       { id: 'x', no: 1, date: '2026-10-01', billed: true, dirty: true, synced: true, maxes: { mini: 30 }, entry: {} },

@@ -82,8 +82,9 @@ export function statsOf(cls: ClassData, sessions: Session[]): StudentStats {
     exp += t + 5 + (t >= 90 ? 10 : 0)
     comps.forEach((c, ci) => {
       if (compHasData(c, e)) {
-        catEarn[c.key] += compScore(c, e)
-        catMax[c.key] += c.max
+        // Buổi theo phiếu CŨ có thể có tiêu chí phiếu hiện tại đã bỏ (đợt 2) — cộng an toàn, không ra NaN.
+        catEarn[c.key] = (catEarn[c.key] ?? 0) + compScore(c, e)
+        catMax[c.key] = (catMax[c.key] ?? 0) + c.max
       }
       compErrors(c, e).forEach((x) => {
         if (!x) return

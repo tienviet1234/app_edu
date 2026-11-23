@@ -14,7 +14,7 @@ import type { ClassData, RubricDef } from '@/types'
 import { useAppStore } from '@/store/appStore'
 import { latestSessionOf, adoptServerSession, makeRoomForServerNo, markSessionSaved, markConflict, detachDeletedSession, toSessionEntry, notesToSend, baseForSave, type ServerScoreForSync } from '@/business/sync'
 import { sameEntry } from '@/business/strandedScores'
-import { sessionScore, rescaleComp } from '@/business/scoring'
+import { sessionTotal } from '@/business/scoring'
 import { tryLockSession, unlockSession } from '@/utils/syncLocks'
 import { isMongoid } from '@/utils/mongoid'
 import { uid } from '@/utils/uid'
@@ -49,9 +49,8 @@ export async function pushSession(args: {
   if (isMongoid(target.id) && !target.dirty) return { kind: 'alreadySynced', synced: !!target.synced, studentName: student.name, no: target.no }
   if (!tryLockSession(target.id)) return { kind: 'busy' }
   args.onSending?.()
-  const maxes = target.maxes ?? {}
-  const comps = r.comps.map((c) => (maxes[c.key] != null ? rescaleComp(c, maxes[c.key]) : c))
-  const total = sessionScore(target.entry, { ...r, comps }) ?? 0
+  // Đúng phiên bản phiếu theo NGÀY buổi + "Số câu" (rubric phải là phiếu ĐẦY ĐỦ của lớp — getClassRubric).
+  const total = sessionTotal(r, target) ?? 0
   const wasNew = !isMongoid(target.id)
   const sent = { entry: target.entry, homework: target.homework, maxes: target.maxes }
   try {

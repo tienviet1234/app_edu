@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type Keyboard
 import type { ClassData, Session } from '@/types'
 import { C, SHEET_PAINT } from '@/constants/colors'
 import { Btn } from '@/components/atoms/Btn'
-import { getClassRubric } from '@/constants/rubrics'
+import { getClassRubric, rubricOn } from '@/constants/rubrics'
 import { sessionScore, sessionComps } from '@/business/scoring'
 import { attendanceDayOptions, dayAttendanceStats } from '@/business/quickAttendance'
 import { weekdayLabel, dm } from '@/business/attendanceOverview'
@@ -130,9 +130,10 @@ export function GradeSheetView({ cls, update, teacherName, onOpenEntry }: {
 }) {
   const today = todayISO()
   const phone = usePhone()
-  const r = getClassRubric(cls)
   const days = useMemo(() => attendanceDayOptions(cls.students, today, 120), [cls.students, today])
   const [date, setDate] = useState(() => { const t = days.find((d) => d.date === today && d.scheduled); return t ? t.date : (days.filter((d) => d.scheduled).at(-1)?.date ?? days.at(-1)?.date ?? today) })
+  // Cột = tiêu chí đúng PHIÊN BẢN phiếu của ngày đang xem (đợt 2 — buổi cũ giữ phiếu cũ).
+  const r = useMemo(() => rubricOn(getClassRubric(cls), date), [cls, date])
   const [prefs, setPrefsState] = useState<SheetPrefs>(() => loadPrefs(cls.id))
   const setPrefs = (p: SheetPrefs) => { setPrefsState(p); try { localStorage.setItem(prefsKey(cls.id), JSON.stringify(p)) } catch { /* tiện ích nhớ cách xem */ } }
   const [showPrefs, setShowPrefs] = useState(false)

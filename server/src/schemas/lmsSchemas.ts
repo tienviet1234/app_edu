@@ -55,6 +55,9 @@ export const classBodySchema = z.object({
   }))).optional(),
   // Câu nhận xét mẫu tự soạn riêng cho lớp này — xem ghi chú ở Class model.
   customNotePhrases: z.array(z.string().max(300)).optional(),
+  // Sửa tiêu chí: phiếu mới áp dụng từ ngày này (YYYY-MM-DD) — không gửi thì server chọn ngày sớm nhất hợp lệ.
+  // rubricVersions KHÔNG nhận từ máy (server tự ghi, xem planRubricVersion).
+  rubricEffectiveFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   // Đơn giá tính học phí/lương theo từng lớp — xem ghi chú ở Class model.
   tuitionPerSession: z.number().min(0).max(100_000_000).optional(),
   teacherPayPerSession: z.number().min(0).max(100_000_000).optional(),

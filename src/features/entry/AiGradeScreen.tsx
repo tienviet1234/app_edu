@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { produce } from 'immer'
 import type { AppData, ClassData, SessionEntry } from '@/types'
 import { C } from '@/constants/colors'
-import { getClassRubric } from '@/constants/rubrics'
+import { getClassRubric, compsOn } from '@/constants/rubrics'
 import { todayISO, viDate } from '@/utils/format'
 import { isMongoid } from '@/utils/mongoid'
 import { uid } from '@/utils/uid'
@@ -111,8 +111,9 @@ function newRow(file: File): Row {
 /** Tiêu chí AI điền được — chỉ hỗ trợ dạng "score" (1 con số, VD Mini Test,
  *  Listening). Các dạng khác (ticks/parts/choice — BTVN, video bài nói...)
  *  cần đánh giá theo hành vi/nộp bài thật, không suy ra được từ 1 ảnh đề. */
-function scoreComps(cls: ClassData) {
-  return getClassRubric(cls).comps.filter((c) => c.type === 'score')
+function scoreComps(cls: ClassData, date?: string) {
+  // Đúng phiên bản phiếu của NGÀY buổi (đợt 2 — buổi cũ chấm theo phiếu cũ).
+  return compsOn(getClassRubric(cls), date).filter((c) => c.type === 'score')
 }
 
 /** 1 chỗ AI đang nghi ngờ — hiện sẵn vài phương án AI đoán được (bấm chọn
@@ -437,7 +438,7 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
       toast.error('Học sinh/lớp này chưa đồng bộ lên server — mở lại app rồi thử lại.')
       return
     }
-    const comp = scoreComps(cls).find((c) => c.key === row.compKey)
+    const comp = scoreComps(cls, row.date).find((c) => c.key === row.compKey)
     if (!comp) return
     const pct = row.rawMax > 0 ? row.rawScore / row.rawMax : 0
     const scoreValue = Math.round(pct * comp.max)
@@ -499,7 +500,7 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
       }
 
       const r = getClassRubric(cls)
-      const allComps = r.comps.map((c) => (c.key === row.compKey ? comp : c))
+      const allComps = compsOn(r, row.date).map((c) => (c.key === row.compKey ? comp : c))
       const total = sessionScore(entry, { ...r, comps: allComps }) ?? 0
 
       const saved = await scoreService.upsert({ classId: cls.id, sessionId, studentId: student.id, ...entry, total })

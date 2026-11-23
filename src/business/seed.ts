@@ -76,6 +76,9 @@ export function normalize(d: unknown): AppData {
         comments?: Record<string, string>; extraComps?: AppData['classes'][number]['extraComps']; hiddenComps?: string[]
         compOverrides?: Record<string, Record<string, number>>
         compLabelOverrides?: Record<string, Record<string, string>>
+        compExtraItems?: AppData['classes'][number]['compExtraItems']
+        customNotePhrases?: string[]
+        rubricVersions?: AppData['classes'][number]['rubricVersions']
       }
       const level = RUBRICS[c.level ?? ''] ? (c.level as 'primary' | 'secondary') : 'primary'
 
@@ -124,6 +127,11 @@ export function normalize(d: unknown): AppData {
         hiddenComps: c.hiddenComps ?? [],
         compOverrides: c.compOverrides ?? {},
         compLabelOverrides: c.compLabelOverrides ?? {},
+        // Trước 23/11 2 trường dưới bị rơi mỗi lần mở app (chỉ có lại khi đồng bộ được với server) — mở app lúc
+        // mất mạng thì tổng điểm tính thiếu mục admin thêm. rubricVersions: phiên bản phiếu cũ (đợt 2).
+        compExtraItems: c.compExtraItems,
+        customNotePhrases: c.customNotePhrases,
+        rubricVersions: c.rubricVersions,
       }
     }),
   }

@@ -208,7 +208,34 @@ export function applyCompExtraItems(
   return comp
 }
 
+/** Phiếu chấm của lớp: tiêu chí HIỆN TẠI + các phiên bản cũ (`history`, đợt 2 23/11 — đổi tiêu chí không
+ *  tính lại buổi cũ). Chọn tiêu chí cho 1 buổi luôn qua `compsOn(r, ngày)` / `sessionComps`. */
 export function getClassRubric(cls: ClassData): RubricDef {
+  const current = rubricFromFields(cls)
+  const versions = (cls.rubricVersions ?? [])
+    .filter((v) => v && /^\d{4}-\d{2}-\d{2}$/.test(String(v.until)))
+    .sort((a, b) => a.until.localeCompare(b.until))
+  if (!versions.length) return current
+  return {
+    ...current,
+    history: versions.map((v) => ({ until: v.until, comps: rubricFromFields({ ...v, level: v.level ?? autoLevel(cls.name) }).comps })),
+  }
+}
+
+/** Tiêu chí áp cho buổi ngày `date` (YYYY-MM-DD): phiên bản cũ đầu tiên có `until` > ngày đó, không có thì
+ *  tiêu chí hiện tại. Không có ngày (buổi chưa xác định) → hiện tại. */
+export function compsOn(r: RubricDef, date?: string): import('@/types').RubricComponent[] {
+  if (!date || !r.history?.length) return r.comps
+  return r.history.find((h) => date < h.until)?.comps ?? r.comps
+}
+
+/** Phiếu (đủ thông tin) đúng phiên bản của ngày `date` — dùng cho màn chỉ xem 1 ngày (Bảng chấm điểm). */
+export function rubricOn(r: RubricDef, date?: string): RubricDef {
+  const comps = compsOn(r, date)
+  return comps === r.comps ? r : { ...r, comps }
+}
+
+function rubricFromFields(cls: Pick<ClassData, 'level' | 'hiddenComps' | 'extraComps' | 'compOverrides' | 'compLabelOverrides' | 'compExtraItems'>): RubricDef {
   const base = getRubric(cls.level)
   const hidden = new Set(cls.hiddenComps ?? [])
   const extras = cls.extraComps ?? []

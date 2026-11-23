@@ -763,3 +763,59 @@ export function planTotalResync(rows: TotalResyncRow[]): TotalResyncPlan {
   }
   return plan
 }
+
+/** Các trường quyết định CÁCH TÍNH điểm của lớp — đổi 1 trường là phiếu có phiên bản mới (đợt 2, 23/11). */
+export const RUBRIC_VERSION_FIELDS = ['level', 'hiddenComps', 'extraComps', 'compOverrides', 'compLabelOverrides', 'compExtraItems'] as const
+type RubricField = (typeof RUBRIC_VERSION_FIELDS)[number]
+
+/** So nội dung phiếu không phụ thuộc thứ tự khóa; rỗng ([] / {} / null / thiếu) coi như nhau. */
+function canonRubricValue(v: unknown): string {
+  const norm = (x: unknown): unknown => {
+    if (x == null) return null
+    if (Array.isArray(x)) return x.length ? x.map(norm) : null
+    if (typeof x === 'object') {
+      const keys = Object.keys(x as object).sort()
+      return keys.length ? Object.fromEntries(keys.map((k) => [k, norm((x as Record<string, unknown>)[k])])) : null
+    }
+    return x
+  }
+  return JSON.stringify(norm(v))
+}
+
+const addDays = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10)
+
+export type RubricVersionPlan =
+  | { ok: true; changed: RubricField[]; from: string | null; snapshot: (Partial<Record<RubricField, unknown>> & { until: string }) | null }
+  | { ok: false; code: 'RUBRIC_DATE'; message: string; earliest: string }
+
+/** Sửa tiêu chí chấm của 1 lớp (admin hoặc giáo viên của lớp — quyết định admin 21/11) mà KHÔNG tính lại buổi
+ *  nào đã chấm (quyết định 23/11 giữ nguyên dữ liệu cũ). Phiếu đang dùng được cất thành phiên bản cũ áp cho buổi
+ *  có ngày < `from`; phiếu mới áp từ `from`. `from` phải SAU ngày cuối đã có buổi được chấm của lớp (và không
+ *  trước hôm nay, không trước phiên bản gần nhất) — nếu không, màn hình tính lại buổi đã chấm theo phiếu mới
+ *  trong khi tổng server giữ số cũ (đúng kiểu lệch 273 buổi). Không gửi `from` → ngày sớm nhất hợp lệ.
+ *  Đổi lần nữa cùng `from` với phiên bản gần nhất → không cất thêm (phiếu trước ngày đó đã được cất). */
+export function planRubricVersion(input: {
+  current: Partial<Record<RubricField, unknown>>
+  patch: Record<string, unknown>
+  versions: Array<{ until: string }>
+  today: string
+  lastGradedDate: string | null
+  effectiveFrom?: string
+}): RubricVersionPlan {
+  const changed = RUBRIC_VERSION_FIELDS.filter((f) => f in input.patch && canonRubricValue(input.patch[f]) !== canonRubricValue(input.current[f]))
+  if (!changed.length) return { ok: true, changed, from: null, snapshot: null }
+  const latest = input.versions.map((v) => v.until).sort().at(-1) ?? null
+  const candidates = [input.today, input.lastGradedDate ? addDays(input.lastGradedDate, 1) : null, latest].filter((x): x is string => !!x)
+  const earliest = candidates.sort().at(-1)!
+  const from = input.effectiveFrom ?? earliest
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || from < earliest) {
+    const why = latest && from < latest ? `phiếu đã có phiên bản áp dụng từ ${latest}`
+      : input.lastGradedDate && from <= input.lastGradedDate ? `lớp đã có buổi chấm điểm ngày ${input.lastGradedDate} — buổi đã chấm giữ nguyên cách tính cũ`
+      : 'không áp dụng lùi về trước hôm nay'
+    return { ok: false, code: 'RUBRIC_DATE', message: `Chỉ áp dụng được từ ngày ${earliest} trở đi (${why}).`, earliest }
+  }
+  if (latest === from) return { ok: true, changed, from, snapshot: null }
+  const snapshot: Partial<Record<RubricField, unknown>> & { until: string } = { until: from }
+  for (const f of RUBRIC_VERSION_FIELDS) snapshot[f] = input.current[f] ?? (f === 'level' ? null : undefined)
+  return { ok: true, changed, from, snapshot }
+}

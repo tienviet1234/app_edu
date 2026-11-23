@@ -25,7 +25,7 @@ import {
 } from '@/business/sync'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
 import { getClassRubric } from '@/constants/rubrics'
-import { rescaleComp, sessionScore } from '@/business/scoring'
+import { sessionTotal } from '@/business/scoring'
 import { autoLevel } from '@/constants/rubrics'
 import { collectScoreJobs, jobIsCurrent } from '@/business/strandedScores'
 import { tryLockSession, unlockSession, isSessionLocked } from '@/utils/syncLocks'
@@ -318,8 +318,7 @@ async function autoSyncOrphans(data: AppData, setData: (fn: (d: AppData) => void
       if (!stillOwner() || isAppUpdateWaiting()) return
       if (!isMongoid(s.id) || !s.dirty || s.conflict || !tryLockSession(s.id)) continue
       try {
-        const mx = s.maxes ?? {}
-        const total = sessionScore(s.entry, { ...r, comps: r.comps.map((c) => (mx[c.key] != null ? rescaleComp(c, mx[c.key]) : c)) }) ?? 0
+        const total = sessionTotal(r, s) ?? 0
         await scoreService.upsert({ classId: o.classId, sessionId: s.id, studentId: o.studentId, ...s.entry, total, baseUpdatedAt: s.baseUpdatedAt })
         if (stillOwner()) setData(produce((d: AppData) => {
           const rec = d.orphans?.find((x) => x.classId === o.classId && x.studentId === o.studentId && x.reason === o.reason)
@@ -471,6 +470,7 @@ export default function App() {
           compLabelOverrides: ac.compLabelOverrides,
           compExtraItems: ac.compExtraItems,
           customNotePhrases: ac.customNotePhrases,
+          rubricVersions: ac.rubricVersions,
         })
       })
     }))
@@ -520,7 +520,7 @@ export default function App() {
   const apiAllClassesRubricKey = apiAllClasses?.items.map((c) => `${c._id}:${c.updatedAt}`).join(',') ?? ''
   useEffect(() => {
     if (!data || !apiAllClasses?.items.length) return
-    const RUBRIC_FIELDS = ['hiddenComps', 'extraComps', 'compOverrides', 'compLabelOverrides', 'compExtraItems', 'customNotePhrases'] as const
+    const RUBRIC_FIELDS = ['hiddenComps', 'extraComps', 'compOverrides', 'compLabelOverrides', 'compExtraItems', 'customNotePhrases', 'rubricVersions'] as const
     // `level`/`teacher` so sánh RIÊNG (không gộp vào RUBRIC_FIELDS) vì cả 2
     // đều là giá trị ĐÃ SUY RA từ server (qua autoLevel/resolveTeacherName),
     // so trực tiếp với field thô sẽ luôn lệch ở lớp chưa ai chọn tay/gán tài khoản.
@@ -554,6 +554,7 @@ export default function App() {
         localCls.compLabelOverrides = ac.compLabelOverrides
         localCls.compExtraItems = ac.compExtraItems
         localCls.customNotePhrases = ac.customNotePhrases
+        localCls.rubricVersions = ac.rubricVersions
       })
     }))
   // eslint-disable-next-line react-hooks/exhaustive-deps

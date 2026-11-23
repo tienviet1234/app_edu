@@ -4,6 +4,7 @@ import type { ExtraComp } from '@/types'
 import { C } from '@/constants/colors'
 import { getRubric, autoLevel, applyCompOverride, applyCompLabelOverride } from '@/constants/rubrics'
 import { uid } from '@/utils/uid'
+import { viDate } from '@/utils/format'
 import { classService, type ApiClass } from '@/services/classes'
 import { Card } from '@/components/atoms/Card'
 import { Btn } from '@/components/atoms/Btn'
@@ -61,6 +62,9 @@ export function RubricEditor() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editingComp, setEditingComp] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  // Phiếu có phiên bản (đợt 2): server cho biết phiếu mới áp dụng từ ngày nào — buổi trước đó giữ cách tính cũ.
+  const [appliedFrom, setAppliedFrom] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState('')
   // Đổi hẳn KIỂU của 1 tiêu chí gốc (VD Điểm số → Các phần) — dùng chung form
   // "Thêm tiêu chí mới" bên dưới, chỉ khác chỗ lưu: tiêu chí gốc bị ẨN đi
   // (không xóa, khôi phục được), thay bằng 1 tiêu chí tùy chỉnh mới tạo ra.
@@ -100,8 +104,12 @@ export function RubricEditor() {
     setSaveStatus('saving')
     classService
       .update(pending.classId, pending.fields)
-      .then(() => setSaveStatus('saved'))
-      .catch(() => {
+      .then((updated) => {
+        setAppliedFrom((updated?.rubricVersions ?? []).map((v) => v.until).sort().at(-1) ?? null)
+        setSaveStatus('saved')
+      })
+      .catch((err: unknown) => {
+        setSaveError((err as { response?: { data?: { message?: string } } }).response?.data?.message ?? '')
         setSaveStatus('error')
         qc.invalidateQueries({ queryKey: RUBRIC_QUERY_KEY }) // rollback về đúng dữ liệu server
       })
@@ -588,8 +596,8 @@ export function RubricEditor() {
         </div>
         <div className="shrink-0 text-xs font-semibold" style={{ color: C.muted }}>
           {saveStatus === 'saving' && <span style={{ color: C.board2 }}>⟳ Đang lưu...</span>}
-          {saveStatus === 'saved' && <span style={{ color: C.emerald }}>✓ Đã lưu</span>}
-          {saveStatus === 'error' && <span style={{ color: C.red }}>⚠ Lỗi lưu, đã khôi phục dữ liệu cũ</span>}
+          {saveStatus === 'saved' && <span style={{ color: C.emerald }}>✓ Đã lưu{appliedFrom ? ` — áp dụng cho buổi từ ${viDate(appliedFrom)}, buổi trước ngày đó giữ cách tính cũ` : ''}</span>}
+          {saveStatus === 'error' && <span style={{ color: C.red }}>⚠ Lỗi lưu{saveError ? ` (${saveError})` : ''}, đã khôi phục dữ liệu cũ</span>}
         </div>
       </div>
 

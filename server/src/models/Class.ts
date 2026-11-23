@@ -57,6 +57,9 @@ export interface IClass extends Document {
   // mọi thay đổi được ghi vào AuditLog (action notePhrase.*) để admin theo
   // dõi lại được ai sửa gì (xem noteController/EntryScreen).
   customNotePhrases?: string[]
+  // Phiên bản phiếu chấm CŨ (đợt 2, 23/11): mỗi lần trường tính điểm bị sửa, phiếu đang dùng được cất ở đây,
+  // áp cho buổi có ngày < until — buổi đã chấm KHÔNG bị tính lại. Chỉ server ghi (planRubricVersion).
+  rubricVersions?: Array<Record<string, unknown> & { until: string }>
   // Đơn giá tính tiền — admin tự nhập theo TỪNG LỚP (không theo "cấp" chung),
   // vì mỗi lớp có thể có mức giá riêng. Học phí = đơn giá/buổi × số buổi học
   // sinh đã học trong tháng. Lương giáo viên có 2 cách tính, chọn theo từng
@@ -131,6 +134,7 @@ const classSchema = new Schema<IClass>(
     compLabelOverrides: { type: Schema.Types.Mixed },
     compExtraItems: { type: Schema.Types.Mixed },
     customNotePhrases: [{ type: String, trim: true, maxlength: 300 }],
+    rubricVersions: [{ type: Schema.Types.Mixed }],
     tuitionPerSession: { type: Number, min: 0 },
     studentTuition: [new Schema<IStudentTuition>({
       studentId: { type: Schema.Types.ObjectId, ref: 'User', required: true },

@@ -8,8 +8,9 @@ import type { AuthRequest } from '../middleware/auth.js'
 import { writeAudit } from '../services/auditService.js'
 import { User } from '../models/User.js'
 import { isClassTeacher, teacherScopeFilter } from '../utils/classAuth.js'
-import { checkStudentTuitionInput, classDeleteBlockReason } from '../utils/dataRules.js'
+import { checkStudentTuitionInput, classDeleteBlockReason, isGradedScore, planRubricVersion, RUBRIC_VERSION_FIELDS } from '../utils/dataRules.js'
 import { ClassSession } from '../models/ClassSession.js'
+import { Score } from '../models/Score.js'
 
 export async function listClasses(req: Request, res: Response): Promise<void> {
   const authReq = req as AuthRequest
@@ -110,6 +111,15 @@ export async function removeStudentTuition(req: Request, res: Response): Promise
   ok(res, fresh?.studentTuition ?? [])
 }
 
+/** Ngày (YYYY-MM-DD) của buổi CHẤM ĐIỂM muộn nhất còn hiệu lực trong lớp — phiếu mới chỉ được áp sau ngày này. */
+async function lastGradedDateOf(classId: Types.ObjectId): Promise<string | null> {
+  const scores = await Score.find({ classId }, 'sessionId attendance scores ticks choice parts skip').lean()
+  const graded = scores.filter((s) => isGradedScore(s as unknown as Record<string, unknown>)).map((s) => s.sessionId)
+  if (!graded.length) return null
+  const last = await ClassSession.findOne({ _id: { $in: graded }, deletedAt: { $exists: false } }, 'scheduledAt').sort({ scheduledAt: -1 }).lean()
+  return last ? new Date(last.scheduledAt).toISOString().slice(0, 10) : null
+}
+
 export async function updateClass(req: Request, res: Response): Promise<void> {
   const authReq = req as AuthRequest
   const cls = await Class.findById(req.params.id, 'teacherId assistantTeacherIds')
@@ -128,8 +138,32 @@ export async function updateClass(req: Request, res: Response): Promise<void> {
     forbidden(res, 'Chỉ quản trị viên được sửa đơn giá học phí/lương.')
     return
   }
-  const updated = await Class.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
-  await writeAudit(req, { action: 'class.update', resource: 'Class', resourceId: String(cls._id) })
+  // Sửa tiêu chí chấm (đợt 2, 23/11): phiếu có phiên bản — phiếu đang dùng được cất, áp cho buổi trước ngày áp
+  // dụng; KHÔNG buổi nào đã chấm bị tính lại (quyết định admin 23/11 giữ nguyên dữ liệu cũ). Xem planRubricVersion.
+  const { rubricEffectiveFrom, ...body } = req.body as Record<string, unknown> & { rubricEffectiveFrom?: string }
+  let rubricVersion: { from: string; changed: string[]; snapshot: boolean } | null = null
+  let push: Record<string, unknown> | undefined
+  if (RUBRIC_VERSION_FIELDS.some((f) => f in body)) {
+    const current = await Class.findById(cls._id, [...RUBRIC_VERSION_FIELDS, 'rubricVersions'].join(' ')).lean()
+    const plan = planRubricVersion({
+      current: (current ?? {}) as Record<string, unknown>,
+      patch: body,
+      versions: (current?.rubricVersions ?? []) as Array<{ until: string }>,
+      today: new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10),
+      lastGradedDate: await lastGradedDateOf(cls._id),
+      effectiveFrom: rubricEffectiveFrom,
+    })
+    if (!plan.ok) {
+      res.status(409).json({ success: false, code: plan.code, message: plan.message, data: { earliest: plan.earliest } })
+      return
+    }
+    if (plan.from) rubricVersion = { from: plan.from, changed: plan.changed, snapshot: !!plan.snapshot }
+    if (plan.snapshot) {
+      push = { rubricVersions: { ...plan.snapshot, createdAt: new Date().toISOString(), createdBy: String(authReq.userId), createdByName: authReq.user?.name } }
+    }
+  }
+  const updated = await Class.findByIdAndUpdate(req.params.id, push ? { $set: body, $push: push } : body, { new: true, runValidators: true })
+  await writeAudit(req, { action: 'class.update', resource: 'Class', resourceId: String(cls._id), ...(rubricVersion ? { metadata: { rubricVersion } } : {}) })
   ok(res, updated)
 }
 

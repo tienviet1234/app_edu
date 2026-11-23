@@ -1,5 +1,6 @@
-import type { ClassData, RubricComponent, SessionEntry, Tag } from '@/types'
+import type { ClassData, RubricComponent, RubricDef, SessionEntry, Tag } from '@/types'
 import { TAG_BY_ID, ATTEND } from '@/constants'
+import { compsOn } from '@/constants/rubrics'
 
 export const attInfo = (k: string) => ATTEND.find((a) => a.key === k) ?? ATTEND[0]
 
@@ -55,9 +56,23 @@ export function rescaleComp(comp: RubricComponent, newMax: number): RubricCompon
  *  với mức mặc định (12/20 thay vì đúng ra là 12/15), có buổi cộng dồn còn
  *  vượt quá mức tối đa hiển thị (VD "48/20"). Luôn dùng hàm này khi cần
  *  điểm/tối đa của 1 buổi đã lưu — không tự đọc thẳng `r.comps`. */
-export function sessionComps(r: { comps: RubricComponent[] }, sess: { maxes?: Record<string, number>; entry?: SessionEntry }): RubricComponent[] {
+export function sessionComps(
+  r: Pick<RubricDef, 'comps' | 'history'>,
+  sess: { date?: string; maxes?: Record<string, number>; entry?: SessionEntry },
+): RubricComponent[] {
   const maxes = sess.maxes ?? {}
-  return r.comps.map((c) => resolveComp(maxes[c.key] != null ? rescaleComp(c, maxes[c.key]) : c, sess.entry))
+  // Đúng phiên bản phiếu của NGÀY buổi đó (đợt 2, 23/11 — sửa tiêu chí không tính lại buổi cũ).
+  return compsOn(r as RubricDef, sess.date).map((c) => resolveComp(maxes[c.key] != null ? rescaleComp(c, maxes[c.key]) : c, sess.entry))
+}
+
+/** Tổng điểm 1 buổi — ĐÚNG phiên bản phiếu theo ngày + "Số câu" của buổi. Mọi chỗ tính tổng 1 buổi dùng hàm
+ *  này (hoặc sessionComps), KHÔNG tự dựng `r.comps.map(rescaleComp)` — bỏ qua phiên bản cũ là tính lại buổi cũ. */
+export function sessionTotal(
+  r: RubricDef,
+  sess: { date?: string; maxes?: Record<string, number>; entry?: SessionEntry },
+  entry: SessionEntry | undefined = sess.entry,
+): number | null {
+  return sessionScore(entry, { ...r, comps: sessionComps(r, { ...sess, entry }) })
 }
 
 /** "Thái độ học tập" Cấp 1 TRƯỚC 06/10/2026: 3 mức điểm (parts), tổng 10đ.

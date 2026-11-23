@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason, billedDeleteBlockReason, planBilledFlagRepair, noticeCoverage, planSessionRemoval, reviewFixResult, changedFields, noticeAttendanceDrift, billedMismatchKind, billedChangeBlockReason, dateMoveBlockReason, lonelyClassDays, planClassTransfer, perMonthOfClass, sessionLabel, numberingProblem, planInsertSession, planRemoveFromNumbering, planCompactNumbering, noticeDeleteBlockReason, paymentChangeNeeded, dateOrderProblem, planDateOrder, planTotalResync, RESYNC_HOLD_DROP } from './dataRules.js'
+import { effectiveTuitionRate, checkStudentTuitionInput, checkNoticeSessions, scoreFieldChanges, scoreRestoreSet, checkScoreRestore, decideIfAbsent, flattenScoreContent, gradedTotal, isGradedScore, isStaleWrite, isStudentInClass, isWriteToDeletedSession, rejectedWriteMetadata, resolveScoreClassId, resolveSessionCreator, planDuplicateFix, navClicksWithoutSession, planAttendanceBackfill, classDeleteBlockReason, billedDeleteBlockReason, planBilledFlagRepair, noticeCoverage, planSessionRemoval, reviewFixResult, changedFields, noticeAttendanceDrift, billedMismatchKind, billedChangeBlockReason, dateMoveBlockReason, lonelyClassDays, planClassTransfer, perMonthOfClass, sessionLabel, numberingProblem, planInsertSession, planRemoveFromNumbering, planCompactNumbering, noticeDeleteBlockReason, paymentChangeNeeded, dateOrderProblem, planDateOrder, planTotalResync, RESYNC_HOLD_DROP, planRubricVersion } from './dataRules.js'
 
 describe('billedDeleteBlockReason (xóa buổi đã thu làm buổi khác bị tính tiền lần 2)', () => {
   it('buổi đã thu: chặn, nói rõ cách làm', () => {
@@ -734,5 +734,38 @@ describe('planTotalResync (cách A 22/11: tổng màn hình là chuẩn cho bu�
   })
   it('buổi giờ không còn tiêu chí nào có dữ liệu mà server còn tổng cũ → hạ về 0 là hạ điểm không giải thích được → GIỮ', () => {
     expect(planTotalResync([row('a', 35, null, null)]).held).toEqual([{ id: 'a', from: 35, to: 0 }])
+  })
+})
+
+describe('planRubricVersion (đợt 2: sửa tiêu chí không tính lại buổi đã chấm)', () => {
+  const cur = { level: 'primary', hiddenComps: [], compOverrides: { hw: { full: 30 } } }
+  const base = { current: cur, versions: [] as Array<{ until: string }>, today: '2026-11-23', lastGradedDate: '2026-11-20' }
+  it('không đổi trường tính điểm (thứ tự khóa / rỗng khác nhau, đổi tên lớp, câu nhận xét) → không cất phiên bản', () => {
+    expect(planRubricVersion({ ...base, patch: { name: 'Lớp 2A', customNotePhrases: ['x'] } })).toEqual({ ok: true, changed: [], from: null, snapshot: null })
+    expect(planRubricVersion({ ...base, patch: { hiddenComps: undefined, extraComps: [], compOverrides: { hw: { full: 30 } } } }).snapshot).toBeNull()
+  })
+  it('đổi tiêu chí, không nêu ngày → áp từ ngày sớm nhất hợp lệ, cất NGUYÊN phiếu cũ áp cho buổi trước ngày đó', () => {
+    const p = planRubricVersion({ ...base, patch: { compOverrides: { hw: { full: 20 } } } })
+    expect(p).toEqual({ ok: true, changed: ['compOverrides'], from: '2026-11-23', snapshot: { until: '2026-11-23', level: 'primary', hiddenComps: [], extraComps: undefined, compOverrides: { hw: { full: 30 } }, compLabelOverrides: undefined, compExtraItems: undefined } })
+  })
+  it('hôm nay ĐÃ có buổi chấm → sớm nhất là NGÀY MAI (buổi chấm sáng nay không bị tính lại); nêu hôm nay → từ chối', () => {
+    const p = planRubricVersion({ ...base, lastGradedDate: '2026-11-23', patch: { hiddenComps: ['video'] } })
+    expect(p.ok && p.from).toBe('2026-11-24')
+    const bad = planRubricVersion({ ...base, lastGradedDate: '2026-11-23', patch: { hiddenComps: ['video'] }, effectiveFrom: '2026-11-23' })
+    expect(bad).toMatchObject({ ok: false, code: 'RUBRIC_DATE', earliest: '2026-11-24' })
+    expect(!bad.ok && bad.message).toContain('đã có buổi chấm điểm ngày 2026-11-23')
+  })
+  it('không áp dụng lùi về trước hôm nay; ngày tương lai thì được', () => {
+    expect(planRubricVersion({ ...base, lastGradedDate: null, patch: { hiddenComps: ['video'] }, effectiveFrom: '2026-11-01' }).ok).toBe(false)
+    expect(planRubricVersion({ ...base, patch: { hiddenComps: ['video'] }, effectiveFrom: '2026-12-01' })).toMatchObject({ ok: true, from: '2026-12-01', snapshot: { until: '2026-12-01' } })
+  })
+  it('đã có phiên bản: sửa tiếp cùng ngày → không cất thêm; trước ngày đó → từ chối; sau → cất phiếu hiện tại', () => {
+    const versions = [{ until: '2026-11-25' }]
+    expect(planRubricVersion({ ...base, versions, patch: { hiddenComps: ['video'] } })).toMatchObject({ ok: true, from: '2026-11-25', snapshot: null })
+    expect(planRubricVersion({ ...base, versions, patch: { hiddenComps: ['video'] }, effectiveFrom: '2026-11-24' })).toMatchObject({ ok: false, earliest: '2026-11-25' })
+    expect(planRubricVersion({ ...base, versions, patch: { hiddenComps: ['video'] }, effectiveFrom: '2026-12-02' })).toMatchObject({ ok: true, snapshot: { until: '2026-12-02', compOverrides: { hw: { full: 30 } } } })
+  })
+  it('ngày sai định dạng → từ chối', () => {
+    expect(planRubricVersion({ ...base, patch: { hiddenComps: ['video'] }, effectiveFrom: '24/11/2026' }).ok).toBe(false)
   })
 })

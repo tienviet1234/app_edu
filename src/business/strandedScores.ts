@@ -1,6 +1,6 @@
 import type { ClassData, Session, SessionEntry } from '@/types'
 import { getClassRubric } from '@/constants/rubrics'
-import { rescaleComp, sessionScore } from '@/business/scoring'
+import { sessionTotal } from '@/business/scoring'
 import { isMongoid } from '@/utils/mongoid'
 
 /** 1 buổi CÓ DỮ LIỆU (đã chấm/điểm danh) trên 1 máy — ứng viên đẩy lên server. */
@@ -38,9 +38,7 @@ export function collectScoreJobs(classes: ClassData[]): ScoreJob[] {
         if (!isMongoid(stu.id)) continue
         for (const s of stu.sessions) {
           if (s.conflict) continue // 2 máy cùng sửa — chờ giáo viên chọn bản nào, không tự gửi
-          const maxes = s.maxes ?? {}
-          const comps = r.comps.map((comp) => (maxes[comp.key] != null ? rescaleComp(comp, maxes[comp.key]) : comp))
-          const score = sessionScore(s.entry, { ...r, comps })
+          const score = sessionTotal(r, s)
           // "Vắng phép" → sessionScore trả null (không tính điểm) nhưng VẪN là
           // dữ liệu điểm danh thật phải lên server — trước đây bị bỏ qua nên
           // điểm danh vắng phép kẹt mãi trên máy.

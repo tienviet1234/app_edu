@@ -10,8 +10,8 @@ import { aiGradingService } from '@/services/aiGrading'
 import { sessionService } from '@/services/sessions'
 import { scoreService, isSessionDeletedError } from '@/services/scores'
 import { useAppStore } from '@/store/appStore'
-import { getClassRubric } from '@/constants/rubrics'
-import { applyPercentToComp, rescaleComp, sessionScore } from '@/business/scoring'
+import { getClassRubric, compsOn } from '@/constants/rubrics'
+import { applyPercentToComp, sessionTotal } from '@/business/scoring'
 import { emptyEntry } from '@/business/seed'
 import { adoptServerSession, makeRoomForServerNo, markSessionSaved, detachDeletedSession } from '@/business/sync'
 import { isMongoid } from '@/utils/mongoid'
@@ -154,7 +154,7 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
     if (!cls || !isMongoid(cls.id)) return
     const student = cls.students.find((s) => s.id === studentIdOf(sub))
     if (!student || !isMongoid(student.id)) return
-    const comp = getClassRubric(cls).comps.find((c) => c.key === compKey)
+    const comp = compsOn(getClassRubric(cls), syncDate).find((c) => c.key === compKey)
     if (!comp) return
 
     // Chỉ dùng buổi ĐÃ có trên server — buổi id tạm (chưa lên) mà gửi id đó
@@ -191,8 +191,7 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
       entry = saved
 
       const r = getClassRubric(cls)
-      const maxes = (session ?? localTemp)?.maxes ?? {}
-      const total = sessionScore(saved, { ...r, comps: r.comps.map((c) => (maxes[c.key] != null ? rescaleComp(c, maxes[c.key]) : c)) }) ?? 0
+      const total = sessionTotal(r, { date: syncDate, maxes: (session ?? localTemp)?.maxes }, saved) ?? 0
       await scoreService.upsert({ classId: cls.id, sessionId, studentId: student.id, ...saved, total })
 
       setData(produce((d: AppData) => {
