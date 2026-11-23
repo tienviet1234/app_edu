@@ -3,6 +3,7 @@ import type { ClassData, Session } from '@/types'
 import { C, SHEET_PAINT } from '@/constants/colors'
 import { Btn } from '@/components/atoms/Btn'
 import { getClassRubric, rubricOn } from '@/constants/rubrics'
+import { RubricSheetEditor } from './RubricSheetEditor'
 import { sessionScore, sessionComps } from '@/business/scoring'
 import { attendanceDayOptions, dayAttendanceStats } from '@/business/quickAttendance'
 import { weekdayLabel, dm } from '@/business/attendanceOverview'
@@ -137,6 +138,7 @@ export function GradeSheetView({ cls, update, teacherName, onOpenEntry }: {
   const [prefs, setPrefsState] = useState<SheetPrefs>(() => loadPrefs(cls.id))
   const setPrefs = (p: SheetPrefs) => { setPrefsState(p); try { localStorage.setItem(prefsKey(cls.id), JSON.stringify(p)) } catch { /* tiện ích nhớ cách xem */ } }
   const [showPrefs, setShowPrefs] = useState(false)
+  const [prefsTab, setPrefsTab] = useState<'view' | 'rubric'>('view')
   const [detail, setDetail] = useState<string | null>(null)
   const [phoneTable, setPhoneTable] = useState(false)
   const allGroups = useMemo(() => sheetGroups(r), [r])
@@ -360,6 +362,16 @@ export function GradeSheetView({ cls, update, teacherName, onOpenEntry }: {
 
   const prefsPanel = showPrefs && (
     <div className="rounded-2xl p-4 shadow-sm" style={{ background: C.card, border: `1px solid ${C.line}` }} data-testid="sheet-prefs">
+      <div role="tablist" className="mb-3 flex flex-wrap gap-2">
+        {([['view', '1. Cột hiển thị — chỉ đổi cách xem'], ['rubric', '2. Tiêu chí chấm của lớp — đổi cách tính điểm']] as const).map(([k, l]) => (
+          <button key={k} type="button" role="tab" aria-selected={prefsTab === k} onClick={() => setPrefsTab(k)} className="min-h-10 rounded-lg px-3 text-sm font-bold"
+            style={{ border: `1px solid ${prefsTab === k ? C.board : C.line}`, background: prefsTab === k ? C.board : C.card, color: prefsTab === k ? '#fff' : C.ink }}>{l}</button>
+        ))}
+      </div>
+      {prefsTab === 'rubric' ? (
+        // Đổi dữ liệu phiếu từ server (máy khác vừa sửa) → dựng lại, bỏ bản nháp cũ (tránh lưu đè sửa của người khác).
+        <RubricSheetEditor key={`${cls.id}:${JSON.stringify([cls.hiddenComps, cls.extraComps, cls.compOverrides, cls.compLabelOverrides, cls.compExtraItems, cls.rubricVersions?.length])}`} cls={cls} update={update} />
+      ) : (<>
       <div className="mb-1 font-bold" style={{ color: C.ink }}>Cột hiển thị <span className="text-xs font-normal" style={{ color: C.muted }}>— chỉ đổi cách xem trên máy này, không đổi điểm. Cột ẩn mà có dữ liệu vẫn được tính.</span></div>
       <div className="mt-2 grid gap-2 md:grid-cols-2">
         {allGroups.filter((g) => g.key !== 'att').map((g) => {
@@ -396,7 +408,7 @@ export function GradeSheetView({ cls, update, teacherName, onOpenEntry }: {
         <label className="flex min-h-9 items-center gap-1.5"><input type="checkbox" checked={prefs.progress} onChange={() => setPrefs({ ...prefs, progress: !prefs.progress })} /> Hiện "đã nhập x/y ô" từng em</label>
         <Btn size="sm" kind="ghost" onClick={() => setPrefs({ ...DEFAULT_PREFS })}>Về mặc định</Btn>
       </div>
-      <div className="mt-2 text-xs" style={{ color: C.muted }}>Sửa tiêu chí chấm (đổi tên, đổi điểm, thêm mục) làm ở Admin › Tiêu chí chấm — sắp có ngay ở đây (đợt 2).</div>
+      </>)}
     </div>
   )
 

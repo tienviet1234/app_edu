@@ -123,7 +123,7 @@ export function autoLevel(name: string): 'primary' | 'secondary' {
   return g >= 1 && g <= 5 ? 'primary' : 'secondary'
 }
 
-function extraToComp(ec: import('@/types').ExtraComp): import('@/types').RubricComponent {
+export function extraToComp(ec: import('@/types').ExtraComp): import('@/types').RubricComponent {
   if (ec.type === 'choice' && ec.options?.length) {
     return { key: ec.key, label: ec.label, max: ec.max, type: 'choice', options: ec.options }
   }
@@ -255,7 +255,8 @@ function rubricFromFields(cls: Pick<ClassData, 'level' | 'hiddenComps' | 'extraC
           applyCompOverride(applyCompExtraItems(c, extraItems[c.key]), overrides[c.key]),
           labelOverrides[c.key],
         )),
-      ...extras.map(extraToComp),
+      // Tiêu chí tự thêm cũng ẩn được (Bảng chấm điểm, đợt 2b) — trước 23/11 chưa lớp nào có tiêu chí thêm bị ẩn.
+      ...extras.filter((e) => !hidden.has(e.key)).map(extraToComp),
     ],
   }
 }
