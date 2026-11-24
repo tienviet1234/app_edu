@@ -222,10 +222,10 @@ export function SubmissionReviewPanel({ classId, sessionId }: Props) {
           const st2 = d.classes.find((x) => x.id === cls.id)?.students.find((x) => x.id === student.id)
           if (st2) detachDeletedSession(st2, session.id, uid(), kept)
         }))
-        toast.info(`Buổi ${viDate(syncDate)} của ${student.name} đã bị xóa trên server — đã giữ điểm vừa cộng, mở Nhập điểm lớp này để tạo lại buổi.`, { persist: true })
+        toast.info(`Buổi ${viDate(syncDate)} của ${student.name} đã bị xóa trên server — đã giữ điểm vừa cộng, mở "Điểm danh & Điểm" lớp này để tạo lại buổi.`, { persist: true })
         return
       }
-      toast.error('Đã duyệt bài, nhưng cộng điểm vào Báo cáo bị lỗi — thử lại ở Nhập điểm.')
+      toast.error('Đã duyệt bài, nhưng cộng điểm vào Báo cáo bị lỗi — thử lại ở "Điểm danh & Điểm".')
     }
   }
 

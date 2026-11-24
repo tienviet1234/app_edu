@@ -724,7 +724,7 @@ export function ClassesScreen({ data, setData, current, setCurrent }: ClassesScr
                       if (!stu.sessions.length) {
                         return (
                           <div className="rounded-xl p-6 text-center text-sm" style={{ background: C.paper, color: C.muted }}>
-                            {stu.name} chưa có buổi học nào. Vào tab <b>Nhập điểm</b> để thêm buổi đầu tiên.
+                            {stu.name} chưa có buổi học nào. Vào thẻ <b>Điểm danh &amp; Điểm</b> → Theo lớp để thêm buổi đầu tiên.
                           </div>
                         )
                       }

@@ -299,7 +299,7 @@ export function DashboardScreen({ data, setTab, setCurrent }: DashboardScreenPro
               {/* Actions */}
               <div className="flex gap-2 p-3">
                 <Btn kind="solid" className="flex-1" onClick={() => go(i, 'entry')}>
-                  ✏️ Nhập điểm
+                  ✏️ Điểm danh &amp; Điểm
                 </Btn>
                 <Btn kind="outline-primary" className="flex-1" onClick={() => go(i, 'board')}>
                   🏆 Xếp hạng

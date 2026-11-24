@@ -25,9 +25,9 @@
 | 14 | Homework: Photo/Video Submission | ✅ Complete | Assignment + Submission models, Cloudinary (ảnh) + Cloudflare R2 (video), presigned URL |
 | 15 | Homework: Auto-graded Quiz | ✅ Complete | mcq/fill/truefalse/match, form builder + paste-syntax, auto grading, no teacher review needed |
 | 16 | AI Auto-grading (Whisper + Claude) | ⏸️ Deferred | Đã thiết kế chi phí (~$10/tháng @120 học sinh), chưa triển khai |
-| 17 | Push notification khi giao bài | ⏳ Pending | Assignment tạo xong chưa báo phụ huynh tự động |
-| 18 | Quản lý bài tập đã giao (edit/delete UI) | ⏳ Pending | `assignmentService.update()` có sẵn, chưa có UI dùng |
-| 19 | Auto-xóa video sau 30 ngày | ⏳ Pending | Cron job dọn R2, tránh storage phình to |
+| 17 | Push notification khi giao bài | 🟡 Partial | Giao bài xong: học sinh nhận chuông + push ngay (`assignmentController.createAssignment` → `Notification` + `sendPushToUser`). Trước hạn nộp: nhắc cả học sinh LẪN phụ huynh (`reminderService.runReminderCheck`, cron `homework-reminders.yml`). Còn thiếu: phụ huynh chưa được báo NGAY lúc giao bài (kiểm tra code 24/11/2026) |
+| 18 | Quản lý bài tập đã giao (edit/delete UI) | ✅ Complete | Sửa: `AssignHomeworkModal` nhận `editAssignment` → `assignmentService.update`; xóa: nút xóa có hỏi lại → `assignmentService.remove` — cả 2 ở màn Duyệt bài nộp (`SubmissionReviewPanel`) |
+| 19 | Auto-xóa video sau 30 ngày | ⏳ Pending | Chưa có cron dọn video bài nộp trên R2 — video chỉ bị xóa khi xóa bài nộp (`submissionController`). Đã có cron tương tự cho ẢNH chấm AI (`cleanup-ai-photos.yml`, 30 ngày) — làm phase này nên theo cùng mẫu |
 
 ---
 

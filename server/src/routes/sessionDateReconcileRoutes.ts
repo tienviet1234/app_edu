@@ -10,5 +10,5 @@ export const sessionDateReconcileRouter = Router()
 sessionDateReconcileRouter.use(authenticate)
 sessionDateReconcileRouter.use(authorize('admin'))
 sessionDateReconcileRouter.all('*', (_req, res) => {
-  res.status(410).json({ success: false, message: 'Công cụ "Gộp ngày lệch" đã gỡ vì dời ngày sai khi mỗi em có số buổi riêng. Sửa ngày từng buổi ở Nhập điểm hoặc Thống kê buổi.' })
+  res.status(410).json({ success: false, message: 'Công cụ "Gộp ngày lệch" đã gỡ vì dời ngày sai khi mỗi em có số buổi riêng. Sửa ngày từng buổi ở "Điểm danh & Điểm" › Chấm từng em hoặc Thống kê buổi.' })
 })

@@ -51,7 +51,7 @@ export function unsyncedDetailsOf(data: unknown): UnsyncedDetail[] {
 export function describeUnsynced(d: UnsyncedDetail, serverHasDate: boolean): string {
   const day = d.date ? `${d.date.slice(8, 10)}/${d.date.slice(5, 7)}` : '?'
   const head = `${d.className} · ${d.studentName} · ${day}`
-  if (d.conflict) return `${head}: 2 máy cùng sửa — mở Nhập điểm lớp đó trên máy này để chọn bản giữ`
+  if (d.conflict) return `${head}: 2 máy cùng sửa — mở "Điểm danh & Điểm" › Chấm từng em lớp đó trên máy này để chọn bản giữ`
   if (d.kind === 'dirty') return `${head}: đã sửa trên máy, chưa gửi — mở lớp đó trên máy này để tự gửi`
   if (serverHasDate) return `${head}: bản thừa trùng ngày buổi đã có trên server — máy tự gộp khi mở lớp đó (bản mới)`
   if (d.hasData) return `${head}: có dữ liệu chưa lên server — mở lớp đó trên máy này (bản mới): máy tự gửi, hoặc nếu ngày đó nằm trong kỳ đã thu tiền thì cất vào kho giữ lại, không đổi học phí`

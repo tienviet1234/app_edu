@@ -583,7 +583,7 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
           Chụp/chọn ảnh từng bài kiểm tra giấy (có ghi tên học sinh) — AI đọc tên, tự xếp đúng học sinh/lớp và
           đếm điểm, bạn xem lại rồi mới lưu. Nhận diện được cả khoanh tròn, tick, tô đậm, nối câu lẫn điền vào
           chỗ trống. Chỉ dùng được cho tiêu chí dạng điểm số (VD Mini Test, Nghe) — bài tập viết tay dạng chữa
-          lỗi/BTVN vẫn phải chấm tay ở Nhập điểm như cũ.
+          lỗi/BTVN vẫn phải chấm tay ở "Điểm danh & Điểm" như cũ.
         </div>
         <div className="text-xs" style={{ color: C.muted }}>
           📸 Ảnh tốt cần: đủ sáng, không rung tay/mờ, giấy chiếm phần lớn khung hình, thấy rõ toàn bộ bài làm
@@ -771,7 +771,7 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
                         ) : (
                           <>
                             🖐️ AI đề nghị CHẤM TAY bài này — {row.ai.manualGradingReason || 'chữ viết khó đọc, không đủ tin cậy để tự chấm.'}
-                            {' '}Nên tách ảnh này ra, tự xem bản gốc và chấm ở màn Nhập điểm.
+                            {' '}Nên tách ảnh này ra, tự xem bản gốc và chấm ở "Điểm danh & Điểm" › Chấm từng em.
                           </>
                         )}
                       </div>
@@ -957,7 +957,7 @@ export function AiGradeScreen({ data, setData }: AiGradeScreenProps) {
                           </select>
                         ) : (
                           <span className="text-xs self-center" style={{ color: C.red }}>
-                            Lớp {cls.name} không có tiêu chí dạng điểm số — chấm tay ở Nhập điểm.
+                            Lớp {cls.name} không có tiêu chí dạng điểm số — chấm tay ở "Điểm danh & Điểm".
                           </span>
                         )}
                         <input

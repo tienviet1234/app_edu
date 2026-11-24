@@ -289,10 +289,10 @@ async function autoSyncStrandedScores(
     toast.success(`Đã khôi phục ${recovered} buổi học còn kẹt trên máy này lên server`, { persist: true })
   }
   if (conflicts.length) {
-    toast.error(`${conflicts.length} buổi trên máy này đã được máy khác lưu bản khác: ${conflicts.join(', ')} — mở Nhập điểm của lớp đó để chọn giữ bản nào.`, { persist: true })
+    toast.error(`${conflicts.length} buổi trên máy này đã được máy khác lưu bản khác: ${conflicts.join(', ')} — mở "Điểm danh & Điểm" › Chấm từng em của lớp đó để chọn giữ bản nào.`, { persist: true })
   }
   if (deletedOnServer.length) {
-    toast.info(`${deletedOnServer.length} buổi máy này vừa sửa đã bị xóa trên server: ${deletedOnServer.join(', ')} — đã giữ lại điểm, sẽ tạo lại buổi theo ngày khi mở Nhập điểm lớp đó.`, { persist: true })
+    toast.info(`${deletedOnServer.length} buổi máy này vừa sửa đã bị xóa trên server: ${deletedOnServer.join(', ')} — đã giữ lại điểm, sẽ tạo lại buổi theo ngày khi mở "Điểm danh & Điểm" lớp đó.`, { persist: true })
   }
   if (stuckSameDate.length) {
     toast.info(`${stuckSameDate.length} buổi trên máy này trùng ngày với buổi đã có điểm KHÁC trên server: ${stuckSameDate.join(', ')} — không ghi đè; bản trên máy đã cất vào kho giữ lại (admin xem ở Sao lưu → Dữ liệu kẹt), lớp dùng bản server.`, { persist: true })

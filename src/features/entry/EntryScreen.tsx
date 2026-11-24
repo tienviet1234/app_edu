@@ -349,7 +349,7 @@ export function EntryScreen({ cls, update, teacherName, initialTarget, onConsume
       case 'conflict':
         setSyncStatus('error')
         // 2 máy cùng sửa buổi này — giữ cả 2 bản, giáo viên chọn ở thanh vàng (không tự đè).
-        if (out.real) toast.error(`${labelOf(out.no)} của ${out.studentName} vừa được ${out.byName ?? 'người khác'} lưu bản khác ở máy khác — chọn giữ bản nào ở thanh vàng phía trên màn Nhập điểm.`, { persist: true })
+        if (out.real) toast.error(`${labelOf(out.no)} của ${out.studentName} vừa được ${out.byName ?? 'người khác'} lưu bản khác ở máy khác — chọn giữ bản nào ở thanh vàng phía trên màn Chấm từng em.`, { persist: true })
         return 'failed'
       case 'error': {
         setSyncStatus('error')

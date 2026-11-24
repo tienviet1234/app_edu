@@ -56,7 +56,7 @@ async function main() {
     console.log(`- ${name}: Buổi ${g._id.lessonNo} có ${g.count} bản ghi — ngày: ${dates}`)
   }
 
-  console.log(`\nVào app, mục "Nhập điểm" của từng học sinh trên, bấm "🔧 Sửa số buổi" để sửa tay.`)
+  console.log(`\nVào app, mục "Điểm danh & Điểm" › Chấm từng em của từng học sinh trên, bấm "🔧 Sửa số buổi" để sửa tay.`)
   await mongoose.disconnect()
 }
 
